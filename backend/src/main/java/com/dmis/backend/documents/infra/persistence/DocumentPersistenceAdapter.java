@@ -4,6 +4,7 @@ import com.dmis.backend.documents.application.port.DocumentPort;
 import com.dmis.backend.documents.domain.model.Document;
 import com.dmis.backend.documents.domain.model.DocumentId;
 import com.dmis.backend.documents.domain.model.DocumentVersion;
+import com.dmis.backend.documents.domain.model.IndexStatus;
 import com.dmis.backend.documents.domain.model.VersionId;
 import com.dmis.backend.documents.infra.persistence.entity.DocumentEntity;
 import com.dmis.backend.documents.infra.persistence.entity.DocumentVersionEntity;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Component
 public class DocumentPersistenceAdapter implements DocumentPort {
@@ -32,7 +34,13 @@ public class DocumentPersistenceAdapter implements DocumentPort {
                 document.title(),
                 document.ownerId(),
                 latest.storageRef(),
-                document.fullExtractedText()
+                document.fullExtractedText(),
+                document.description(),
+                encodeTags(document.tags()),
+                document.source(),
+                document.category(),
+                document.createdAt(),
+                document.updatedAt()
         ));
         for (DocumentVersion version : document.versions()) {
             versionJpaRepository.save(new DocumentVersionEntity(
@@ -44,7 +52,10 @@ public class DocumentPersistenceAdapter implements DocumentPort {
                     version.sizeBytes(),
                     version.storageRef(),
                     version.extractedText(),
-                    version.createdAt()
+                    version.createdAt(),
+                    version.indexStatus().name(),
+                    version.indexedChunkCount(),
+                    version.indexedAt()
             ));
         }
         return findById(document.id()).orElseThrow();
@@ -62,6 +73,11 @@ public class DocumentPersistenceAdapter implements DocumentPort {
                 .toList();
     }
 
+    @Override
+    public void deleteById(DocumentId id) {
+        documentJpaRepository.deleteById(id.value());
+    }
+
     private Document toDomain(DocumentEntity entity) {
         List<DocumentVersion> versions = versionJpaRepository.findByDocumentIdOrderByCreatedAtAsc(entity.getId()).stream()
                 .map(v -> new DocumentVersion(
@@ -71,14 +87,37 @@ public class DocumentPersistenceAdapter implements DocumentPort {
                         v.getSizeBytes(),
                         v.getStorageRef(),
                         v.getExtractedText(),
-                        v.getCreatedAt()
+                        v.getCreatedAt(),
+                        IndexStatus.valueOf(v.getIndexStatus()),
+                        v.getIndexedChunkCount(),
+                        v.getIndexedAt()
                 ))
                 .toList();
         return Document.rehydrate(
                 DocumentId.from(entity.getId()),
                 entity.getTitle(),
                 entity.getOwnerId(),
+                entity.getDescription(),
+                decodeTags(entity.getTags()),
+                entity.getSource(),
+                entity.getCategory(),
+                entity.getCreatedAt(),
+                entity.getUpdatedAt(),
                 versions
         );
+    }
+
+    private static String encodeTags(List<String> tags) {
+        return tags.stream().map(String::trim).filter(tag -> !tag.isBlank()).collect(Collectors.joining(","));
+    }
+
+    private static List<String> decodeTags(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return List.of(raw.split(",")).stream()
+                .map(String::trim)
+                .filter(tag -> !tag.isBlank())
+                .toList();
     }
 }

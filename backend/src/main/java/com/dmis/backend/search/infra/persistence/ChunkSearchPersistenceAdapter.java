@@ -29,19 +29,21 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
 
         String sql =
                 "WITH fts_candidates AS (" +
-                        "SELECT dc.id AS chunk_id, dc.document_id AS document_id, d.title AS title, dc.chunk_text AS chunk_text, " +
+                        "SELECT dc.id AS chunk_id, dc.document_id AS document_id, d.title AS title, dv.version_id AS document_version, dc.chunk_text AS chunk_text, " +
                         "ROW_NUMBER() OVER (ORDER BY ts_rank_cd(dc.chunk_tsv, plainto_tsquery('simple', ?)) DESC, dc.created_at DESC) AS fts_rank " +
                         "FROM document_chunks dc " +
                         "JOIN documents d ON d.id = dc.document_id " +
+                        "JOIN document_versions dv ON dv.document_id = dc.document_id AND dv.version_id = dc.version_id " +
                         "WHERE (? = true OR d.owner_id = ?) " +
                         "AND dc.chunk_tsv @@ plainto_tsquery('simple', ?) " +
                         "ORDER BY ts_rank_cd(dc.chunk_tsv, plainto_tsquery('simple', ?)) DESC, dc.created_at DESC " +
                         "LIMIT ?" +
                         "), ann_candidates AS (" +
-                        "SELECT dc.id AS chunk_id, dc.document_id AS document_id, d.title AS title, dc.chunk_text AS chunk_text, " +
+                        "SELECT dc.id AS chunk_id, dc.document_id AS document_id, d.title AS title, dv.version_id AS document_version, dc.chunk_text AS chunk_text, " +
                         "ROW_NUMBER() OVER (ORDER BY dc.embedding <=> (?::vector), dc.created_at DESC) AS ann_rank " +
                         "FROM document_chunks dc " +
                         "JOIN documents d ON d.id = dc.document_id " +
+                        "JOIN document_versions dv ON dv.document_id = dc.document_id AND dv.version_id = dc.version_id " +
                         "WHERE (? = true OR d.owner_id = ?) " +
                         "ORDER BY dc.embedding <=> (?::vector), dc.created_at DESC " +
                         "LIMIT ?" +
@@ -49,6 +51,7 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
                         "SELECT " +
                         "COALESCE(f.document_id, a.document_id) AS document_id, " +
                         "COALESCE(f.title, a.title) AS title, " +
+                        "COALESCE(f.document_version, a.document_version) AS document_version, " +
                         "COALESCE(f.chunk_id, a.chunk_id) AS chunk_id, " +
                         "COALESCE(f.chunk_text, a.chunk_text) AS chunk_text, " +
                         "f.fts_rank AS fts_rank, " +
@@ -56,7 +59,7 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
                         "FROM fts_candidates f " +
                         "FULL OUTER JOIN ann_candidates a ON a.chunk_id = f.chunk_id" +
                         ") " +
-                        "SELECT m.document_id AS document_id, m.title AS title, m.chunk_id AS chunk_id, m.chunk_text AS chunk_text, " +
+                        "SELECT m.document_id AS document_id, m.title AS title, m.document_version AS document_version, m.chunk_id AS chunk_id, m.chunk_text AS chunk_text, " +
                         "(COALESCE(1.0 / (? + m.fts_rank), 0.0) + COALESCE(1.0 / (? + m.ann_rank), 0.0)) AS score " +
                         "FROM merged m " +
                         "ORDER BY score DESC " +
@@ -67,6 +70,7 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
                 (rs, rowNum) -> new ChunkHit(
                         rs.getString("document_id"),
                         rs.getString("title"),
+                        rs.getString("document_version"),
                         rs.getString("chunk_id"),
                         rs.getString("chunk_text"),
                         rs.getDouble("score")

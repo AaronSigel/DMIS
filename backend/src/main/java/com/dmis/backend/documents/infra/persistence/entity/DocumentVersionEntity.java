@@ -35,6 +35,15 @@ public class DocumentVersionEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "index_status", nullable = false)
+    private String indexStatus;
+
+    @Column(name = "indexed_chunk_count", nullable = false)
+    private int indexedChunkCount;
+
+    @Column(name = "indexed_at")
+    private Instant indexedAt;
+
     protected DocumentVersionEntity() {
     }
 
@@ -47,7 +56,10 @@ public class DocumentVersionEntity {
             long sizeBytes,
             String storageRef,
             String extractedText,
-            Instant createdAt
+            Instant createdAt,
+            String indexStatus,
+            int indexedChunkCount,
+            Instant indexedAt
     ) {
         this.id = id;
         this.documentId = documentId;
@@ -58,6 +70,9 @@ public class DocumentVersionEntity {
         this.storageRef = storageRef;
         this.extractedText = extractedText;
         this.createdAt = createdAt;
+        this.indexStatus = indexStatus;
+        this.indexedChunkCount = indexedChunkCount;
+        this.indexedAt = indexedAt;
     }
 
     public String getId() {
@@ -94,5 +109,17 @@ public class DocumentVersionEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getIndexStatus() {
+        return indexStatus;
+    }
+
+    public int getIndexedChunkCount() {
+        return indexedChunkCount;
+    }
+
+    public Instant getIndexedAt() {
+        return indexedAt;
     }
 }

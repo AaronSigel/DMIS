@@ -18,7 +18,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api")
@@ -47,29 +46,43 @@ public class SearchController {
     }
 
     @PostMapping("/search")
-    public SearchDtos.SearchResponse search(@Valid @RequestBody SearchRequest request) {
+    public SearchDtos.SearchOnlyResponse search(@Valid @RequestBody SearchRequest request) {
         return searchService.search(currentUserProvider.currentUser(), request.query());
     }
 
-    @PostMapping("/rag/answer")
-    public SearchDtos.RagResponse answer(@Valid @RequestBody RagRequest request) {
+    @PostMapping("/rag/answer-with-sources")
+    public SearchDtos.AnswerWithSourcesResponse answer(@Valid @RequestBody RagRequest request) {
         return searchService.answer(currentUserProvider.currentUser(), request.question());
     }
 
-    @PostMapping(value = "/rag/answer/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/rag/answer-with-sources/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter answerStream(@Valid @RequestBody RagRequest request) {
         var actor = currentUserProvider.currentUser();
         String question = request.question();
 
-        SearchDtos.SearchResponse retrieved = searchService.search(actor, question);
-        if (retrieved.hits().isEmpty()) {
+        SearchService.PreparedAnswer prepared = searchService.prepareAnswer(actor, question, "rag.answer.stream");
+        if (!"OK".equals(prepared.status())) {
             SseEmitter emitter = new SseEmitter(0L);
-            String emptyAnswer = "Не найдено релевантных документов по запросу.";
             try {
-                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(new StreamDeltaPayload(emptyAnswer))));
+                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(new StreamDeltaPayload(prepared.fallbackAnswer()))));
                 emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
-                        new StreamDonePayload(true, emptyAnswer, null, null, List.of())
+                        new StreamDonePayload(
+                                true,
+                                prepared.status(),
+                                prepared.fallbackAnswer(),
+                                null,
+                                null,
+                                prepared.sources(),
+                                prepared.pipeline()
+                        )
                 )));
+                auditService.append(
+                        actor.id(),
+                        "rag.answer.stream.response",
+                        "rag",
+                        prepared.ragId(),
+                        "status=" + prepared.status() + ", llmLatencyMs=0, totalLatencyMs=" + prepared.pipeline().totalLatencyMs()
+                );
                 emitter.complete();
             } catch (Exception e) {
                 emitter.completeWithError(e);
@@ -77,32 +90,16 @@ public class SearchController {
             return emitter;
         }
 
-        List<SearchDtos.RagSourceView> sources = retrieved.hits().stream()
-                .limit(3)
-                .map(hit -> new SearchDtos.RagSourceView(hit.documentId(), hit.title(), hit.chunkId(), hit.chunkText()))
-                .toList();
-        List<String> contextChunks = sources.stream().map(SearchDtos.RagSourceView::chunkText).toList();
-        List<String> documentIds = sources.stream().map(SearchDtos.RagSourceView::documentId).distinct().toList();
-
-        long startedAtMs = System.currentTimeMillis();
-        String ragId = "rag-" + UUID.randomUUID();
-        auditService.append(
-                actor.id(),
-                "rag.answer.stream.request",
-                "rag",
-                ragId,
-                "question=" + question + ", chunks=" + contextChunks.size() + ", documents=" + documentIds
-        );
-
         SseEmitter emitter = new SseEmitter(0L);
         new Thread(() -> {
             StringBuilder fullAnswer = new StringBuilder();
             String provider = null;
             String model = null;
+            long llmStartedAtMs = System.currentTimeMillis();
             try (InputStream stream = llmChatPort.chatStream(new LlmChatPort.ChatRequest(
                     question,
-                    contextChunks,
-                    null,
+                    prepared.contextChunks(),
+                    prepared.systemPrompt(),
                     null,
                     null,
                     null
@@ -125,8 +122,25 @@ public class SearchController {
                             if (parsed.done()) {
                                 provider = parsed.provider();
                                 model = parsed.model();
+                                long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
+                                SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
+                                auditService.append(
+                                        actor.id(),
+                                        "rag.answer.stream.llm",
+                                        "rag",
+                                        prepared.ragId(),
+                                        "provider=" + provider + ", model=" + model + ", latencyMs=" + llmLatencyMs
+                                );
                                 emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
-                                        new StreamDonePayload(true, fullAnswer.toString(), provider, model, sources)
+                                        new StreamDonePayload(
+                                                true,
+                                                "OK",
+                                                fullAnswer.toString(),
+                                                provider,
+                                                model,
+                                                prepared.sources(),
+                                                pipeline
+                                        )
                                 )));
                                 continue;
                             }
@@ -140,13 +154,12 @@ public class SearchController {
             } catch (Exception e) {
                 emitter.completeWithError(e);
             } finally {
-                long elapsedMs = System.currentTimeMillis() - startedAtMs;
                 auditService.append(
                         actor.id(),
                         "rag.answer.stream.response",
                         "rag",
-                        ragId,
-                        "provider=" + provider + ", model=" + model + ", answerChars=" + fullAnswer.length() + ", elapsedMs=" + elapsedMs
+                        prepared.ragId(),
+                        "status=OK, provider=" + provider + ", model=" + model + ", answerChars=" + fullAnswer.length()
                 );
             }
         }, "rag-answer-stream").start();
@@ -164,10 +177,30 @@ public class SearchController {
 
     private record StreamDonePayload(
             boolean done,
+            String status,
             String answer,
             String provider,
             String model,
-            List<SearchDtos.RagSourceView> sources
+            List<SearchDtos.RagSourceView> sources,
+            SearchDtos.AnswerPipelineMeta pipeline
     ) {
+    }
+
+    private SearchDtos.AnswerPipelineMeta withLlmLatency(SearchDtos.AnswerPipelineMeta base, long llmLatencyMs) {
+        return new SearchDtos.AnswerPipelineMeta(
+                base.retrievalTopK(),
+                base.rerankTopN(),
+                base.maxContextChunks(),
+                base.maxContextChars(),
+                base.retrievedCount(),
+                base.returnedCount(),
+                base.usedContextChunks(),
+                base.usedContextChars(),
+                base.contextTrimmed(),
+                base.retrievalLatencyMs(),
+                base.rerankLatencyMs(),
+                llmLatencyMs,
+                base.totalLatencyMs() + llmLatencyMs
+        );
     }
 }

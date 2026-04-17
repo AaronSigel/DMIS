@@ -9,7 +9,10 @@ public record DocumentVersion(
         long sizeBytes,
         String storageRef,
         String extractedText,
-        Instant createdAt
+        Instant createdAt,
+        IndexStatus indexStatus,
+        int indexedChunkCount,
+        Instant indexedAt
 ) {
     public DocumentVersion {
         if (versionId == null) {
@@ -32,6 +35,15 @@ public record DocumentVersion(
         }
         if (createdAt == null) {
             throw new IllegalArgumentException("Created at is required");
+        }
+        if (indexStatus == null) {
+            throw new IllegalArgumentException("Index status is required");
+        }
+        if (indexedChunkCount < 0) {
+            throw new IllegalArgumentException("Indexed chunk count must be non-negative");
+        }
+        if (indexStatus == IndexStatus.INDEXED && indexedAt == null) {
+            throw new IllegalArgumentException("Indexed at is required when status is INDEXED");
         }
     }
 }

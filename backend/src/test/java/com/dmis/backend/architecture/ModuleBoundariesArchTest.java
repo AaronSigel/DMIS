@@ -25,7 +25,26 @@ class ModuleBoundariesArchTest {
         ArchRule rule = noClasses()
                 .that().resideInAPackage("com.dmis.backend..application..")
                 .should().dependOnClassesThat()
-                .resideInAnyPackage("com.dmis.backend..api..", "com.dmis.backend..infra..");
+                .resideInAnyPackage(
+                        "com.dmis.backend..api..",
+                        "com.dmis.backend..infra..",
+                        "com.dmis.backend.adapters.."
+                );
+
+        rule.check(classes);
+    }
+
+    @Test
+    void legacyRootPackagesAreForbidden() {
+        ArchRule rule = classes()
+                .that().resideInAnyPackage(
+                        "com.dmis.backend.adapters..",
+                        "com.dmis.backend.application..",
+                        "com.dmis.backend.domain..",
+                        "com.dmis.backend.infrastructure.."
+                )
+                .should().haveFullyQualifiedName("this.package.must.not.exist")
+                .allowEmptyShould(true);
 
         rule.check(classes);
     }
@@ -43,7 +62,8 @@ class ModuleBoundariesArchTest {
                         "java..",
                         "javax..",
                         "jakarta..",
-                        "org.springframework.."
+                        "org.springframework..",
+                        "com.fasterxml.."
                 );
 
         rule.check(classes);
@@ -60,6 +80,31 @@ class ModuleBoundariesArchTest {
                         for (Dependency dependency : origin.getDirectDependenciesFromSelf()) {
                             JavaClass target = dependency.getTargetClass();
                             if (!target.getPackageName().contains(".infra.")) {
+                                continue;
+                            }
+                            String targetModule = moduleOf(target);
+                            if (!originModule.equals(targetModule)) {
+                                String message = origin.getName() + " depends on " + target.getName();
+                                events.add(SimpleConditionEvent.violated(dependency, message));
+                            }
+                        }
+                    }
+                });
+
+        rule.check(classes);
+    }
+
+    @Test
+    void infraDoesNotDependOnOtherModuleApi() {
+        ArchRule rule = noClasses()
+                .that().resideInAPackage("com.dmis.backend..infra..")
+                .should(new ArchCondition<>("depend on api of another module") {
+                    @Override
+                    public void check(JavaClass origin, ConditionEvents events) {
+                        String originModule = moduleOf(origin);
+                        for (Dependency dependency : origin.getDirectDependenciesFromSelf()) {
+                            JavaClass target = dependency.getTargetClass();
+                            if (!target.getPackageName().contains(".api.")) {
                                 continue;
                             }
                             String targetModule = moduleOf(target);

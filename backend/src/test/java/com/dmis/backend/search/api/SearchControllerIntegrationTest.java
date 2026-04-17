@@ -48,8 +48,8 @@ class SearchControllerIntegrationTest {
     @Test
     void ragStreamDoneEventContainsAnswerAndSources() throws Exception {
         when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
-                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "alpha context", 0.9),
-                new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "c-2", "beta context", 0.8)
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9),
+                new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "v2", "c-2", "beta context", 0.8)
         ));
         when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-2", 0.95),
@@ -63,7 +63,7 @@ class SearchControllerIntegrationTest {
 
         String token = loginAndGetToken();
 
-        MvcResult asyncResult = mockMvc.perform(post("/api/rag/answer/stream")
+        MvcResult asyncResult = mockMvc.perform(post("/api/rag/answer-with-sources/stream")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"question\":\"policy\"}"))
@@ -74,8 +74,10 @@ class SearchControllerIntegrationTest {
         String body = asyncResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         assertTrue(body.contains("\"done\":true"));
+        assertTrue(body.contains("\"status\":\"OK\""));
         assertTrue(body.contains("\"answer\":\"Ответ готов\""));
         assertTrue(body.contains("\"sources\":[{\"documentId\":\"doc-2\""));
+        assertTrue(body.contains("\"documentVersion\":\"v2\""));
         assertTrue(body.contains("\"chunkId\":\"c-2\""));
     }
 
@@ -85,7 +87,7 @@ class SearchControllerIntegrationTest {
 
         String token = loginAndGetToken();
 
-        MvcResult asyncResult = mockMvc.perform(post("/api/rag/answer/stream")
+        MvcResult asyncResult = mockMvc.perform(post("/api/rag/answer-with-sources/stream")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"question\":\"missing\"}"))
@@ -97,7 +99,61 @@ class SearchControllerIntegrationTest {
         String body = asyncResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertTrue(body.contains("\"delta\":\"Не найдено релевантных документов по запросу.\""));
         assertTrue(body.contains("\"done\":true"));
+        assertTrue(body.contains("\"status\":\"NO_CONTEXT\""));
         assertTrue(body.contains("\"sources\":[]"));
+    }
+
+    @Test
+    void searchOnlyEndpointReturnsStableContract() throws Exception {
+        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
+        ));
+        when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
+                new ChunkRerankPort.RerankScore("c-1", 0.91)
+        ));
+
+        String token = loginAndGetToken();
+        String response = mockMvc.perform(post("/api/search")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\":\"policy\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(response.contains("\"status\":\"OK\""));
+        assertTrue(response.contains("\"hits\":[{\"documentId\":\"doc-1\""));
+        assertTrue(response.contains("\"documentVersion\":\"v1\""));
+        assertTrue(response.contains("\"pipeline\":"));
+        assertTrue(response.contains("\"retrievalTopK\":10"));
+    }
+
+    @Test
+    void answerWithSourcesEndpointReturnsStableContract() throws Exception {
+        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
+        ));
+        when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
+                new ChunkRerankPort.RerankScore("c-1", 0.91)
+        ));
+        when(llmChatPort.chat(any())).thenReturn(new LlmChatPort.ChatResponse("Ответ [1]", "fake", "test-model"));
+
+        String token = loginAndGetToken();
+        String response = mockMvc.perform(post("/api/rag/answer-with-sources")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"policy\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(response.contains("\"status\":\"OK\""));
+        assertTrue(response.contains("\"answer\":\"Ответ [1]\""));
+        assertTrue(response.contains("\"sources\":[{\"documentId\":\"doc-1\""));
+        assertTrue(response.contains("\"documentVersion\":\"v1\""));
+        assertTrue(response.contains("\"pipeline\":"));
     }
 
     private String loginAndGetToken() throws Exception {

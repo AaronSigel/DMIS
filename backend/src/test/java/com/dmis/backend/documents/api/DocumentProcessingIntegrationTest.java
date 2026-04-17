@@ -26,11 +26,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.HttpHeaders.CONTENT_DISPOSITION;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -280,7 +285,124 @@ class DocumentProcessingIntegrationTest {
         String token = loginAndGetToken("admin@dmis.local");
         mockMvc.perform(get("/api/documents/{documentId}", "doc-missing")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_ERROR"));
+    }
+
+    @Test
+    void downloadAndDeleteDocumentFlowWorks() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
+        doNothing().when(objectStoragePort).delete(anyString());
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "downloadable.txt", "v1 text");
+
+        mockMvc.perform(get("/api/documents/{documentId}/binary", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CONTENT_DISPOSITION, "attachment; filename=\"downloadable.txt\""))
+                .andExpect(content().bytes("v1 text".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(delete("/api/documents/{documentId}", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/documents/{documentId}", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listSupportsStatusTypeAndSort() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        upload(token, "zzz-policy.txt", "b text");
+        upload(token, "aaa-policy.txt", "a text");
+
+        String json = mockMvc.perform(get("/api/documents")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .param("status", "INDEXED")
+                        .param("type", "text/plain")
+                        .param("sortBy", "name")
+                        .param("order", "asc"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode list = objectMapper.readTree(json);
+        int aaaIndex = -1;
+        int zzzIndex = -1;
+        for (int i = 0; i < list.size(); i++) {
+            JsonNode row = list.get(i);
+            assertEquals("INDEXED", row.get("status").asText());
+            assertEquals("text/plain", row.get("type").asText());
+            if ("aaa-policy.txt".equals(row.get("title").asText())) {
+                aaaIndex = i;
+            }
+            if ("zzz-policy.txt".equals(row.get("title").asText())) {
+                zzzIndex = i;
+            }
+        }
+        assertTrue(aaaIndex >= 0 && zzzIndex >= 0, "expected seeded docs in list response");
+        assertTrue(aaaIndex < zzzIndex, "expected ascending sort by name");
+    }
+
+    @Test
+    void uploadReturnsStructuredErrorWhenIndexingFails() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenThrow(new IllegalStateException("Embeddings service unavailable"));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "broken.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "text".getBytes(StandardCharsets.UTF_8)
+        );
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("EMBEDDING_FAILED"))
+                .andExpect(jsonPath("$.message").value("Failed to index document version"));
+    }
+
+    @Test
+    void uploadRejectsUnsupportedFileType() throws Exception {
+        String token = loginAndGetToken("admin@dmis.local");
+        MockMultipartFile badFile = new MockMultipartFile(
+                "file",
+                "script.sh",
+                "application/x-sh",
+                "echo hi".getBytes(StandardCharsets.UTF_8)
+        );
+        mockMvc.perform(multipart("/api/documents")
+                        .file(badFile)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("UNSUPPORTED_FILE_TYPE"));
+    }
+
+    @Test
+    void uploadRejectsTooLargeFile() throws Exception {
+        String token = loginAndGetToken("admin@dmis.local");
+        byte[] hugeContent = new byte[20 * 1024 * 1024 + 1];
+        MockMultipartFile hugeFile = new MockMultipartFile(
+                "file",
+                "huge.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                hugeContent
+        );
+        mockMvc.perform(multipart("/api/documents")
+                        .file(hugeFile)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.errorCode").value("FILE_TOO_LARGE"));
     }
 
     @Test
@@ -295,7 +417,8 @@ class DocumentProcessingIntegrationTest {
         mockMvc.perform(multipart("/api/documents")
                         .file(emptyFile)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("FILE_REQUIRED"));
     }
 
     private String upload(String token, String fileName, String text) throws Exception {

@@ -24,9 +24,31 @@ All write actions follow:
 ## Quick Start (docker-first)
 
 1. `cd infra`
-2. `docker compose up --build`
-3. Open frontend: `http://localhost:5173`
-4. Use demo login: `admin@dmis.local` / `demo`
+2. `cp .env.example .env`
+3. Fill required secrets in `.env`:
+   - `DB_PASSWORD` and `POSTGRES_PASSWORD` (keep equal unless you intentionally split DB users)
+   - `JWT_SECRET`
+   - `MINIO_SECRET_KEY`
+   - `MINIO_ROOT_PASSWORD`
+   - `OPENROUTER_API_KEY` (required when `AI_PROVIDER=openrouter`)
+4. `docker compose up --build`
+5. Run startup smoke-check: `bash smoke.sh`
+6. Open frontend: `http://localhost:5173`
+7. Use demo login: `admin@dmis.local` / `demo`
+
+For a clean restart from zero data:
+
+- `docker compose down -v`
+- `docker compose up --build`
+- `bash smoke.sh`
+
+## Backend profiles
+
+- `demo` (default in `infra/.env.example`) - enables demo bootstrap users.
+- `dev` - local developer profile.
+- `test` - integration/unit test profile.
+
+Profile can be switched with `SPRING_PROFILES_ACTIVE`.
 
 ## Runtime endpoints
 
