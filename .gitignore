@@ -1,0 +1,14 @@
+/artifacts
+/models
+.env
+.env.*
+!.env.example
+infra/.env
+infra/.env.*
+!infra/.env.example
+.cursor
+/docs
+/mcp/node_modules
+/frontend/node_modules
+/backend/target
+*.pyc
