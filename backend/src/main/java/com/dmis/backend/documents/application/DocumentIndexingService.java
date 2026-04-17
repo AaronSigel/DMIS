@@ -12,6 +12,9 @@ import java.util.List;
 public class DocumentIndexingService {
     private static final int DEFAULT_CHUNK_SIZE = 1_000;
     private static final int DEFAULT_OVERLAP = 200;
+    private static final int EMBEDDING_DIM = 1024;
+    private static final String EMBEDDING_MODEL = "/models/bge-m3";
+    private static final boolean EMBEDDING_NORMALIZED = true;
 
     private final EmbeddingsPort embeddingsPort;
     private final DocumentChunkPort documentChunkPort;
@@ -37,11 +40,25 @@ public class DocumentIndexingService {
         Instant now = Instant.now();
         List<DocumentChunkPort.DocumentChunk> rows = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
+            float[] embedding = embeddings.get(i);
+            if (embedding == null || embedding.length == 0) {
+                throw new IllegalStateException("Embedding must be non-empty for chunk index " + i);
+            }
+            if (embedding.length != EMBEDDING_DIM) {
+                throw new IllegalStateException("Embedding dimension mismatch for chunk index " + i + ": " + embedding.length + " != " + EMBEDDING_DIM);
+            }
             String id = documentId + "-" + versionId + "-" + i;
-            rows.add(new DocumentChunkPort.DocumentChunk(id, i, chunks.get(i), embeddings.get(i)));
+            rows.add(new DocumentChunkPort.DocumentChunk(
+                    id,
+                    i,
+                    chunks.get(i),
+                    embedding,
+                    EMBEDDING_MODEL,
+                    EMBEDDING_DIM,
+                    EMBEDDING_NORMALIZED
+            ));
         }
         documentChunkPort.replaceChunks(documentId, versionId, now, rows);
         return rows.size();
     }
 }
-

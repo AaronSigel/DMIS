@@ -46,6 +46,7 @@ services:
       context: ../frontend
       args:
         BUILD_BASE_IMAGE: ${FRONTEND_BUILD_BASE_IMAGE:-base}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8090/api}
     depends_on:
       mcp:
         condition: service_started
@@ -69,6 +70,9 @@ services:
       context: ../embeddings-service
       args:
         RUNTIME_BASE_IMAGE: ${EMBEDDINGS_RUNTIME_BASE_IMAGE:-base}
+    environment:
+      MODEL_PATH: ${EMBEDDINGS_MODEL_PATH:-/models/bge-m3}
+      MODEL_RERANKER_PATH: ${EMBEDDINGS_RERANKER_MODEL_PATH:-/models/bge-reranker}
     volumes:
       - ../models:/models:ro
     ports:

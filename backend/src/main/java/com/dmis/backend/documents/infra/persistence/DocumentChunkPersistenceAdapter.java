@@ -31,14 +31,20 @@ public class DocumentChunkPersistenceAdapter implements DocumentChunkPort {
 
         for (DocumentChunk chunk : chunks) {
             jdbcTemplate.update(
-                    "INSERT INTO document_chunks (id, document_id, version_id, chunk_index, chunk_text, embedding, created_at) " +
-                            "VALUES (?, ?, ?, ?, ?, (?::vector), ?)",
+                    "INSERT INTO document_chunks (" +
+                            "id, document_id, version_id, chunk_index, chunk_text, embedding, " +
+                            "embedding_model, embedding_dim, embedding_normalized, created_at, indexed_at) " +
+                            "VALUES (?, ?, ?, ?, ?, (?::vector), ?, ?, ?, ?, ?)",
                     chunk.id(),
                     documentId,
                     versionId,
                     chunk.chunkIndex(),
                     chunk.chunkText(),
                     toVectorLiteral(chunk.embedding()),
+                    chunk.embeddingModel(),
+                    chunk.embeddingDim(),
+                    chunk.embeddingNormalized(),
+                    Timestamp.from(createdAt),
                     Timestamp.from(createdAt)
             );
         }

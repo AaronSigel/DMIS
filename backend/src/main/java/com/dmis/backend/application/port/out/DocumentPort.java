@@ -1,16 +1,15 @@
 package com.dmis.backend.documents.application.port;
 
-import com.dmis.backend.documents.application.dto.DocumentDtos;
+import com.dmis.backend.documents.domain.model.Document;
+import com.dmis.backend.documents.domain.model.DocumentId;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface DocumentPort {
-    DocumentDtos.DocumentView save(DocumentDtos.DocumentView document);
+    Document save(Document document);
 
-    Optional<DocumentDtos.DocumentView> findById(String id);
+    Optional<Document> findById(DocumentId id);
 
-    List<DocumentDtos.DocumentView> findAll();
-
-    DocumentDtos.DocumentVersionView addVersion(String documentId, DocumentDtos.DocumentVersionView version);
+    List<Document> findAll();
 }

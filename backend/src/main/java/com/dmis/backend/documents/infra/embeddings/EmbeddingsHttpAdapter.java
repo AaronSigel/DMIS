@@ -10,6 +10,7 @@ import java.util.List;
 
 @Component
 public class EmbeddingsHttpAdapter implements EmbeddingsPort {
+    private static final int EXPECTED_DIMENSION = 1024;
     private final RestClient restClient;
 
     public EmbeddingsHttpAdapter(@Value("${EMBEDDINGS_BASE_URL:http://localhost:8001}") String baseUrl) {
@@ -29,9 +30,15 @@ public class EmbeddingsHttpAdapter implements EmbeddingsPort {
         if (response == null || response.embeddings == null) {
             throw new IllegalStateException("Embeddings service returned empty response");
         }
+        if (response.dimension != EXPECTED_DIMENSION) {
+            throw new IllegalStateException("Embeddings dimension mismatch: " + response.dimension + " != " + EXPECTED_DIMENSION);
+        }
 
         List<float[]> vectors = new ArrayList<>(response.embeddings.size());
         for (List<Double> row : response.embeddings) {
+            if (row.size() != EXPECTED_DIMENSION) {
+                throw new IllegalStateException("Embedding row dimension mismatch: " + row.size() + " != " + EXPECTED_DIMENSION);
+            }
             float[] vec = new float[row.size()];
             for (int i = 0; i < row.size(); i++) {
                 vec[i] = row.get(i).floatValue();

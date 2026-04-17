@@ -8,6 +8,7 @@ infra/.env.*
 !infra/.env.example
 .cursor
 /docs
+.github
 /mcp/node_modules
 /frontend/node_modules
 /backend/target

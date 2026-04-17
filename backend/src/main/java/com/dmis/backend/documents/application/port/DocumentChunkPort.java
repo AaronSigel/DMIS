@@ -10,8 +10,10 @@ public interface DocumentChunkPort {
             String id,
             int chunkIndex,
             String chunkText,
-            float[] embedding
+            float[] embedding,
+            String embeddingModel,
+            int embeddingDim,
+            boolean embeddingNormalized
     ) {
     }
 }
-

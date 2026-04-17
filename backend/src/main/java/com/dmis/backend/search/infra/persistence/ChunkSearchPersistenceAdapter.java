@@ -12,6 +12,7 @@ import java.util.Locale;
 @Component
 @Profile("!test")
 public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
+    private static final int RRF_K = 60;
     private final JdbcTemplate jdbcTemplate;
     private final EmbeddingsPort embeddingsPort;
 
@@ -24,14 +25,40 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
     public List<ChunkHit> search(String actorId, boolean isAdmin, String query, int limit) {
         float[] q = embeddingsPort.embed(List.of(query)).getFirst();
         String qVec = toVectorLiteral(q);
+        int candidateLimit = Math.max(limit * 5, limit);
 
         String sql =
-                "SELECT d.id AS document_id, d.title AS title, dc.id AS chunk_id, dc.chunk_text AS chunk_text, " +
-                        "(0.6 * ts_rank_cd(dc.chunk_tsv, plainto_tsquery('simple', ?)) + " +
-                        " 0.4 * (1 - (dc.embedding <=> (?::vector)))) AS score " +
+                "WITH fts_candidates AS (" +
+                        "SELECT dc.id AS chunk_id, dc.document_id AS document_id, d.title AS title, dc.chunk_text AS chunk_text, " +
+                        "ROW_NUMBER() OVER (ORDER BY ts_rank_cd(dc.chunk_tsv, plainto_tsquery('simple', ?)) DESC, dc.created_at DESC) AS fts_rank " +
                         "FROM document_chunks dc " +
                         "JOIN documents d ON d.id = dc.document_id " +
                         "WHERE (? = true OR d.owner_id = ?) " +
+                        "AND dc.chunk_tsv @@ plainto_tsquery('simple', ?) " +
+                        "ORDER BY ts_rank_cd(dc.chunk_tsv, plainto_tsquery('simple', ?)) DESC, dc.created_at DESC " +
+                        "LIMIT ?" +
+                        "), ann_candidates AS (" +
+                        "SELECT dc.id AS chunk_id, dc.document_id AS document_id, d.title AS title, dc.chunk_text AS chunk_text, " +
+                        "ROW_NUMBER() OVER (ORDER BY dc.embedding <=> (?::vector), dc.created_at DESC) AS ann_rank " +
+                        "FROM document_chunks dc " +
+                        "JOIN documents d ON d.id = dc.document_id " +
+                        "WHERE (? = true OR d.owner_id = ?) " +
+                        "ORDER BY dc.embedding <=> (?::vector), dc.created_at DESC " +
+                        "LIMIT ?" +
+                        "), merged AS (" +
+                        "SELECT " +
+                        "COALESCE(f.document_id, a.document_id) AS document_id, " +
+                        "COALESCE(f.title, a.title) AS title, " +
+                        "COALESCE(f.chunk_id, a.chunk_id) AS chunk_id, " +
+                        "COALESCE(f.chunk_text, a.chunk_text) AS chunk_text, " +
+                        "f.fts_rank AS fts_rank, " +
+                        "a.ann_rank AS ann_rank " +
+                        "FROM fts_candidates f " +
+                        "FULL OUTER JOIN ann_candidates a ON a.chunk_id = f.chunk_id" +
+                        ") " +
+                        "SELECT m.document_id AS document_id, m.title AS title, m.chunk_id AS chunk_id, m.chunk_text AS chunk_text, " +
+                        "(COALESCE(1.0 / (? + m.fts_rank), 0.0) + COALESCE(1.0 / (? + m.ann_rank), 0.0)) AS score " +
+                        "FROM merged m " +
                         "ORDER BY score DESC " +
                         "LIMIT ?";
 
@@ -45,9 +72,18 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
                         rs.getDouble("score")
                 ),
                 query,
+                isAdmin,
+                actorId,
+                query,
+                query,
+                candidateLimit,
                 qVec,
                 isAdmin,
                 actorId,
+                qVec,
+                candidateLimit,
+                RRF_K,
+                RRF_K,
                 limit
         );
     }

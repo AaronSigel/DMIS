@@ -5,4 +5,3 @@ import java.util.List;
 public interface EmbeddingsPort {
     List<float[]> embed(List<String> texts);
 }
-

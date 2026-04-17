@@ -8,6 +8,8 @@ RUN npm install
 
 FROM ${BUILD_BASE_IMAGE} AS build
 WORKDIR /app
+ARG VITE_API_BASE_URL=http://localhost:8090/api
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY . .
 RUN npm run build
 

@@ -13,6 +13,7 @@ WORKDIR /app
 ENV PATH="/opt/venv/bin:${PATH}"
 COPY app.py .
 ENV MODEL_PATH=/models/bge-m3
+ENV MODEL_RERANKER_PATH=/models/bge-reranker
 EXPOSE 8001
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001"]
 

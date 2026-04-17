@@ -2,10 +2,10 @@ package com.dmis.backend.search.api;
 
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.platform.security.CurrentUserProvider;
+import com.dmis.backend.search.application.RagStreamEventParser;
 import com.dmis.backend.search.application.SearchService;
 import com.dmis.backend.search.application.dto.SearchDtos;
 import com.dmis.backend.search.application.port.LlmChatPort;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -27,6 +27,7 @@ public class SearchController {
     private final CurrentUserProvider currentUserProvider;
     private final LlmChatPort llmChatPort;
     private final AuditService auditService;
+    private final RagStreamEventParser ragStreamEventParser;
     private final ObjectMapper objectMapper;
 
     public SearchController(
@@ -34,12 +35,14 @@ public class SearchController {
             CurrentUserProvider currentUserProvider,
             LlmChatPort llmChatPort,
             AuditService auditService,
+            RagStreamEventParser ragStreamEventParser,
             ObjectMapper objectMapper
     ) {
         this.searchService = searchService;
         this.currentUserProvider = currentUserProvider;
         this.llmChatPort = llmChatPort;
         this.auditService = auditService;
+        this.ragStreamEventParser = ragStreamEventParser;
         this.objectMapper = objectMapper;
     }
 
@@ -61,9 +64,12 @@ public class SearchController {
         SearchDtos.SearchResponse retrieved = searchService.search(actor, question);
         if (retrieved.hits().isEmpty()) {
             SseEmitter emitter = new SseEmitter(0L);
+            String emptyAnswer = "Не найдено релевантных документов по запросу.";
             try {
-                emitter.send(SseEmitter.event().data("{\"delta\":\"Не найдено релевантных документов по запросу.\"}"));
-                emitter.send(SseEmitter.event().data("{\"done\":true}"));
+                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(new StreamDeltaPayload(emptyAnswer))));
+                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
+                        new StreamDonePayload(true, emptyAnswer, null, null, List.of())
+                )));
                 emitter.complete();
             } catch (Exception e) {
                 emitter.completeWithError(e);
@@ -111,28 +117,23 @@ public class SearchController {
                         if (json.isEmpty()) {
                             continue;
                         }
-                        emitter.send(SseEmitter.event().data(json));
-
                         try {
-                            JsonNode node = objectMapper.readTree(json);
-                            JsonNode delta = node.get("delta");
-                            if (delta != null && delta.isTextual()) {
-                                fullAnswer.append(delta.asText());
+                            RagStreamEventParser.ParsedEvent parsed = ragStreamEventParser.parse(json);
+                            if (parsed.delta() != null) {
+                                fullAnswer.append(parsed.delta());
                             }
-                            JsonNode done = node.get("done");
-                            if (done != null && done.isBoolean() && done.asBoolean()) {
-                                JsonNode p = node.get("provider");
-                                if (p != null && p.isTextual()) {
-                                    provider = p.asText();
-                                }
-                                JsonNode m = node.get("model");
-                                if (m != null && m.isTextual()) {
-                                    model = m.asText();
-                                }
+                            if (parsed.done()) {
+                                provider = parsed.provider();
+                                model = parsed.model();
+                                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
+                                        new StreamDonePayload(true, fullAnswer.toString(), provider, model, sources)
+                                )));
+                                continue;
                             }
                         } catch (Exception ignored) {
                             // Streaming must be best-effort; malformed JSON should not break the connection.
                         }
+                        emitter.send(SseEmitter.event().data(json));
                     }
                 }
                 emitter.complete();
@@ -156,5 +157,17 @@ public class SearchController {
     }
 
     public record RagRequest(@NotBlank String question) {
+    }
+
+    private record StreamDeltaPayload(String delta) {
+    }
+
+    private record StreamDonePayload(
+            boolean done,
+            String answer,
+            String provider,
+            String model,
+            List<SearchDtos.RagSourceView> sources
+    ) {
     }
 }
