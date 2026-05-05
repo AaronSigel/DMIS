@@ -29,6 +29,16 @@ public class SearchService {
             Если в контексте недостаточно данных, скажи это явно и не выдумывай факты.
             Формулируй ответ в деловом стиле и, когда возможно, ссылайся на источники по их порядку: [1], [2], [3].
             """;
+    private static final String RAG_STRICT_PROFILE_PROMPT = """
+            Ты корпоративный ассистент системы документооборота.
+            Отвечай только фактами из контекста, без интерпретаций и предположений.
+            Если фактов недостаточно, ответь: "Недостаточно данных в источниках."
+            """;
+    private static final String RAG_CREATIVE_PROFILE_PROMPT = """
+            Ты корпоративный ассистент системы документооборота.
+            Отвечай на основе контекста, но допускай краткие рекомендации по следующим шагам.
+            Если данных недостаточно, явно отмечай ограничения.
+            """;
 
     private final ChunkSearchPort chunkSearchPort;
     private final ChunkRerankPort chunkRerankPort;
@@ -63,13 +73,17 @@ public class SearchService {
     }
 
     public SearchDtos.SearchOnlyResponse search(UserView actor, String query) {
+        return search(actor, query, List.of());
+    }
+
+    public SearchDtos.SearchOnlyResponse search(UserView actor, String query, List<String> documentIds) {
         boolean isAdmin = aclService.isAdmin(actor);
         String searchId = "search-" + UUID.randomUUID();
         long totalStartedAtMs = System.currentTimeMillis();
         auditService.append(actor.id(), "search.request", "search", searchId, "query=" + query);
 
         long retrievalStartedAtMs = System.currentTimeMillis();
-        List<ChunkSearchPort.ChunkHit> candidates = chunkSearchPort.search(actor.id(), isAdmin, query, retrievalTopK);
+        List<ChunkSearchPort.ChunkHit> candidates = chunkSearchPort.search(actor.id(), isAdmin, query, retrievalTopK, documentIds);
         long retrievalLatencyMs = System.currentTimeMillis() - retrievalStartedAtMs;
         auditService.append(
                 actor.id(),
@@ -164,7 +178,11 @@ public class SearchService {
     }
 
     public PreparedAnswer prepareAnswer(UserView actor, String question, String ragEventName) {
-        SearchDtos.SearchOnlyResponse searchResponse = search(actor, question);
+        return prepareAnswer(actor, question, ragEventName, new AnswerOptions(List.of(), List.of("documents"), "balanced"));
+    }
+
+    public PreparedAnswer prepareAnswer(UserView actor, String question, String ragEventName, AnswerOptions options) {
+        SearchDtos.SearchOnlyResponse searchResponse = search(actor, question, options.documentIds());
         ContextSelection contextSelection = selectContext(searchResponse.hits());
         String status = contextSelection.contextChunks().isEmpty() ? STATUS_NO_CONTEXT : STATUS_OK;
         String fallbackAnswer = STATUS_NO_CONTEXT.equals(status) ? NO_CONTEXT_ANSWER : null;
@@ -205,11 +223,15 @@ public class SearchService {
                 ragId,
                 "latencyMs=" + searchResponse.pipeline().rerankLatencyMs() + ", returnedCount=" + searchResponse.pipeline().returnedCount()
         );
-        return new PreparedAnswer(question, status, fallbackAnswer, contextSelection.sources(), contextSelection.contextChunks(), pipeline, RAG_SYSTEM_PROMPT, ragId);
+        return new PreparedAnswer(question, status, fallbackAnswer, contextSelection.sources(), contextSelection.contextChunks(), pipeline, resolveSystemPrompt(options.ideologyProfileId()), ragId);
     }
 
     public SearchDtos.AnswerWithSourcesResponse answer(UserView actor, String question) {
-        PreparedAnswer prepared = prepareAnswer(actor, question, "rag.answer");
+        return answer(actor, question, new AnswerOptions(List.of(), List.of("documents"), "balanced"));
+    }
+
+    public SearchDtos.AnswerWithSourcesResponse answer(UserView actor, String question, AnswerOptions options) {
+        PreparedAnswer prepared = prepareAnswer(actor, question, "rag.answer", options);
         if (STATUS_NO_CONTEXT.equals(prepared.status())) {
             auditService.append(
                     actor.id(),
@@ -276,6 +298,17 @@ public class SearchService {
         );
     }
 
+    private String resolveSystemPrompt(String ideologyProfileId) {
+        if (ideologyProfileId == null) {
+            return RAG_SYSTEM_PROMPT;
+        }
+        return switch (ideologyProfileId.trim().toLowerCase()) {
+            case "strict" -> RAG_STRICT_PROFILE_PROMPT;
+            case "creative" -> RAG_CREATIVE_PROFILE_PROMPT;
+            default -> RAG_SYSTEM_PROMPT;
+        };
+    }
+
     private ContextSelection selectContext(List<SearchDtos.SearchHitView> hits) {
         List<SearchDtos.RagSourceView> sources = new ArrayList<>();
         List<String> contextChunks = new ArrayList<>();
@@ -331,6 +364,13 @@ public class SearchService {
             SearchDtos.AnswerPipelineMeta pipeline,
             String systemPrompt,
             String ragId
+    ) {
+    }
+
+    public record AnswerOptions(
+            List<String> documentIds,
+            List<String> knowledgeSourceIds,
+            String ideologyProfileId
     ) {
     }
 

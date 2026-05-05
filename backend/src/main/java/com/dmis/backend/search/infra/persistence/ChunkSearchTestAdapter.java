@@ -19,7 +19,7 @@ public class ChunkSearchTestAdapter implements ChunkSearchPort {
     }
 
     @Override
-    public List<ChunkHit> search(String actorId, boolean isAdmin, String query, int limit) {
+    public List<ChunkHit> search(String actorId, boolean isAdmin, String query, int limit, List<String> documentIds) {
         String q = query == null ? "" : query.toLowerCase(Locale.ROOT).trim();
         List<String> tokens = q.isEmpty() ? List.of() : Arrays.asList(q.split("\\s+"));
 
@@ -28,23 +28,25 @@ public class ChunkSearchTestAdapter implements ChunkSearchPort {
                         "FROM document_chunks dc " +
                         "JOIN documents d ON d.id = dc.document_id " +
                         "WHERE (? = true OR d.owner_id = ?) " +
+                        ((documentIds == null || documentIds.isEmpty()) ? "" : "AND d.id IN (" + String.join(",", documentIds.stream().map(id -> "?").toList()) + ") ") +
                         "ORDER BY dc.created_at DESC " +
                         "LIMIT ?";
+        var args = new java.util.ArrayList<>();
+        args.add(isAdmin);
+        args.add(actorId);
+        if (documentIds != null && !documentIds.isEmpty()) {
+            args.addAll(documentIds);
+        }
+        args.add(Math.max(limit * 5, limit));
 
-        List<ChunkHit> raw = jdbcTemplate.query(
-                sql,
-                (rs, rowNum) -> new ChunkHit(
-                        rs.getString("document_id"),
-                        rs.getString("title"),
-                        rs.getString("document_version"),
-                        rs.getString("chunk_id"),
-                        rs.getString("chunk_text"),
-                        0.0
-                ),
-                isAdmin,
-                actorId,
-                Math.max(limit * 5, limit)
-        );
+        List<ChunkHit> raw = jdbcTemplate.query(sql, (rs, rowNum) -> new ChunkHit(
+                rs.getString("document_id"),
+                rs.getString("title"),
+                rs.getString("document_version"),
+                rs.getString("chunk_id"),
+                rs.getString("chunk_text"),
+                0.0
+        ), args.toArray());
 
         return raw.stream()
                 .map(hit -> new ChunkHit(

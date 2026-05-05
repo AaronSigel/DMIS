@@ -89,7 +89,10 @@ def rerank(payload: RerankRequest) -> RerankResponse:
         model_path = os.environ.get("MODEL_RERANKER_PATH", "/models/bge-reranker")
         reranker = get_reranker()
         pairs = [(payload.query, candidate) for candidate in payload.candidates]
-        scores = reranker.predict(pairs).tolist()
+        raw_scores = reranker.predict(pairs)
+        # sentence-transformers может вернуть numpy array или обычный list.
+        # Нормализуем ответ к list[float], чтобы избежать 500 из-за .tolist().
+        scores = raw_scores.tolist() if hasattr(raw_scores, "tolist") else list(raw_scores)
         ranked = sorted(
             (RerankItem(index=index, score=float(score)) for index, score in enumerate(scores)),
             key=lambda item: item.score,

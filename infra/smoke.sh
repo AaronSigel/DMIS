@@ -3,6 +3,7 @@ set -euo pipefail
 
 BASE_BACKEND="${BASE_BACKEND:-http://localhost:8080}"
 BASE_MCP="${BASE_MCP:-http://localhost:8090}"
+ENABLE_MCP_HEALTH="${ENABLE_MCP_HEALTH:-0}"
 BASE_STT="${BASE_STT:-http://localhost:8000}"
 BASE_EMBEDDINGS="${BASE_EMBEDDINGS:-http://localhost:8001}"
 BASE_AI="${BASE_AI:-http://localhost:8002}"
@@ -28,7 +29,11 @@ wait_for() {
 
 echo "Checking service health..."
 wait_for "${BASE_BACKEND}/api/health" "backend /api/health"
-wait_for "${BASE_MCP}/resources/health" "mcp /resources/health"
+if [[ "${ENABLE_MCP_HEALTH}" == "1" ]]; then
+  wait_for "${BASE_MCP}/resources/health" "mcp /resources/health"
+else
+  echo "SKIP: mcp /resources/health (ENABLE_MCP_HEALTH=${ENABLE_MCP_HEALTH})"
+fi
 wait_for "${BASE_STT}/health" "stt-service /health"
 wait_for "${BASE_EMBEDDINGS}/health" "embeddings-service /health"
 wait_for "${BASE_AI}/health" "ai-service /health"

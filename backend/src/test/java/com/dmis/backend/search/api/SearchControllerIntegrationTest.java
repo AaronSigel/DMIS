@@ -22,9 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
@@ -47,11 +48,11 @@ class SearchControllerIntegrationTest {
 
     @Test
     void ragStreamDoneEventContainsAnswerAndSources() throws Exception {
-        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
+        when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
                 new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9),
                 new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "v2", "c-2", "beta context", 0.8)
         ));
-        when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
+        when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-2", 0.95),
                 new ChunkRerankPort.RerankScore("c-1", 0.1)
         ));
@@ -83,7 +84,7 @@ class SearchControllerIntegrationTest {
 
     @Test
     void ragStreamEmptyResultDoneEventContainsEmptySources() throws Exception {
-        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("missing"), eq(10))).thenReturn(List.of());
+        when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of());
 
         String token = loginAndGetToken();
 
@@ -105,10 +106,10 @@ class SearchControllerIntegrationTest {
 
     @Test
     void searchOnlyEndpointReturnsStableContract() throws Exception {
-        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
+        when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
                 new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
         ));
-        when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
+        when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-1", 0.91)
         ));
 
@@ -131,10 +132,10 @@ class SearchControllerIntegrationTest {
 
     @Test
     void answerWithSourcesEndpointReturnsStableContract() throws Exception {
-        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
+        when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
                 new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
         ));
-        when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
+        when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-1", 0.91)
         ));
         when(llmChatPort.chat(any())).thenReturn(new LlmChatPort.ChatResponse("Ответ [1]", "fake", "test-model"));
@@ -158,10 +159,10 @@ class SearchControllerIntegrationTest {
 
     @Test
     void ragAnswerAliasMatchesAnswerWithSources() throws Exception {
-        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
+        when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
                 new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
         ));
-        when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
+        when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-1", 0.91)
         ));
         when(llmChatPort.chat(any())).thenReturn(new LlmChatPort.ChatResponse("Ответ [1]", "fake", "test-model"));

@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -20,18 +21,23 @@ public class ActionsController {
         this.currentUserProvider = currentUserProvider;
     }
 
+    @GetMapping
+    public List<ActionDtos.AiActionView> list() {
+        return actionService.list(currentUserProvider.currentUser());
+    }
+
     @PostMapping("/draft")
     public ActionDtos.AiActionView draft(@Valid @RequestBody DraftRequest request) {
         return actionService.draft(currentUserProvider.currentUser(), request.intent(), request.entities());
     }
 
     @PostMapping("/{actionId}/confirm")
-    public ActionDtos.AiActionView confirm(@PathVariable String actionId) {
+    public ActionDtos.AiActionView confirm(@PathVariable("actionId") String actionId) {
         return actionService.confirm(currentUserProvider.currentUser(), actionId);
     }
 
     @PostMapping("/{actionId}/execute")
-    public ActionDtos.AiActionView execute(@PathVariable String actionId) {
+    public ActionDtos.AiActionView execute(@PathVariable("actionId") String actionId) {
         return actionService.execute(currentUserProvider.currentUser(), actionId);
     }
 

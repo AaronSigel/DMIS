@@ -7,6 +7,7 @@ import com.dmis.backend.actions.infra.persistence.repository.AiActionJpaReposito
 import com.dmis.backend.shared.persistence.PersistenceMapper;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 @Component
@@ -35,5 +36,10 @@ public class AiActionPersistenceAdapter implements AiActionPort {
     @Override
     public Optional<ActionDtos.AiActionView> findById(String id) {
         return repository.findById(id).map(mapper::toActionView);
+    }
+
+    @Override
+    public List<ActionDtos.AiActionView> findAll() {
+        return repository.findAll().stream().map(mapper::toActionView).toList();
     }
 }

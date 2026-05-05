@@ -13,3 +13,6 @@ infra/.env.*
 /frontend/node_modules
 /backend/target
 *.pyc
+/mcp-server
+/.playwright-mcp
+/test-artifacts

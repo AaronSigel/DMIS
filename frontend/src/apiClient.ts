@@ -1,4 +1,4 @@
-export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api";
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 const TOKEN_KEY = "dmis_token";
 const REFRESH_TOKEN_KEY = "dmis_refresh_token";
@@ -33,6 +33,21 @@ async function readErrorMessage(response: Response): Promise<string> {
   }
   const text = await response.text();
   return text.trim() || "Request failed";
+}
+
+type ApiErrorPayload = { message?: string; errorCode?: string };
+
+export async function readApiError(response: Response): Promise<ApiErrorPayload> {
+  const ct = response.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    const fallback = await response.text();
+    return { message: fallback.trim() || "Request failed" };
+  }
+  try {
+    return (await response.json()) as ApiErrorPayload;
+  } catch {
+    return { message: "Request failed" };
+  }
 }
 
 /** Login and other unauthenticated JSON endpoints: no session reset on 401. */
@@ -95,11 +110,10 @@ export async function fetchWithAuth(
     clearTokens();
     return response;
   }
-
-  const refreshPayload = (await refreshResponse.json()) as {
+  const refreshPayload = (await parsePublicJson<{
     token: string;
     refreshToken: string;
-  };
+  }>(refreshResponse));
   setTokens(refreshPayload.token, refreshPayload.refreshToken);
   onNewToken?.(refreshPayload.token);
 
@@ -107,11 +121,34 @@ export async function fetchWithAuth(
 }
 
 function withAuthHeader(options: RequestInit, token: string): RequestInit {
+  const baseHeaders = options.headers ? (options.headers as Record<string, string>) : {};
+  const headers: Record<string, string> = { ...baseHeaders };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   return {
     ...options,
-    headers: {
-      ...(options.headers as Record<string, string> | undefined),
-      Authorization: `Bearer ${token}`
-    }
+    headers
   };
+}
+
+export type AssistantThreadView = {
+  id: string;
+  title: string;
+  ideologyProfileId: string;
+  knowledgeSourceIds: string[];
+};
+
+export async function apiListAssistantThreads(onUnauthorized: () => void, onNewToken?: (token: string) => void): Promise<AssistantThreadView[]> {
+  const response = await fetchWithAuth(`${apiBaseUrl}/assistant/threads`, { method: "GET" }, onNewToken);
+  return parseAuthenticatedJson<AssistantThreadView[]>(response, onUnauthorized);
+}
+
+export async function apiMentionDocuments(query: string, onUnauthorized: () => void, onNewToken?: (token: string) => void): Promise<{ id: string; title: string }[]> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/assistant/documents/mentions?q=${encodeURIComponent(query)}&limit=8`,
+    { method: "GET" },
+    onNewToken
+  );
+  return parseAuthenticatedJson<{ id: string; title: string }[]>(response, onUnauthorized);
 }

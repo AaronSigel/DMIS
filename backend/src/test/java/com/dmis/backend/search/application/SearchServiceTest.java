@@ -24,7 +24,7 @@ class SearchServiceTest {
     @Test
     void searchUsesRerankScoresWhenAvailable() {
         SearchService service = new SearchService(
-                (actorId, isAdmin, query, limit) -> List.of(
+                (actorId, isAdmin, query, limit, documentIds) -> List.of(
                         new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "policy alpha", 0.9),
                         new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "v2", "c-2", "policy beta", 0.8)
                 ),
@@ -53,7 +53,7 @@ class SearchServiceTest {
     @Test
     void searchFallsBackToRetrievalScoresWhenRerankerFails() {
         SearchService service = new SearchService(
-                (actorId, isAdmin, query, limit) -> List.of(
+                (actorId, isAdmin, query, limit, documentIds) -> List.of(
                         new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "policy alpha", 0.9),
                         new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "v2", "c-2", "policy beta", 0.8)
                 ),
@@ -80,7 +80,7 @@ class SearchServiceTest {
     void answerUsesSameRerankedRetrievalOrderForContextAndIncludesVersionedSources() {
         FakeLlmChatPort llm = new FakeLlmChatPort();
         SearchService service = new SearchService(
-                (actorId, isAdmin, query, limit) -> List.of(
+                (actorId, isAdmin, query, limit, documentIds) -> List.of(
                         new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9),
                         new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "v2", "c-2", "beta context", 0.8)
                 ),
@@ -115,7 +115,7 @@ class SearchServiceTest {
     void answerReturnsNoContextWithoutLlmCallWhenNoHitsFound() {
         FakeLlmChatPort llm = new FakeLlmChatPort();
         SearchService service = new SearchService(
-                (actorId, isAdmin, query, limit) -> List.of(),
+                (actorId, isAdmin, query, limit, documentIds) -> List.of(),
                 (query, candidates) -> List.of(),
                 new AclService(),
                 llm,

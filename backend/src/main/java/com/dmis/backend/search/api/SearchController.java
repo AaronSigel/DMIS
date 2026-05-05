@@ -52,7 +52,11 @@ public class SearchController {
 
     @PostMapping({"/rag/answer-with-sources", "/rag/answer"})
     public SearchDtos.AnswerWithSourcesResponse answer(@Valid @RequestBody RagRequest request) {
-        return searchService.answer(currentUserProvider.currentUser(), request.question());
+        return searchService.answer(
+                currentUserProvider.currentUser(),
+                request.question(),
+                new SearchService.AnswerOptions(request.documentIds(), request.knowledgeSourceIds(), request.ideologyProfileId())
+        );
     }
 
     @PostMapping(value = "/rag/answer-with-sources/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -60,7 +64,12 @@ public class SearchController {
         var actor = currentUserProvider.currentUser();
         String question = request.question();
 
-        SearchService.PreparedAnswer prepared = searchService.prepareAnswer(actor, question, "rag.answer.stream");
+        SearchService.PreparedAnswer prepared = searchService.prepareAnswer(
+                actor,
+                question,
+                "rag.answer.stream",
+                new SearchService.AnswerOptions(request.documentIds(), request.knowledgeSourceIds(), request.ideologyProfileId())
+        );
         if (!"OK".equals(prepared.status())) {
             SseEmitter emitter = new SseEmitter(0L);
             try {
@@ -169,7 +178,13 @@ public class SearchController {
     public record SearchRequest(@NotBlank String query) {
     }
 
-    public record RagRequest(@NotBlank String question) {
+    public record RagRequest(
+            @NotBlank String question,
+            String threadId,
+            List<String> documentIds,
+            List<String> knowledgeSourceIds,
+            String ideologyProfileId
+    ) {
     }
 
     private record StreamDeltaPayload(String delta) {

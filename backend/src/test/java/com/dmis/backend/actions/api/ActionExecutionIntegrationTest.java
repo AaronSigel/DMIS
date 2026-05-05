@@ -106,6 +106,29 @@ class ActionExecutionIntegrationTest {
     }
 
     @Test
+    void executeReturnsBadRequestWhenActionIsNotConfirmed() throws Exception {
+        String token = loginAndGetToken();
+
+        String draftJson = mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"send_email","entities":{"to":"recipient@example.com","subject":"Test","body":"Hello"}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn().getResponse().getContentAsString();
+
+        String actionId = objectMapper.readTree(draftJson).get("id").asText();
+
+        mockMvc.perform(post("/api/actions/{id}/execute", actionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_ERROR"))
+                .andExpect(jsonPath("$.message").value("Action must be confirmed before execution"));
+    }
+
+    @Test
     void sttAudioEndpointReturnsTranscript() throws Exception {
         when(sttPort.transcribe(any(byte[].class), anyString())).thenReturn("Привет, мир");
 

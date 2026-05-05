@@ -5,8 +5,13 @@ FROM ${PYTHON_IMAGE} AS base
 WORKDIR /app
 COPY requirements.txt .
 RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:${PATH}"
-RUN pip install --no-cache-dir -r requirements.txt
+ENV PATH="/opt/venv/bin:${PATH}" \
+    PIP_DEFAULT_TIMEOUT=300
+# Install torch CPU-only first so sentence-transformers reuses it
+RUN pip install --no-cache-dir --retries 5 \
+    --index-url https://download.pytorch.org/whl/cpu \
+    "torch>=2.3.0,<3"
+RUN pip install --no-cache-dir --retries 5 -r requirements.txt
 
 FROM ${RUNTIME_BASE_IMAGE} AS runtime
 WORKDIR /app

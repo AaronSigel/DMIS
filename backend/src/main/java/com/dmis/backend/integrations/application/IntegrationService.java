@@ -5,7 +5,9 @@ import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.integrations.application.port.MailCalendarPort;
 import com.dmis.backend.integrations.application.port.SttPort;
 import com.dmis.backend.shared.model.UserView;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.UUID;
@@ -36,6 +38,40 @@ public class IntegrationService {
         );
         auditService.append(actor.id(), "calendar.draft.create", "event", draft.id(), "Calendar draft prepared");
         return draft;
+    }
+
+    public IntegrationDtos.MailDraftView sendMail(UserView actor, String to, String subject, String body) {
+        IntegrationDtos.MailDraftView draft = createMailDraft(actor, to, subject, body);
+        try {
+            IntegrationDtos.MailDraftView sent = mailCalendarPort.sendMailDraft(draft);
+            auditService.append(actor.id(), "mail.send", "email", sent.id(), "Mail sent successfully");
+            return sent;
+        } catch (ResponseStatusException ex) {
+            auditService.append(actor.id(), "mail.send.failed", "email", draft.id(),
+                    "Mail sending failed: " + ex.getReason());
+            throw ex;
+        } catch (Exception ex) {
+            auditService.append(actor.id(), "mail.send.failed", "email", draft.id(),
+                    "Mail sending failed: " + ex.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Mail sending failed", ex);
+        }
+    }
+
+    public IntegrationDtos.CalendarDraftView sendCalendarEvent(UserView actor, String title, List<String> attendees, String startIso, String endIso) {
+        IntegrationDtos.CalendarDraftView draft = createCalendarDraft(actor, title, attendees, startIso, endIso);
+        try {
+            IntegrationDtos.CalendarDraftView sent = mailCalendarPort.sendCalendarDraft(draft);
+            auditService.append(actor.id(), "calendar.send", "event", sent.id(), "Calendar event sent successfully");
+            return sent;
+        } catch (ResponseStatusException ex) {
+            auditService.append(actor.id(), "calendar.send.failed", "event", draft.id(),
+                    "Calendar event sending failed: " + ex.getReason());
+            throw ex;
+        } catch (Exception ex) {
+            auditService.append(actor.id(), "calendar.send.failed", "event", draft.id(),
+                    "Calendar event sending failed: " + ex.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Calendar event sending failed", ex);
+        }
     }
 
     public IntegrationDtos.FreeBusyView freeBusy(UserView actor, String attendee, String startIso, String endIso) {

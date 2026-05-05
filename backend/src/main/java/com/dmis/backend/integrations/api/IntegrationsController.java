@@ -4,14 +4,19 @@ import com.dmis.backend.integrations.application.IntegrationService;
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.platform.security.CurrentUserProvider;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
+
+import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
 @RestController
 @RequestMapping("/api")
@@ -29,23 +34,13 @@ public class IntegrationsController {
         return integrationService.createMailDraft(currentUserProvider.currentUser(), request.to(), request.subject(), request.body());
     }
 
-    @PostMapping("/calendar/drafts")
-    public IntegrationDtos.CalendarDraftView calendarDraft(@Valid @RequestBody CalendarDraftRequest request) {
-        return integrationService.createCalendarDraft(
-                currentUserProvider.currentUser(),
-                request.title(),
-                request.attendees(),
-                request.startIso(),
-                request.endIso()
-        );
-    }
-
     @GetMapping("/calendar/free-busy")
     public IntegrationDtos.FreeBusyView freeBusy(
-            @RequestParam String attendee,
-            @RequestParam(required = false, defaultValue = "") String start,
-            @RequestParam(required = false, defaultValue = "") String end
+            @RequestParam("attendee") String attendee,
+            @RequestParam(value = "start", required = false, defaultValue = "") String start,
+            @RequestParam(value = "end", required = false, defaultValue = "") String end
     ) {
+        validateDateRange(start, end);
         return integrationService.freeBusy(currentUserProvider.currentUser(), attendee, start, end);
     }
 
@@ -64,7 +59,7 @@ public class IntegrationsController {
         return ResponseEntity.ok(new TranscriptResponse(text, "transcribed"));
     }
 
-    public record MailDraftRequest(@NotBlank String to, @NotBlank String subject, @NotBlank String body) {
+    public record MailDraftRequest(@NotBlank @Email String to, @NotBlank String subject, @NotBlank String body) {
     }
 
     public record CalendarDraftRequest(
@@ -79,5 +74,34 @@ public class IntegrationsController {
     }
 
     public record TranscriptResponse(String text, String status) {
+    }
+
+    @PostMapping("/calendar/drafts")
+    public IntegrationDtos.CalendarDraftView validatedCalendarDraft(@Valid @RequestBody CalendarDraftRequest request) {
+        validateDateRange(request.startIso(), request.endIso());
+        return integrationService.createCalendarDraft(
+                currentUserProvider.currentUser(),
+                request.title(),
+                request.attendees(),
+                request.startIso(),
+                request.endIso()
+        );
+    }
+
+    private static void validateDateRange(String startIso, String endIso) {
+        if (startIso == null || startIso.isBlank() || endIso == null || endIso.isBlank()) {
+            return;
+        }
+        try {
+            Instant start = Instant.parse(startIso);
+            Instant end = Instant.parse(endIso);
+            if (!end.isAfter(start)) {
+                throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "endIso must be after startIso");
+            }
+        } catch (ResponseStatusException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "Invalid ISO datetime format");
+        }
     }
 }

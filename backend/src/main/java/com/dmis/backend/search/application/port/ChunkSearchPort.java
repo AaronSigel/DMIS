@@ -3,7 +3,7 @@ package com.dmis.backend.search.application.port;
 import java.util.List;
 
 public interface ChunkSearchPort {
-    List<ChunkHit> search(String actorId, boolean isAdmin, String query, int limit);
+    List<ChunkHit> search(String actorId, boolean isAdmin, String query, int limit, List<String> documentIds);
 
     record ChunkHit(
             String documentId,

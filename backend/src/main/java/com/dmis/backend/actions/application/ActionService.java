@@ -20,6 +20,7 @@ import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
@@ -53,9 +54,25 @@ public class ActionService {
         return saved;
     }
 
+    public List<ActionDtos.AiActionView> list(UserView actor) {
+        List<ActionDtos.AiActionView> actions = aiActionPort.findAll();
+        if (aclService.isAdmin(actor)) {
+            return actions;
+        }
+        return actions.stream()
+                .filter(action -> action.actorId().equals(actor.id()))
+                .toList();
+    }
+
     public ActionDtos.AiActionView confirm(UserView actor, String actionId) {
         ActionDtos.AiActionView action = aiActionPort.findById(actionId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Action not found"));
+        if (!action.actorId().equals(actor.id()) && !aclService.isAdmin(actor)) {
+            throw new ResponseStatusException(FORBIDDEN, "No permission to confirm action");
+        }
+        if (action.status() != ActionStatus.DRAFT) {
+            throw new ResponseStatusException(CONFLICT, "Action is not in DRAFT state");
+        }
         ActionDtos.AiActionView confirmed = new ActionDtos.AiActionView(
                 action.id(),
                 action.intent(),
@@ -78,28 +95,39 @@ public class ActionService {
         if (!action.actorId().equals(actor.id()) && !aclService.isAdmin(actor)) {
             throw new ResponseStatusException(FORBIDDEN, "No permission to execute action");
         }
-        ActionDtos.AiActionView executed = new ActionDtos.AiActionView(
-                action.id(),
-                action.intent(),
-                action.entities(),
-                action.actorId(),
-                ActionStatus.EXECUTED,
-                action.confirmedBy()
-        );
-        ActionDtos.AiActionView saved = aiActionPort.save(executed);
-        auditService.append(actor.id(), "action.execute", "ai_action", saved.id(), "Action executed");
-        dispatch(actor, saved);
-        return saved;
+        try {
+            dispatch(actor, action);
+            ActionDtos.AiActionView executed = new ActionDtos.AiActionView(
+                    action.id(),
+                    action.intent(),
+                    action.entities(),
+                    action.actorId(),
+                    ActionStatus.EXECUTED,
+                    action.confirmedBy()
+            );
+            ActionDtos.AiActionView saved = aiActionPort.save(executed);
+            auditService.append(actor.id(), "action.execute", "ai_action", saved.id(), "Action executed successfully");
+            return saved;
+        } catch (ResponseStatusException ex) {
+            auditService.append(actor.id(), "action.execute.failed", "ai_action", action.id(),
+                    "Execution failed: " + ex.getReason());
+            throw ex;
+        } catch (Exception ex) {
+            auditService.append(actor.id(), "action.execute.failed", "ai_action", action.id(),
+                    "Execution failed: " + ex.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Execution failed for action '" + action.id() + "': " + ex.getMessage(), ex);
+        }
     }
 
     private void dispatch(UserView actor, ActionDtos.AiActionView action) {
         Map<String, String> e = action.entities();
         try {
             switch (action.intent()) {
-                case "send_email" -> integrationService.createMailDraft(
+                case "send_email" -> integrationService.sendMail(
                         actor, e.get("to"), e.get("subject"), e.get("body")
                 );
-                case "create_calendar_event" -> integrationService.createCalendarDraft(
+                case "create_calendar_event" -> integrationService.sendCalendarEvent(
                         actor,
                         e.get("title"),
                         Arrays.asList(e.getOrDefault("attendees", "").split(",")),

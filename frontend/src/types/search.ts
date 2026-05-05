@@ -32,3 +32,11 @@ export type AnswerWithSourcesResponse = {
   sources: RagSourceView[];
   pipeline: unknown;
 };
+
+export type RagRequest = {
+  question: string;
+  threadId?: string;
+  documentIds?: string[];
+  knowledgeSourceIds?: string[];
+  ideologyProfileId?: string;
+};

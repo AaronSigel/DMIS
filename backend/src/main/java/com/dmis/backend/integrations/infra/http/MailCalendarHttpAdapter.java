@@ -4,10 +4,12 @@ import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.integrations.application.port.MailCalendarPort;
 import com.dmis.backend.integrations.infra.persistence.MailCalendarPersistenceAdapter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -51,8 +53,9 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
                     .body(new MailcowSendRequest(draft.to(), draft.subject(), draft.body()))
                     .retrieve()
                     .toBodilessEntity();
-        } catch (RestClientException ignored) {
-            // external service unavailable — draft already stored
+        } catch (RestClientException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Mail service request failed: " + ex.getMessage(), ex);
         }
         return draft;
     }
@@ -69,8 +72,9 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
                     .body(new SogoEventRequest(draft.title(), draft.attendees(), draft.startIso(), draft.endIso()))
                     .retrieve()
                     .toBodilessEntity();
-        } catch (RestClientException ignored) {
-            // external service unavailable — draft already stored
+        } catch (RestClientException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Calendar service request failed: " + ex.getMessage(), ex);
         }
         return draft;
     }

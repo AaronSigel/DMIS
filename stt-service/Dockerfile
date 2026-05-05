@@ -9,9 +9,12 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt .
 RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:${PATH}"
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+ENV PATH="/opt/venv/bin:${PATH}" \
+    PIP_DEFAULT_TIMEOUT=300
+RUN pip install --no-cache-dir --retries 5 -r requirements.txt
+RUN pip install --no-cache-dir --retries 5 \
+    --index-url https://download.pytorch.org/whl/cpu \
+    "torch>=2.3.0,<3"
 
 FROM ${RUNTIME_BASE_IMAGE} AS runtime
 WORKDIR /app

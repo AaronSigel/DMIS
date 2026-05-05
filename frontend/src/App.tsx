@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   apiBaseUrl,
   clearTokens,
@@ -7,6 +7,7 @@ import {
   getToken,
   parseAuthenticatedJson,
   parsePublicJson,
+  readApiError,
   setTokens,
 } from "./apiClient";
 import type { DocumentPage, DocumentView } from "./types/document";
@@ -32,14 +33,14 @@ function initials(name: string) {
 
 function timeAgo(iso: string): string {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return "только что";
+  if (mins < 60) return `${mins} мин назад`;
   const h = Math.floor(mins / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return `${h} ч назад`;
   const d = Math.floor(h / 24);
-  if (d === 1) return "yesterday";
-  if (d < 7) return `${d}d`;
-  return `${Math.floor(d / 7)}w ago`;
+  if (d === 1) return "вчера";
+  if (d < 7) return `${d} дн назад`;
+  return `${Math.floor(d / 7)} нед назад`;
 }
 
 function docIcon(doc: DocumentView): string {
@@ -50,25 +51,44 @@ function docIcon(doc: DocumentView): string {
 }
 
 function docAcl(doc: DocumentView): string {
-  if (doc.tags?.includes("public")) return "public";
-  if (doc.tags?.includes("restricted")) return "restricted";
-  return "team";
+  if (doc.tags?.includes("public")) return "публичный";
+  if (doc.tags?.includes("restricted")) return "ограниченный";
+  return "команда";
 }
 
 function sectionTitle(s: string): string {
   const map: Record<string, string> = {
-    all_docs: "Recent",
-    recent: "Recent",
-    pinned: "Pinned",
-    shared: "Shared with me",
-    contracts: "Contracts",
-    memos: "Memos",
-    reports: "Reports",
-    transcripts: "Transcripts",
-    audit: "Audit log",
+    dashboard: "Дашборд",
+    documents: "Документы",
+    mail: "Почта",
+    calendar: "Календарь",
+    audit: "Журнал аудита",
+    settings: "Настройки",
+    all_docs: "Документы",
+    recent: "Недавние",
+    pinned: "Закрепленные",
+    shared: "Доступные мне",
+    contracts: "Контракты",
+    memos: "Заметки",
+    reports: "Отчеты",
+    transcripts: "Транскрипты",
     acl: "ACL",
   };
   return map[s] ?? s;
+}
+
+function mapApiErrorToMessage(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("failed to fetch")) {
+    return "Сервис временно недоступен. Проверьте соединение и повторите попытку.";
+  }
+  if (normalized.includes("expected json response")) {
+    return "Сервис вернул неожиданный ответ. Повторите попытку позже.";
+  }
+  if (normalized.includes("unauthorized")) {
+    return "Сессия истекла. Войдите снова.";
+  }
+  return message || "Произошла ошибка. Попробуйте еще раз.";
 }
 
 // ─── design tokens ────────────────────────────────────────────────────────────
@@ -113,6 +133,14 @@ function Avatar({ name, size = 26 }: { name: string; size?: number }) {
 
 function StatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
+  const labelMap: Record<string, string> = {
+    final: "финальный",
+    indexed: "проиндексирован",
+    review: "на проверке",
+    pending: "в ожидании",
+    failed: "ошибка",
+    draft: "черновик",
+  };
   const map: Record<string, CSSProperties> = {
     final: { background: C.green, color: C.white, border: "none" },
     indexed: { background: C.grey, color: C.white, border: "none" },
@@ -134,7 +162,7 @@ function StatusBadge({ status }: { status: string }) {
         ...pill,
       }}
     >
-      {s}
+      {labelMap[s] ?? s}
     </span>
   );
 }
@@ -174,20 +202,43 @@ function LoginPage({ onLogin }: { onLogin: (t: string, rt: string, u: User) => v
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  function mapLoginError(status?: number, message?: string): string {
+    if (status === 401) return "Неверный email или пароль.";
+    if (status === 400) return "Проверьте корректность email и пароля.";
+    if (status === 403) return "Доступ запрещен для этого аккаунта.";
+    if (message?.includes("Failed to fetch")) {
+      return "Сервер недоступен. Проверьте настройки API/CORS и запуск backend.";
+    }
+    return message || "Не удалось выполнить вход.";
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setSubmitting(true);
     try {
+      const healthRes = await fetch(`${apiBaseUrl}/health`);
+      if (!healthRes.ok) {
+        setError("Сервер backend недоступен. Проверьте, что API отвечает на /health.");
+        return;
+      }
       const res = await fetch(`${apiBaseUrl}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
+      if (!res.ok) {
+        const apiError = await readApiError(res);
+        throw new Error(mapLoginError(res.status, apiError.message ?? apiError.errorCode));
+      }
       const p = await parsePublicJson<{ token: string; refreshToken: string; user: User }>(res);
       onLogin(p.token, p.refreshToken, p.user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(mapLoginError(undefined, err instanceof Error ? err.message : "Ошибка входа"));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -225,14 +276,17 @@ function LoginPage({ onLogin }: { onLogin: (t: string, rt: string, u: User) => v
       >
         <h1 style={{ color: C.orange, margin: "0 0 4px", fontFamily: "monospace", fontSize: 28 }}>DMIS</h1>
         <p style={{ color: C.muted, margin: "0 0 24px", fontSize: 14 }}>
-          Document Management &amp; Intelligence System
+          Система документооборота и интеллектуального поиска
+        </p>
+        <p style={{ color: C.muted, margin: "0 0 14px", fontSize: 12 }}>
+          API: <code>{apiBaseUrl}</code>
         </p>
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
+            placeholder="Электронная почта"
             required
             autoComplete="username"
             style={field}
@@ -241,7 +295,7 @@ function LoginPage({ onLogin }: { onLogin: (t: string, rt: string, u: User) => v
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
+            placeholder="Пароль"
             required
             autoComplete="current-password"
             style={field}
@@ -249,7 +303,7 @@ function LoginPage({ onLogin }: { onLogin: (t: string, rt: string, u: User) => v
           {error && <p style={{ color: "crimson", fontSize: 13, margin: 0 }}>{error}</p>}
           <button
             type="submit"
-            disabled={!email || !password}
+            disabled={!email || !password || submitting}
             style={{
               padding: "10px 16px",
               borderRadius: 8,
@@ -263,7 +317,7 @@ function LoginPage({ onLogin }: { onLogin: (t: string, rt: string, u: User) => v
               marginTop: 4,
             }}
           >
-            Sign in
+            {submitting ? "Входим..." : "Войти"}
           </button>
         </form>
       </div>
@@ -276,6 +330,7 @@ function LoginPage({ onLogin }: { onLogin: (t: string, rt: string, u: User) => v
 type SidebarProps = {
   user: User;
   docCount: number;
+  width: number;
   query: string;
   onQueryChange: (q: string) => void;
   onQuerySubmit: () => void;
@@ -283,11 +338,15 @@ type SidebarProps = {
   section: string;
   onSection: (s: string) => void;
   onLogout: () => void;
+  mobile?: boolean;
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
 };
 
 function Sidebar({
   user,
   docCount,
+  width,
   query,
   onQueryChange,
   onQuerySubmit,
@@ -295,6 +354,9 @@ function Sidebar({
   section,
   onSection,
   onLogout,
+  mobile = false,
+  mobileOpen = false,
+  onCloseMobile,
 }: SidebarProps) {
   function NavItem({
     label,
@@ -310,7 +372,10 @@ function Sidebar({
     const active = section === k;
     return (
       <button
-        onClick={() => onSection(k)}
+        onClick={() => {
+          onSection(k);
+          onCloseMobile?.();
+        }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -341,7 +406,7 @@ function Sidebar({
   return (
     <aside
       style={{
-        width: 220,
+        width,
         height: "100vh",
         background: C.sidebar,
         borderRight: `1px solid ${C.border}`,
@@ -351,6 +416,12 @@ function Sidebar({
         gap: 2,
         flexShrink: 0,
         overflowY: "auto",
+        position: mobile ? "fixed" : "relative",
+        left: mobile ? 0 : undefined,
+        top: mobile ? 0 : undefined,
+        zIndex: mobile ? 30 : undefined,
+        transform: mobile ? (mobileOpen ? "translateX(0)" : "translateX(-105%)") : undefined,
+        transition: mobile ? "transform 150ms ease-out" : undefined,
       }}
     >
       {/* Logo + user avatar */}
@@ -380,9 +451,14 @@ function Sidebar({
           >
             ● audit on
           </span>
+          {mobile && (
+            <button onClick={onCloseMobile} style={{ ...smallBtn, padding: "4px 8px" }}>
+              Закрыть
+            </button>
+          )}
           <button
             onClick={onLogout}
-            title="Sign out"
+            title="Выйти"
             style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0 }}
           >
             <Avatar name={user.fullName} />
@@ -409,7 +485,7 @@ function Sidebar({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && onQuerySubmit()}
-          placeholder="ask, search, or ⌘K…"
+          placeholder="Спросите, найдите, или ⌘K…"
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -445,24 +521,21 @@ function Sidebar({
           flexShrink: 0,
         }}
       >
-        + New
+        + Новый
       </button>
 
-      <SectionLabel>library</SectionLabel>
-      <NavItem label="All docs" count={docCount} k="all_docs" icon="📄" />
-      <NavItem label="Recent" k="recent" icon="🕐" />
-      <NavItem label="Pinned" k="pinned" icon="★" />
-      <NavItem label="Shared with me" k="shared" icon="👤" />
+      <SectionLabel>рабочее пространство</SectionLabel>
+      <NavItem label="Дашборд" k="dashboard" icon="◈" />
+      <NavItem label="Документы" count={docCount} k="documents" icon="📄" />
 
-      <SectionLabel>spaces</SectionLabel>
-      <NavItem label="Contracts" k="contracts" icon="📁" />
-      <NavItem label="Memos" k="memos" icon="📁" />
-      <NavItem label="Reports" k="reports" icon="📁" />
-      <NavItem label="Transcripts" k="transcripts" icon="🎤" />
+      <SectionLabel>сервисы</SectionLabel>
+      <NavItem label="Почта" k="mail" icon="✉" />
+      <NavItem label="Календарь" k="calendar" icon="📅" />
 
-      <SectionLabel>control</SectionLabel>
-      <NavItem label="Audit log" k="audit" icon="○" />
-      {isAdmin(user) && <NavItem label="ACL" k="acl" icon="🔒" />}
+      <SectionLabel>контроль</SectionLabel>
+      {isAdmin(user) && <NavItem label="Журнал аудита" k="audit" icon="○" />}
+      <NavItem label="Настройки" k="settings" icon="☰" />
+      {isAdmin(user) && <NavItem label="ACL (скоро)" k="acl" icon="🔒" />}
     </aside>
   );
 }
@@ -470,91 +543,173 @@ function Sidebar({
 // ─── AiPanel ──────────────────────────────────────────────────────────────────
 
 const SUGGESTIONS = [
-  "summarize 3 newest contracts",
-  'find docs mentioning "Acme renewal"',
+  "суммируй 3 последних контракта",
+  'найди документы с упоминанием "продление Acme"',
 ];
 
 type AiPanelProps = {
   token: string;
+  width: number;
   query: string;
   onQueryChange: (q: string) => void;
   onSessionExpired: () => void;
   onTokenRefresh: (t: string) => void;
 };
 
-function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh }: AiPanelProps) {
+function AiPanel({ token, width, query, onQueryChange, onSessionExpired, onTokenRefresh }: AiPanelProps) {
+  type ThreadView = {
+    id: string;
+    title: string;
+    ideologyProfileId: string;
+    knowledgeSourceIds: string[];
+  };
+  type MentionDoc = { id: string; title: string };
+  type ThreadDetail = {
+    thread: ThreadView;
+    messages: { id: string; role: string; content: string; documentIds: string[] }[];
+    linkedDocumentIds: string[];
+  };
   const [panelQuery, setPanelQuery] = useState("");
-  const [ragResult, setRagResult] = useState<AnswerWithSourcesResponse | null>(null);
+  const [threads, setThreads] = useState<ThreadView[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState("");
+  const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
+  const [mentionCandidates, setMentionCandidates] = useState<MentionDoc[]>([]);
+  const [manualDocId, setManualDocId] = useState("");
+  const [ideologyProfileId, setIdeologyProfileId] = useState("balanced");
+  const [knowledgeSourceIds, setKnowledgeSourceIds] = useState<string[]>(["documents"]);
   const [loading, setLoading] = useState(false);
-  const [action, setAction] = useState<AiAction | null>(null);
-  const [actionError, setActionError] = useState("");
-  const [actionIntent, setActionIntent] = useState("send_email");
-  const [actionOpen, setActionOpen] = useState(false);
+  const [error, setError] = useState("");
 
-  async function runRag(q: string) {
-    if (!q.trim() || !token) return;
+  const effective = panelQuery || query;
+
+  const loadThreadDetail = useCallback(async (threadId: string) => {
+    const res = await fetchWithAuth(`${apiBaseUrl}/assistant/threads/${threadId}`, { method: "GET" }, onTokenRefresh);
+    const detail = await parseAuthenticatedJson<unknown>(res, onSessionExpired);
+    if (!detail || typeof detail !== "object" || !("thread" in detail)) {
+      setThreadDetail(null);
+      setSelectedDocumentIds([]);
+      return;
+    }
+    const typed = detail as ThreadDetail;
+    setThreadDetail(typed);
+    setSelectedDocumentIds(typed.linkedDocumentIds ?? []);
+    setIdeologyProfileId(typed.thread.ideologyProfileId ?? "balanced");
+    setKnowledgeSourceIds(typed.thread.knowledgeSourceIds?.length ? typed.thread.knowledgeSourceIds : ["documents"]);
+  }, [onSessionExpired, onTokenRefresh]);
+
+  const loadThreads = useCallback(async () => {
+    const res = await fetchWithAuth(`${apiBaseUrl}/assistant/threads`, { method: "GET" }, onTokenRefresh);
+    const data = await parseAuthenticatedJson<unknown>(res, onSessionExpired);
+    const normalized = Array.isArray(data) ? (data as ThreadView[]) : [];
+    setThreads(normalized);
+    const nextId = activeThreadId || normalized[0]?.id;
+    if (nextId) {
+      setActiveThreadId(nextId);
+      await loadThreadDetail(nextId);
+    }
+  }, [activeThreadId, loadThreadDetail, onSessionExpired, onTokenRefresh]);
+
+  useEffect(() => {
+    if (!token) return;
+    void loadThreads().catch((e) => setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось загрузить диалоги"));
+  }, [loadThreads, token]);
+
+  async function createThread() {
+    const res = await fetchWithAuth(
+      `${apiBaseUrl}/assistant/threads`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "Новый диалог" }) },
+      onTokenRefresh,
+    );
+    const created = await parseAuthenticatedJson<ThreadView>(res, onSessionExpired);
+    setThreads((prev) => [created, ...prev]);
+    setActiveThreadId(created.id);
+    await loadThreadDetail(created.id);
+  }
+
+  async function sendRag(question: string) {
+    if (!question.trim() || !activeThreadId || !token) return;
     setLoading(true);
-    setRagResult(null);
+    setError("");
     try {
       const res = await fetchWithAuth(
-        `${apiBaseUrl}/rag/answer-with-sources`,
+        `${apiBaseUrl}/assistant/threads/${activeThreadId}/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: q }),
+          body: JSON.stringify({
+            question,
+            documentIds: selectedDocumentIds,
+            knowledgeSourceIds,
+            ideologyProfileId,
+          }),
         },
         onTokenRefresh,
       );
-      setRagResult(await parseAuthenticatedJson<AnswerWithSourcesResponse>(res, onSessionExpired));
+      await parseAuthenticatedJson<unknown>(res, onSessionExpired);
+      await loadThreadDetail(activeThreadId);
+      await loadThreads();
+    } catch (e) {
+      setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось получить ответ ассистента");
     } finally {
       setLoading(false);
     }
   }
 
-  async function draftAction() {
-    setActionError("");
-    try {
-      const res = await fetchWithAuth(
-        `${apiBaseUrl}/actions/draft`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ intent: actionIntent, entities: {} }),
-        },
-        onTokenRefresh,
-      );
-      setAction(await parseAuthenticatedJson<AiAction>(res, onSessionExpired));
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed");
+  async function searchMentions(q: string) {
+    const mentionIndex = q.lastIndexOf("@");
+    if (mentionIndex < 0) {
+      setMentionCandidates([]);
+      return;
     }
-  }
-
-  async function confirmAction() {
-    if (!action) return;
+    const term = q.slice(mentionIndex + 1).trim();
     const res = await fetchWithAuth(
-      `${apiBaseUrl}/actions/${action.id}/confirm`,
-      { method: "POST" },
+      `${apiBaseUrl}/assistant/documents/mentions?q=${encodeURIComponent(term)}&limit=6`,
+      { method: "GET" },
       onTokenRefresh,
     );
-    setAction(await parseAuthenticatedJson<AiAction>(res, onSessionExpired));
+    setMentionCandidates(await parseAuthenticatedJson<MentionDoc[]>(res, onSessionExpired));
   }
 
-  async function executeAction() {
-    if (!action) return;
+  async function linkDocument(documentId: string) {
+    if (!activeThreadId) return;
     const res = await fetchWithAuth(
-      `${apiBaseUrl}/actions/${action.id}/execute`,
-      { method: "POST" },
+      `${apiBaseUrl}/assistant/threads/${activeThreadId}/documents`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentId }) },
       onTokenRefresh,
     );
-    setAction(await parseAuthenticatedJson<AiAction>(res, onSessionExpired));
+    await parseAuthenticatedJson<unknown>(res, onSessionExpired);
+    await loadThreadDetail(activeThreadId);
+    setManualDocId("");
+    setMentionCandidates([]);
   }
 
-  const effective = panelQuery || query;
+  async function uploadAttachment(file: File) {
+    if (!activeThreadId) return;
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetchWithAuth(`${apiBaseUrl}/assistant/threads/${activeThreadId}/uploads`, { method: "POST", body: form }, onTokenRefresh);
+    await parseAuthenticatedJson<unknown>(res, onSessionExpired);
+    await loadThreadDetail(activeThreadId);
+  }
+
+  async function savePreferences() {
+    const res = await fetchWithAuth(
+      `${apiBaseUrl}/assistant/preferences`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ideologyProfileId, knowledgeSourceIds }),
+      },
+      onTokenRefresh,
+    );
+    await parseAuthenticatedJson<unknown>(res, onSessionExpired);
+  }
 
   return (
     <aside
       style={{
-        width: 288,
+        width,
         height: "100vh",
         background: C.bg,
         borderLeft: `1px solid ${C.border}`,
@@ -572,7 +727,7 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>assistant</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>ассистент</span>
           <span
             style={{
               fontSize: 11,
@@ -583,8 +738,30 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
               fontWeight: 500,
             }}
           >
-            grounded
+            с источниками
           </span>
+        </div>
+      </div>
+
+      {/* Threads */}
+      <div style={{ padding: "12px 16px 8px", flexShrink: 0, borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <p style={{ margin: 0, fontSize: 11, color: C.muted, fontWeight: 700, textTransform: "uppercase" }}>диалоги</p>
+          <button style={smallBtn} onClick={() => void createThread()}>+ чат</button>
+        </div>
+        <div style={{ display: "grid", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+          {threads.map((thread) => (
+            <button
+              key={thread.id}
+              onClick={() => {
+                setActiveThreadId(thread.id);
+                void loadThreadDetail(thread.id);
+              }}
+              style={{ ...smallBtn, textAlign: "left", background: activeThreadId === thread.id ? "#edddd4" : C.white }}
+            >
+              {thread.title}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -600,7 +777,7 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
             letterSpacing: "0.07em",
           }}
         >
-          suggested
+          подсказки
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {SUGGESTIONS.map((s) => (
@@ -609,7 +786,7 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
               onClick={() => {
                 setPanelQuery(s);
                 onQueryChange(s);
-                void runRag(s);
+                void sendRag(s);
               }}
               style={{
                 padding: "9px 12px",
@@ -630,128 +807,87 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
         </div>
       </div>
 
-      {/* RAG results */}
+      {/* Assistant results */}
       <div style={{ flex: 1, overflowY: "auto", padding: "8px 16px" }}>
         {loading && (
-          <p style={{ color: C.muted, fontSize: 13 }}>Thinking…</p>
+          <p style={{ color: C.muted, fontSize: 13 }}>Думаю…</p>
         )}
-        {ragResult && (
+        {error && (
+          <p style={{ color: "crimson", fontSize: 13, margin: "0 0 8px" }}>{error}</p>
+        )}
+        {threadDetail && (
           <div>
-            <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, margin: "0 0 8px" }}>
-              {ragResult.answer}
+            <p style={{ margin: "0 0 8px", fontSize: 11, color: C.muted }}>
+              Профиль: {ideologyProfileId} · Источники: {knowledgeSourceIds.join(", ")}
             </p>
-            {ragResult.sources.length > 0 && (
-              <p style={{ fontSize: 11, color: C.muted, margin: 0 }}>
-                Sources:{" "}
-                {ragResult.sources
-                  .slice(0, 3)
-                  .map((s) => s.documentTitle)
-                  .join(", ")}
-              </p>
+            <div style={{ display: "grid", gap: 8 }}>
+              {threadDetail.messages.map((m) => (
+                <div key={m.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, padding: "8px 10px" }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 11, color: C.muted }}>{m.role === "USER" ? "Вы" : "Ассистент"}</p>
+                  <p style={{ margin: 0, fontSize: 13, color: C.text, lineHeight: 1.5 }}>{m.content}</p>
+                </div>
+              ))}
+            </div>
+            {selectedDocumentIds.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <p style={{ margin: "0 0 4px", fontSize: 11, color: C.muted }}>Контекст документов</p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {selectedDocumentIds.map((id) => (
+                    <button key={id} style={{ ...smallBtn, padding: "2px 8px", fontSize: 11 }} onClick={() => setSelectedDocumentIds((prev) => prev.filter((docId) => docId !== id))}>
+                      {id} ×
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", fontSize: 11, color: C.muted }}>Управление контекстом</summary>
+              <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    value={manualDocId}
+                    onChange={(e) => setManualDocId(e.target.value)}
+                    placeholder="ID документа вручную"
+                    style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border}` }}
+                  />
+                  <button style={smallBtn} onClick={() => void linkDocument(manualDocId)}>Привязать</button>
+                </div>
+                <label style={{ ...smallBtn, display: "inline-block", textAlign: "center", cursor: "pointer" }}>
+                  Загрузить файл в чат
+                  <input type="file" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && void uploadAttachment(e.target.files[0])} />
+                </label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <select value={ideologyProfileId} onChange={(e) => setIdeologyProfileId(e.target.value)} style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border}` }}>
+                    <option value="balanced">balanced</option>
+                    <option value="strict">strict</option>
+                    <option value="creative">creative</option>
+                  </select>
+                  <button style={smallBtn} onClick={() => void savePreferences()}>Сохранить</button>
+                </div>
+              </div>
+            </details>
+            {!!mentionCandidates.length && (
+              <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                {mentionCandidates.map((candidate) => (
+                  <div
+                    key={candidate.id}
+                    style={{
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      background: C.white,
+                      padding: "6px 8px",
+                      cursor: "pointer",
+                    }}
+                    onClick={() => void linkDocument(candidate.id)}
+                  >
+                    @{candidate.title}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
 
-        {/* Action flow */}
-        <div style={{ marginTop: 12 }}>
-          <button
-            onClick={() => setActionOpen((v) => !v)}
-            style={{
-              ...smallBtn,
-              fontSize: 11,
-              color: C.muted,
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            {actionOpen ? "▾" : "▸"} AI Action
-          </button>
-
-          {actionOpen && (
-            <div
-              style={{
-                marginTop: 8,
-                padding: 10,
-                background: C.white,
-                borderRadius: 8,
-                border: `1px solid ${C.border}`,
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-              }}
-            >
-              {!action ? (
-                <>
-                  <input
-                    value={actionIntent}
-                    onChange={(e) => setActionIntent(e.target.value)}
-                    placeholder="intent (e.g. send_email)"
-                    style={{
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: `1px solid ${C.border}`,
-                      fontSize: 12,
-                      fontFamily: "inherit",
-                      background: C.bg,
-                      outline: "none",
-                    }}
-                  />
-                  <button
-                    onClick={() => void draftAction()}
-                    style={{ ...smallBtn, background: C.orange, color: C.white, border: "none" }}
-                  >
-                    Draft action
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>
-                      {action.intent}
-                    </span>
-                    <StatusBadge status={action.status} />
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    {action.status === "DRAFT" && (
-                      <button
-                        onClick={() => void confirmAction()}
-                        style={{ ...smallBtn }}
-                      >
-                        Confirm
-                      </button>
-                    )}
-                    {action.status === "CONFIRMED" && (
-                      <button
-                        onClick={() => void executeAction()}
-                        style={{
-                          ...smallBtn,
-                          background: C.green,
-                          color: C.white,
-                          border: "none",
-                        }}
-                      >
-                        Execute
-                      </button>
-                    )}
-                    {action.status === "EXECUTED" && (
-                      <span style={{ fontSize: 12, color: C.green }}>✓ Executed</span>
-                    )}
-                    <button
-                      onClick={() => setAction(null)}
-                      style={{ ...smallBtn, color: C.muted }}
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </>
-              )}
-              {actionError && (
-                <p style={{ color: "crimson", fontSize: 12, margin: 0 }}>{actionError}</p>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Input */}
@@ -762,9 +898,10 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
             onChange={(e) => {
               setPanelQuery(e.target.value);
               onQueryChange(e.target.value);
+              void searchMentions(e.target.value);
             }}
-            onKeyDown={(e) => e.key === "Enter" && void runRag(effective)}
-            placeholder="ask about your docs…"
+            onKeyDown={(e) => e.key === "Enter" && void sendRag(effective)}
+            placeholder="Спросите по вашим документам…"
             style={{
               flex: 1,
               padding: "8px 10px",
@@ -777,8 +914,8 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
             }}
           />
           <button
-            onClick={() => void runRag(effective)}
-            disabled={!effective.trim() || loading || !token}
+            onClick={() => void sendRag(effective)}
+            disabled={!effective.trim() || loading || !token || !activeThreadId}
             style={{
               padding: "8px 12px",
               borderRadius: 8,
@@ -794,7 +931,7 @@ function AiPanel({ token, query, onQueryChange, onSessionExpired, onTokenRefresh
           </button>
         </div>
         <p style={{ fontSize: 10, color: C.muted, margin: "6px 0 0", textAlign: "center" }}>
-          RAG · embeddings :8001 · ai :8002
+          AI-ассистент · RAG + действия через сервер
         </p>
       </div>
     </aside>
@@ -872,14 +1009,14 @@ function DictateBtn({
           const payload = await parseAuthenticatedJson<{ text: string }>(res, onSessionExpired);
           onTranscript(payload.text);
         } catch (e) {
-          setError(e instanceof Error ? e.message : "STT error");
+          setError(e instanceof Error ? e.message : "Ошибка распознавания речи");
         }
       };
       mr.start();
       mrRef.current = mr;
       setRecording(true);
     } catch {
-      setError("Mic access denied");
+      setError("Доступ к микрофону отклонен");
     }
   }
 
@@ -901,7 +1038,7 @@ function DictateBtn({
           gap: 5,
         }}
       >
-        🎤 {recording ? "stop" : "dictate"}
+        🎤 {recording ? "стоп" : "диктовка"}
       </button>
       {error && (
         <span
@@ -947,6 +1084,8 @@ function DocTable({
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [filterActive, setFilterActive] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const fileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -970,7 +1109,7 @@ function DocTable({
         const payload = await parseAuthenticatedJson<DocumentPage>(res, onSessionExpired);
         setDocPage(payload);
       } catch (e) {
-        if (e instanceof Error && e.message !== "Unauthorized") setError(e.message);
+        if (e instanceof Error && e.message !== "Unauthorized") setError(mapApiErrorToMessage(e.message));
       } finally {
         setLoading(false);
       }
@@ -1002,7 +1141,7 @@ function DocTable({
       await parseAuthenticatedJson<unknown>(res, onSessionExpired);
       await loadDocs(0);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось загрузить файл");
     }
   }
 
@@ -1026,8 +1165,10 @@ function DocTable({
           {sectionTitle(section)}
         </h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <TopBarBtn>filter</TopBarBtn>
-          <TopBarBtn>sort</TopBarBtn>
+          <TopBarBtn onClick={() => setFilterActive((v) => !v)}>{filterActive ? "Фильтр: вкл" : "Фильтр"}</TopBarBtn>
+          <TopBarBtn onClick={() => setSortOrder((v) => (v === "newest" ? "oldest" : "newest"))}>
+            {sortOrder === "newest" ? "Сортировка: новые" : "Сортировка: старые"}
+          </TopBarBtn>
           <DictateBtn
             token={token}
             onSessionExpired={onSessionExpired}
@@ -1043,6 +1184,11 @@ function DocTable({
         {error && (
           <p style={{ color: "crimson", fontSize: 13, padding: "8px 0" }}>{error}</p>
         )}
+        <p style={{ color: C.muted, fontSize: 12, margin: "8px 0 6px" }}>
+          {filterActive
+            ? "Показаны документы с активным фильтром (демо-режим)."
+            : "Фильтр выключен. Показаны все документы текущего раздела."}
+        </p>
 
         {/* Column headers */}
         <div
@@ -1056,7 +1202,7 @@ function DocTable({
             zIndex: 1,
           }}
         >
-          {["name", "owner / ACL", "updated", "status", ""].map((h) => (
+          {["название", "владелец / ACL", "обновлено", "статус", ""].map((h) => (
             <div
               key={h}
               style={{
@@ -1075,10 +1221,13 @@ function DocTable({
         </div>
 
         {loading && !docs.length && (
-          <p style={{ color: C.muted, fontSize: 13, padding: "16px 0" }}>Loading…</p>
+          <p style={{ color: C.muted, fontSize: 13, padding: "16px 0" }}>Загрузка документов…</p>
         )}
         {!loading && !docs.length && (
-          <p style={{ color: C.muted, fontSize: 13, padding: "16px 0" }}>No documents found.</p>
+          <div style={{ color: C.muted, fontSize: 13, padding: "16px 0", display: "grid", gap: 8 }}>
+            <p style={{ margin: 0 }}>Документы пока не найдены.</p>
+            <p style={{ margin: 0 }}>Нажмите «+ Новый», чтобы загрузить первый документ в систему.</p>
+          </div>
         )}
 
         {docs.map((doc, i) => (
@@ -1102,7 +1251,7 @@ function DocTable({
               }}
               style={smallBtn}
             >
-              ← Prev
+              ← Назад
             </button>
             <span style={{ fontSize: 13, color: C.muted }}>
               {page + 1} / {docPage.totalPages}
@@ -1116,7 +1265,7 @@ function DocTable({
               }}
               style={smallBtn}
             >
-              Next →
+              Далее →
             </button>
           </div>
         )}
@@ -1215,13 +1364,11 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
   const [fullTextLoading, setFullTextLoading] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const authH = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
-
   async function loadCard() {
     if (!documentId || !token) return;
     setLoading(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/documents/${documentId}`, { headers: authH });
+      const res = await fetchWithAuth(`${apiBaseUrl}/documents/${documentId}`, {}, onTokenRefresh);
       const payload = await parseAuthenticatedJson<DocumentView>(res, onSessionExpired);
       setDoc(payload);
       setTagInput(payload.tags.join(", "));
@@ -1237,16 +1384,15 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
     if (!documentId || !token || !versionFile) return;
     const form = new FormData();
     form.append("file", versionFile);
-    const res = await fetch(`${apiBaseUrl}/documents/${documentId}/versions`, {
+    const res = await fetchWithAuth(`${apiBaseUrl}/documents/${documentId}/versions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
       body: form,
-    });
+    }, onTokenRefresh);
     const payload = await parseAuthenticatedJson<DocumentView>(res, onSessionExpired);
     setDoc(payload);
     setTagInput(payload.tags.join(", "));
     setVersionFile(null);
-    setMsg("Version uploaded.");
+    setMsg("Версия загружена.");
   }
 
   async function saveTags() {
@@ -1255,24 +1401,22 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
-    const res = await fetch(`${apiBaseUrl}/documents/${documentId}`, {
+    const res = await fetchWithAuth(`${apiBaseUrl}/documents/${documentId}`, {
       method: "PATCH",
-      headers: authH,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tags }),
-    });
+    }, onTokenRefresh);
     const payload = await parseAuthenticatedJson<DocumentView>(res, onSessionExpired);
     setDoc(payload);
     setTagInput(payload.tags.join(", "));
-    setMsg("Tags updated.");
+    setMsg("Теги обновлены.");
   }
 
   async function loadFullText() {
     if (!documentId || !token) return;
     setFullTextLoading(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/documents/${documentId}/extracted-text`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetchWithAuth(`${apiBaseUrl}/documents/${documentId}/extracted-text`, {}, onTokenRefresh);
       if (res.status === 401 || res.status === 403) {
         onSessionExpired();
         return;
@@ -1291,13 +1435,13 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, token]);
 
-  if (loading && !doc) return <p style={{ padding: 24, color: C.muted }}>Loading…</p>;
+  if (loading && !doc) return <p style={{ padding: 24, color: C.muted }}>Загрузка…</p>;
   if (!doc)
     return (
       <div style={{ padding: 24 }}>
-        <p style={{ color: C.muted }}>Document not loaded.</p>
+        <p style={{ color: C.muted }}>Документ не загружен.</p>
         <button style={smallBtn} onClick={() => void loadCard()}>
-          Retry
+          Повторить
         </button>
       </div>
     );
@@ -1335,9 +1479,9 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
 
         {/* Meta cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16 }}>
-          <MetaCard label="Owner" value={doc.ownerId} />
-          <MetaCard label="Type" value={doc.type || "—"} />
-          <MetaCard label="Storage" value={doc.storageRef || "—"} />
+          <MetaCard label="Владелец" value={doc.ownerId} />
+          <MetaCard label="Тип" value={doc.type || "—"} />
+          <MetaCard label="Хранилище" value={doc.storageRef || "—"} />
         </div>
 
         {/* Tags */}
@@ -1345,7 +1489,7 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
           <input
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
-            placeholder="tags, comma-separated"
+            placeholder="теги через запятую"
             style={{
               flex: 1,
               maxWidth: 480,
@@ -1362,18 +1506,23 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
             onClick={() => void saveTags()}
             style={{ ...smallBtn, background: C.orange, color: C.white, border: "none" }}
           >
-            Save tags
+            Сохранить теги
           </button>
         </div>
 
         {/* Preview */}
-        <Section label="Preview">
-          <DocumentPreview token={token} documentId={doc.id} contentType={ct} />
+        <Section label="Предпросмотр">
+          <DocumentPreview
+            documentId={doc.id}
+            contentType={ct}
+            onSessionExpired={onSessionExpired}
+            onTokenRefresh={onTokenRefresh}
+          />
         </Section>
 
         {/* Extracted text */}
         <Section
-          label={`Extracted text (${doc.extractedTextLength} chars${doc.extractedTextTruncated ? ", truncated" : ""})`}
+          label={`Извлеченный текст (${doc.extractedTextLength} символов${doc.extractedTextTruncated ? ", усечено" : ""})`}
         >
           <pre
             style={{
@@ -1397,7 +1546,7 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
             onClick={() => void loadFullText()}
             disabled={fullTextLoading}
           >
-            {fullTextLoading ? "Loading…" : "Load full text"}
+            {fullTextLoading ? "Загрузка…" : "Загрузить полный текст"}
           </button>
           {fullText !== null && (
             <pre
@@ -1419,7 +1568,7 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
         </Section>
 
         {/* Versions */}
-        <Section label="Versions">
+        <Section label="Версии">
           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
             {doc.versions.map((v) => (
               <div
@@ -1440,7 +1589,7 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
                 <span style={{ flex: 1 }}>{v.fileName}</span>
                 <span style={{ color: C.muted }}>{v.contentType}</span>
                 <span style={{ color: C.muted }}>{(v.sizeBytes / 1024).toFixed(1)} KB</span>
-                {v.latest && <span style={{ color: C.green, fontSize: 11 }}>● latest</span>}
+                {v.latest && <span style={{ color: C.green, fontSize: 11 }}>● текущая</span>}
               </div>
             ))}
           </div>
@@ -1455,7 +1604,7 @@ function DocumentCardPage({ token, onSessionExpired, onTokenRefresh }: DocCardPr
               disabled={!versionFile}
               style={{ ...smallBtn, background: C.orange, color: C.white, border: "none" }}
             >
-              Add version
+              Добавить версию
             </button>
           </div>
         </Section>
@@ -1525,13 +1674,15 @@ function MetaCard({ label, value }: { label: string; value: string }) {
 // ─── DocumentPreview ──────────────────────────────────────────────────────────
 
 function DocumentPreview({
-  token,
   documentId,
   contentType,
+  onSessionExpired,
+  onTokenRefresh,
 }: {
-  token: string;
   documentId: string;
   contentType: string;
+  onSessionExpired: () => void;
+  onTokenRefresh: (t: string) => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
@@ -1549,12 +1700,13 @@ function DocumentPreview({
 
     async function run() {
       try {
-        const res = await fetch(
+        const res = await fetchWithAuth(
           `${apiBaseUrl}/documents/${documentId}/binary?disposition=inline`,
-          { headers: { Authorization: `Bearer ${token}` } },
+          {},
+          onTokenRefresh,
         );
         if (res.status === 401 || res.status === 403) {
-          setError("Unauthorized");
+          onSessionExpired();
           return;
         }
         if (!res.ok) {
@@ -1579,13 +1731,13 @@ function DocumentPreview({
       revoked = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [token, documentId, contentType]);
+  }, [documentId, contentType, onSessionExpired, onTokenRefresh]);
 
-  if (!contentType) return <p style={{ color: C.muted, fontSize: 13 }}>No version metadata.</p>;
+  if (!contentType) return <p style={{ color: C.muted, fontSize: 13 }}>Нет метаданных версии.</p>;
   if (!contentType.includes("pdf") && !contentType.includes("text/plain"))
     return (
       <p style={{ color: C.muted, fontSize: 13 }}>
-        Preview available for PDF and plain text. This file is {contentType}.
+        Предпросмотр доступен для PDF и обычного текста. Тип текущего файла: {contentType}.
       </p>
     );
   if (error) return <p style={{ color: "crimson", fontSize: 13 }}>{error}</p>;
@@ -1609,12 +1761,515 @@ function DocumentPreview({
   if (contentType.includes("pdf") && blobUrl)
     return (
       <iframe
-        title="Document preview"
+        title="Предпросмотр документа"
         src={blobUrl}
         style={{ width: "100%", height: 420, border: `1px solid ${C.border}`, borderRadius: 8 }}
       />
     );
-  return <p style={{ color: C.muted, fontSize: 13 }}>Loading preview…</p>;
+  return <p style={{ color: C.muted, fontSize: 13 }}>Загрузка предпросмотра…</p>;
+}
+
+function Card({
+  title,
+  value,
+  subtitle,
+}: {
+  title: string;
+  value: string;
+  subtitle?: string;
+}) {
+  return (
+    <div
+      style={{
+        background: C.white,
+        border: `1px solid ${C.border}`,
+        borderRadius: 10,
+        padding: 14,
+      }}
+    >
+      <p style={{ margin: "0 0 8px", fontSize: 12, color: C.muted }}>{title}</p>
+      <p style={{ margin: 0, fontSize: 24, fontWeight: 700, color: C.text }}>{value}</p>
+      {subtitle && <p style={{ margin: "8px 0 0", fontSize: 12, color: C.muted }}>{subtitle}</p>}
+    </div>
+  );
+}
+
+function DashboardPage({
+  token,
+  onSessionExpired,
+  onTokenRefresh,
+}: {
+  token: string;
+  onSessionExpired: () => void;
+  onTokenRefresh: (t: string) => void;
+}) {
+  const [docCount, setDocCount] = useState<number>(0);
+  const [actionCount, setActionCount] = useState<number>(0);
+  const [executedCount, setExecutedCount] = useState<number>(0);
+  const [auditCount, setAuditCount] = useState<number>(0);
+  const [systemHealth, setSystemHealth] = useState("unknown");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMetrics() {
+      setError("");
+      try {
+        const [docsRes, actionsRes, auditRes, healthRes] = await Promise.all([
+          fetchWithAuth(`${apiBaseUrl}/documents?page=0&size=1`, {}, onTokenRefresh),
+          fetchWithAuth(`${apiBaseUrl}/actions`, {}, onTokenRefresh),
+          fetchWithAuth(`${apiBaseUrl}/audit`, {}, onTokenRefresh),
+          fetch(`${apiBaseUrl}/health`),
+        ]);
+
+        const docs = await parseAuthenticatedJson<DocumentPage>(docsRes, onSessionExpired);
+        if (!cancelled) {
+          setDocCount(docs.totalElements);
+        }
+
+        if (actionsRes.ok) {
+          const actions = await parseAuthenticatedJson<AiAction[]>(actionsRes, onSessionExpired);
+          if (!cancelled) {
+            setActionCount(actions.length);
+            setExecutedCount(actions.filter((a) => a.status === "EXECUTED").length);
+          }
+        }
+
+        if (auditRes.ok) {
+          const audits = await parseAuthenticatedJson<unknown[]>(auditRes, onSessionExpired);
+          if (!cancelled) {
+            setAuditCount(audits.length);
+          }
+        } else if (!cancelled) {
+          setAuditCount(0);
+        }
+
+        if (!cancelled) {
+          setSystemHealth(healthRes.ok ? "ok" : "degraded");
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось загрузить метрики");
+          setSystemHealth("degraded");
+        }
+      }
+    }
+
+    void loadMetrics();
+    return () => {
+      cancelled = true;
+    };
+
+  }, [onSessionExpired, onTokenRefresh, token]);
+
+  return (
+    <div style={{ padding: 24 }}>
+      <h2 style={{ margin: "0 0 14px", color: C.text }}>Дашборд</h2>
+      {error && <p style={{ color: "crimson", margin: "0 0 12px" }}>{error}</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 10 }}>
+        <Card title="Документы" value={String(docCount)} subtitle="Всего документов в системе" />
+        <Card title="AI-действия" value={String(actionCount)} subtitle={`Выполнено: ${executedCount}`} />
+        <Card title="Аудит-события" value={String(auditCount)} subtitle="Записи журнала аудита (доступные текущей роли)" />
+        <Card title="Состояние системы" value={systemHealth === "ok" ? "OK" : "DEGRADED"} subtitle={`API: ${apiBaseUrl}`} />
+      </div>
+      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+        <p style={{ margin: "0 0 8px", color: C.text, fontSize: 13, fontWeight: 600 }}>Операционный срез</p>
+        <p style={{ margin: "0 0 6px", color: C.muted, fontSize: 12 }}>
+          Исполнение AI-действий: {actionCount === 0 ? "данные отсутствуют" : `${executedCount} из ${actionCount} в статусе EXECUTED`}.
+        </p>
+        <p style={{ margin: 0, color: C.muted, fontSize: 12 }}>
+          Аудит: {auditCount > 0 ? "журнал доступен и пополняется" : "нет доступных записей или ограничен доступ по роли"}.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function RagPage({
+  token,
+  onSessionExpired,
+  onTokenRefresh,
+}: {
+  token: string;
+  onSessionExpired: () => void;
+  onTokenRefresh: (t: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<AnswerWithSourcesResponse | null>(null);
+  const [error, setError] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const [lastQuestion, setLastQuestion] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
+
+  async function runRag() {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setValidationError("Введите вопрос перед отправкой.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setValidationError("");
+    try {
+      const res = await fetchWithAuth(
+        `${apiBaseUrl}/rag/answer-with-sources`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: trimmed }),
+        },
+        onTokenRefresh,
+      );
+      setResult(await parseAuthenticatedJson<AnswerWithSourcesResponse>(res, onSessionExpired));
+      setLastQuestion(trimmed);
+      setHistory((prev) => [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, 3));
+    } catch (e) {
+      setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Ошибка RAG");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+      <h2 style={{ margin: 0, color: C.text }}>RAG-ассистент</h2>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (validationError && e.target.value.trim()) {
+              setValidationError("");
+            }
+          }}
+          placeholder="Задайте вопрос по документам…"
+          style={{
+            flex: 1,
+            padding: "10px 12px",
+            borderRadius: 8,
+            border: `1px solid ${C.border}`,
+            background: C.white,
+            fontFamily: "inherit",
+          }}
+        />
+        <button
+          onClick={() => void runRag()}
+          disabled={loading || !query.trim()}
+          style={{ ...smallBtn, background: C.orange, color: C.white, border: "none", opacity: loading || !query.trim() ? 0.6 : 1 }}
+        >
+          {loading ? "..." : "Спросить"}
+        </button>
+      </div>
+      {validationError && <p style={{ color: "crimson", margin: 0 }}>{validationError}</p>}
+      {error && <p style={{ color: "crimson", margin: 0 }}>{error}</p>}
+      {lastQuestion && (
+        <p style={{ margin: 0, color: C.muted, fontSize: 12 }}>
+          Последний вопрос: <strong style={{ color: C.text }}>{lastQuestion}</strong>
+        </p>
+      )}
+      {!!history.length && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {history.map((item) => (
+            <button
+              key={item}
+              onClick={() => setQuery(item)}
+              style={{ ...smallBtn, padding: "2px 10px", fontSize: 11 }}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      )}
+      {result && (
+        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+          <p style={{ margin: "0 0 10px", color: C.text, lineHeight: 1.6 }}>{result.answer}</p>
+          <p style={{ margin: 0, color: C.muted, fontSize: 12 }}>
+            Источники: {result.sources.map((s) => s.documentTitle).join(", ") || "—"}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionsPage({
+  token,
+  onSessionExpired,
+  onTokenRefresh,
+}: {
+  token: string;
+  onSessionExpired: () => void;
+  onTokenRefresh: (t: string) => void;
+}) {
+  const [intent, setIntent] = useState("send_email");
+  const [action, setAction] = useState<AiAction | null>(null);
+  const [error, setError] = useState("");
+  const [loadingDraft, setLoadingDraft] = useState(false);
+  const navigate = useNavigate();
+
+  async function draft() {
+    setError("");
+    const normalizedIntent = intent.trim();
+    if (!normalizedIntent) {
+      setError("Укажите intent для черновика.");
+      return;
+    }
+    setLoadingDraft(true);
+    try {
+      const res = await fetchWithAuth(
+        `${apiBaseUrl}/actions/draft`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ intent: normalizedIntent, entities: {} }),
+        },
+        onTokenRefresh,
+      );
+      setAction(await parseAuthenticatedJson<AiAction>(res, onSessionExpired));
+    } catch (e) {
+      setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось создать черновик");
+    } finally {
+      setLoadingDraft(false);
+    }
+  }
+
+  const stage = !action ? 1 : action.status === "DRAFT" ? 2 : action.status === "CONFIRMED" ? 3 : 4;
+
+  return (
+    <div style={{ padding: 24 }}>
+      <h2 style={{ margin: "0 0 14px", color: C.text }}>AI-действия</h2>
+      <p style={{ margin: "0 0 12px", color: C.muted, fontSize: 13 }}>
+        Шаг {stage}/4: создание черновика → подтверждение → выполнение.
+      </p>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+        <input
+          value={intent}
+          onChange={(e) => setIntent(e.target.value)}
+          placeholder="intent (например, send_email)"
+          style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, width: 280 }}
+        />
+        <button
+          onClick={() => void draft()}
+          disabled={loadingDraft || !intent.trim()}
+          style={{ ...smallBtn, background: C.orange, color: C.white, border: "none", opacity: loadingDraft || !intent.trim() ? 0.6 : 1 }}
+        >
+          {loadingDraft ? "..." : "Создать черновик"}
+        </button>
+      </div>
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {!intent.trim() && <p style={{ margin: "0 0 12px", color: C.muted }}>Заполните intent, чтобы разблокировать создание черновика.</p>}
+      {action && (
+        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
+          <p style={{ margin: "0 0 8px", color: C.text }}>
+            Действие: <strong>{action.intent}</strong> ({action.status})
+          </p>
+          <p style={{ margin: "0 0 8px", color: C.muted, fontSize: 12 }}>
+            {action.status === "DRAFT" && "Сначала подтвердите действие, затем станет доступно выполнение."}
+            {action.status === "CONFIRMED" && "Действие подтверждено. Теперь можно запускать выполнение."}
+            {action.status === "EXECUTED" && "Действие уже выполнено. Можно создать новый черновик."}
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => navigate(`/confirmation?actionId=${action.id}`)}
+              disabled={action.status !== "DRAFT"}
+              style={smallBtn}
+            >
+              Шаг подтверждения
+            </button>
+            <button
+              onClick={() => navigate(`/execution?actionId=${action.id}`)}
+              disabled={action.status === "DRAFT"}
+              style={smallBtn}
+            >
+              Шаг выполнения
+            </button>
+          </div>
+        </div>
+      )}
+      {!token && <p style={{ color: C.muted }}>Требуется авторизация.</p>}
+    </div>
+  );
+}
+
+function StaticPage({
+  title,
+  description,
+  hint,
+  actionLabel,
+}: {
+  title: string;
+  description: string;
+  hint?: string;
+  actionLabel?: string;
+}) {
+  return (
+    <div style={{ padding: 24 }}>
+      <h2 style={{ margin: "0 0 10px", color: C.text }}>{title}</h2>
+      <p style={{ margin: 0, color: C.muted, lineHeight: 1.6 }}>{description}</p>
+      <div style={{ marginTop: 14, maxWidth: 560, border: `1px dashed ${C.border}`, borderRadius: 10, padding: 14, background: C.white }}>
+        <p style={{ margin: 0, color: C.text, fontSize: 13 }}>
+          {hint ?? "Раздел находится в процессе внедрения. Данные появятся после настройки backend-коннекторов."}
+        </p>
+        {actionLabel && (
+          <button style={{ ...smallBtn, marginTop: 10 }}>{actionLabel}</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsPage({ user }: { user: User }) {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [emailDigest, setEmailDigest] = useState(true);
+
+  return (
+    <div style={{ padding: 24 }}>
+      <h2 style={{ margin: "0 0 10px", color: C.text }}>Настройки</h2>
+      <p style={{ margin: "0 0 14px", color: C.muted }}>
+        Пользователь: {user.fullName} ({user.email})
+      </p>
+
+      <div
+        style={{
+          maxWidth: 640,
+          border: `1px solid ${C.border}`,
+          borderRadius: 10,
+          background: C.white,
+          padding: 14,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <p style={{ margin: 0, color: C.text, fontSize: 14, fontWeight: 600 }}>Тема интерфейса</p>
+            <p style={{ margin: "4px 0 0", color: C.muted, fontSize: 12 }}>
+              Переключение между светлой и тёмной темой (демо-настройка).
+            </p>
+          </div>
+          <button
+            onClick={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
+            style={smallBtn}
+          >
+            {theme === "light" ? "Светлая" : "Тёмная"}
+          </button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <p style={{ margin: 0, color: C.text, fontSize: 14, fontWeight: 600 }}>Email-дайджест</p>
+            <p style={{ margin: "4px 0 0", color: C.muted, fontSize: 12 }}>
+              Ежедневная сводка по документам и активности.
+            </p>
+          </div>
+          <button onClick={() => setEmailDigest((prev) => !prev)} style={smallBtn}>
+            {emailDigest ? "Включен" : "Выключен"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmationPage({
+  onSessionExpired,
+  onTokenRefresh,
+}: {
+  onSessionExpired: () => void;
+  onTokenRefresh: (t: string) => void;
+}) {
+  const [search] = useState(() => new URLSearchParams(window.location.search));
+  const actionId = search.get("actionId");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  async function confirm() {
+    if (!actionId) return;
+    setLoading(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetchWithAuth(`${apiBaseUrl}/actions/${actionId}/confirm`, { method: "POST" }, onTokenRefresh);
+      const payload = await parseAuthenticatedJson<AiAction>(res, onSessionExpired);
+      setStatus(payload.status);
+    } catch (e) {
+      setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось подтвердить действие");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: C.bg }}>
+      <div style={{ width: 420, background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
+        <h2 style={{ margin: "0 0 8px", color: C.text }}>Подтверждение</h2>
+        <p style={{ margin: "0 0 12px", color: C.muted }}>ID действия: {actionId ?? "—"}</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => void confirm()} disabled={!actionId || loading} style={smallBtn}>
+            {loading ? "..." : "Подтвердить действие"}
+          </button>
+          <button onClick={() => navigate("/actions")} style={smallBtn}>
+            Назад
+          </button>
+        </div>
+        {status && <p style={{ margin: "10px 0 0", color: C.green }}>Статус: {status}</p>}
+        {error && <p style={{ margin: "10px 0 0", color: "crimson" }}>{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+function ExecutionResultPage({
+  onSessionExpired,
+  onTokenRefresh,
+}: {
+  onSessionExpired: () => void;
+  onTokenRefresh: (t: string) => void;
+}) {
+  const [search] = useState(() => new URLSearchParams(window.location.search));
+  const actionId = search.get("actionId");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  async function execute() {
+    if (!actionId) return;
+    setLoading(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetchWithAuth(`${apiBaseUrl}/actions/${actionId}/execute`, { method: "POST" }, onTokenRefresh);
+      const payload = await parseAuthenticatedJson<AiAction>(res, onSessionExpired);
+      setStatus(payload.status);
+    } catch (e) {
+      setError(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось выполнить действие");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: C.bg }}>
+      <div style={{ width: 420, background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
+        <h2 style={{ margin: "0 0 8px", color: C.text }}>Результат выполнения</h2>
+        <p style={{ margin: "0 0 12px", color: C.muted }}>ID действия: {actionId ?? "—"}</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => void execute()} disabled={!actionId || loading} style={smallBtn}>
+            {loading ? "..." : "Выполнить действие"}
+          </button>
+          <button onClick={() => navigate("/actions")} style={smallBtn}>
+            Назад
+          </button>
+        </div>
+        {status && <p style={{ margin: "10px 0 0", color: C.green }}>Статус: {status}</p>}
+        {error && <p style={{ margin: "10px 0 0", color: "crimson" }}>{error}</p>}
+      </div>
+    </div>
+  );
 }
 
 // ─── WorkspacePage ────────────────────────────────────────────────────────────
@@ -1630,11 +2285,67 @@ function WorkspacePage({
   onSessionExpired: () => void;
   onTokenRefresh: (t: string) => void;
 }) {
-  const [section, setSection] = useState("all_docs");
+  const location = useLocation();
   const [query, setQuery] = useState("");
   const [docCount, setDocCount] = useState(0);
   const [uploadTrigger, setUploadTrigger] = useState(0);
+  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [aiPanelWidth, setAiPanelWidth] = useState(288);
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 980);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const navigate = useNavigate();
+  const section = location.pathname.split("/")[1] || "dashboard";
+
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 980);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (!isNarrow) {
+      setMobileSidebarOpen(false);
+    }
+  }, [isNarrow]);
+
+  useEffect(() => {
+    if (isNarrow) return;
+
+    let dragMode: "sidebar" | "ai" | null = null;
+
+    const onMouseMove = (event: MouseEvent) => {
+      if (!dragMode) return;
+      if (dragMode === "sidebar") {
+        const nextWidth = Math.min(Math.max(event.clientX, 180), 420);
+        setSidebarWidth(nextWidth);
+        return;
+      }
+      const nextWidth = Math.min(Math.max(window.innerWidth - event.clientX, 240), 560);
+      setAiPanelWidth(nextWidth);
+    };
+
+    const onMouseUp = () => {
+      dragMode = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    const onStartResize = (evt: Event) => {
+      const customEvent = evt as CustomEvent<"sidebar" | "ai">;
+      dragMode = customEvent.detail;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("dmis:resize:start", onStartResize as EventListener);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("dmis:resize:start", onStartResize as EventListener);
+    };
+  }, [isNarrow]);
 
   useEffect(() => {
     if (!token) return;
@@ -1645,8 +2356,16 @@ function WorkspacePage({
   }, [token, onSessionExpired, onTokenRefresh]);
 
   function handleSection(s: string) {
-    setSection(s);
-    navigate("/");
+    const map: Record<string, string> = {
+      dashboard: "/dashboard",
+      documents: "/documents",
+      mail: "/mail",
+      calendar: "/calendar",
+      audit: "/audit",
+      settings: "/settings",
+      acl: "/settings",
+    };
+    navigate(map[s] ?? "/dashboard");
   }
 
   return (
@@ -1663,6 +2382,7 @@ function WorkspacePage({
       <Sidebar
         user={user}
         docCount={docCount}
+        width={isNarrow ? 220 : sidebarWidth}
         query={query}
         onQueryChange={setQuery}
         onQuerySubmit={() => {}}
@@ -1670,24 +2390,118 @@ function WorkspacePage({
         section={section}
         onSection={handleSection}
         onLogout={onSessionExpired}
+        mobile={isNarrow}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
       />
+      {isNarrow && mobileSidebarOpen && (
+        <div
+          onClick={() => setMobileSidebarOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.2)",
+            zIndex: 25,
+          }}
+        />
+      )}
+      {isNarrow && !mobileSidebarOpen && (
+        <button
+          onClick={() => setMobileSidebarOpen(true)}
+          style={{
+            position: "fixed",
+            top: 10,
+            left: 10,
+            zIndex: 20,
+            ...smallBtn,
+            background: C.white,
+          }}
+        >
+          Меню
+        </button>
+      )}
 
       {/* Center column */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {!isNarrow && (
+        <div
+          onMouseDown={() => window.dispatchEvent(new CustomEvent("dmis:resize:start", { detail: "sidebar" }))}
+          style={{
+            width: 6,
+            cursor: "col-resize",
+            background: "transparent",
+            borderRight: `1px solid ${C.border}`,
+            borderLeft: `1px solid ${C.border}`,
+            flexShrink: 0,
+          }}
+          title="Изменить ширину левой панели"
+        />
+      )}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", marginLeft: isNarrow ? 0 : undefined }}>
         <Routes>
           <Route
-            path="/"
+            path="/dashboard"
+            element={
+              <DashboardPage
+                token={token}
+                onSessionExpired={onSessionExpired}
+                onTokenRefresh={onTokenRefresh}
+              />
+            }
+          />
+          <Route
+            path="/documents"
             element={
               <DocTable
                 token={token}
                 user={user}
                 onSessionExpired={onSessionExpired}
                 onTokenRefresh={onTokenRefresh}
-                section={section}
+                section="documents"
                 uploadTrigger={uploadTrigger}
                 onQueryChange={setQuery}
               />
             }
+          />
+          <Route
+            path="/mail"
+            element={
+              <StaticPage
+                title="Почта"
+                description="Почтовый модуль находится в активной разработке."
+                hint="Здесь будет полноценный интерфейс писем, черновиков и папок."
+                actionLabel="Открыть входящие"
+              />
+            }
+          />
+          <Route
+            path="/calendar"
+            element={
+              <StaticPage
+                title="Календарь"
+                description="Календарный модуль находится в активной разработке."
+                hint="Здесь будет полноценный интерфейс встреч, расписания и занятости."
+                actionLabel="Открыть календарь"
+              />
+            }
+          />
+          <Route
+            path="/audit"
+            element={
+              isAdmin(user) ? (
+                <StaticPage
+                  title="Журнал аудита"
+                  description="Аудит действий и операций доступен в backend."
+                  hint="После включения потока аудита в backend здесь появится лента операций и фильтры."
+                  actionLabel="Запросить выгрузку аудита"
+                />
+              ) : (
+                <Navigate to="/settings" replace />
+              )
+            }
+          />
+          <Route
+            path="/settings"
+            element={<SettingsPage user={user} />}
           />
           <Route
             path="/documents/:documentId"
@@ -1699,12 +2513,27 @@ function WorkspacePage({
               />
             }
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </div>
-
+      {!isNarrow && (
+        <div
+          onMouseDown={() => window.dispatchEvent(new CustomEvent("dmis:resize:start", { detail: "ai" }))}
+          style={{
+            width: 6,
+            cursor: "col-resize",
+            background: "transparent",
+            borderRight: `1px solid ${C.border}`,
+            borderLeft: `1px solid ${C.border}`,
+            flexShrink: 0,
+          }}
+          title="Изменить ширину AI-панели"
+        />
+      )}
       <AiPanel
         token={token}
+        width={isNarrow ? 288 : aiPanelWidth}
         query={query}
         onQueryChange={setQuery}
         onSessionExpired={onSessionExpired}
@@ -1719,6 +2548,13 @@ function WorkspacePage({
 export function App() {
   const [token, setToken] = useState<string>(() => getToken());
   const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      // Диагностика конфигурации API в dev-режиме.
+      console.info("[DMIS] API base URL:", apiBaseUrl);
+    }
+  }, []);
 
   const handleLogin = useCallback((t: string, rt: string, u: User) => {
     setTokens(t, rt);
@@ -1751,11 +2587,36 @@ export function App() {
   }
 
   return (
-    <WorkspacePage
-      user={user}
-      token={token}
-      onSessionExpired={handleSessionExpired}
-      onTokenRefresh={handleTokenRefresh}
-    />
+    <Routes>
+      <Route
+        path="/confirmation"
+        element={
+          <ConfirmationPage
+            onSessionExpired={handleSessionExpired}
+            onTokenRefresh={handleTokenRefresh}
+          />
+        }
+      />
+      <Route
+        path="/execution"
+        element={
+          <ExecutionResultPage
+            onSessionExpired={handleSessionExpired}
+            onTokenRefresh={handleTokenRefresh}
+          />
+        }
+      />
+      <Route
+        path="*"
+        element={
+          <WorkspacePage
+            user={user}
+            token={token}
+            onSessionExpired={handleSessionExpired}
+            onTokenRefresh={handleTokenRefresh}
+          />
+        }
+      />
+    </Routes>
   );
 }

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 @Component
 @Profile("!test")
@@ -22,10 +23,13 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
     }
 
     @Override
-    public List<ChunkHit> search(String actorId, boolean isAdmin, String query, int limit) {
+    public List<ChunkHit> search(String actorId, boolean isAdmin, String query, int limit, List<String> documentIds) {
         float[] q = embeddingsPort.embed(List.of(query)).getFirst();
         String qVec = toVectorLiteral(q);
         int candidateLimit = Math.max(limit * 5, limit);
+        String docFilter = documentIds == null || documentIds.isEmpty()
+                ? ""
+                : "AND dc.document_id IN (" + documentIds.stream().map(id -> "?").collect(Collectors.joining(",")) + ") ";
 
         String sql =
                 "WITH fts_candidates AS (" +
@@ -35,6 +39,7 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
                         "JOIN documents d ON d.id = dc.document_id " +
                         "JOIN document_versions dv ON dv.document_id = dc.document_id AND dv.version_id = dc.version_id " +
                         "WHERE (? = true OR d.owner_id = ?) " +
+                        docFilter +
                         "AND dc.chunk_tsv @@ plainto_tsquery('simple', ?) " +
                         "ORDER BY ts_rank_cd(dc.chunk_tsv, plainto_tsquery('simple', ?)) DESC, dc.created_at DESC " +
                         "LIMIT ?" +
@@ -45,6 +50,7 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
                         "JOIN documents d ON d.id = dc.document_id " +
                         "JOIN document_versions dv ON dv.document_id = dc.document_id AND dv.version_id = dc.version_id " +
                         "WHERE (? = true OR d.owner_id = ?) " +
+                        docFilter +
                         "ORDER BY dc.embedding <=> (?::vector), dc.created_at DESC " +
                         "LIMIT ?" +
                         "), merged AS (" +
@@ -65,31 +71,36 @@ public class ChunkSearchPersistenceAdapter implements ChunkSearchPort {
                         "ORDER BY score DESC " +
                         "LIMIT ?";
 
-        return jdbcTemplate.query(
-                sql,
-                (rs, rowNum) -> new ChunkHit(
-                        rs.getString("document_id"),
-                        rs.getString("title"),
-                        rs.getString("document_version"),
-                        rs.getString("chunk_id"),
-                        rs.getString("chunk_text"),
-                        rs.getDouble("score")
-                ),
-                query,
-                isAdmin,
-                actorId,
-                query,
-                query,
-                candidateLimit,
-                qVec,
-                isAdmin,
-                actorId,
-                qVec,
-                candidateLimit,
-                RRF_K,
-                RRF_K,
-                limit
-        );
+        var args = new java.util.ArrayList<>();
+        args.add(query);
+        args.add(isAdmin);
+        args.add(actorId);
+        if (documentIds != null && !documentIds.isEmpty()) {
+            args.addAll(documentIds);
+        }
+        args.add(query);
+        args.add(query);
+        args.add(candidateLimit);
+        args.add(qVec);
+        args.add(isAdmin);
+        args.add(actorId);
+        if (documentIds != null && !documentIds.isEmpty()) {
+            args.addAll(documentIds);
+        }
+        args.add(qVec);
+        args.add(candidateLimit);
+        args.add(RRF_K);
+        args.add(RRF_K);
+        args.add(limit);
+
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new ChunkHit(
+                rs.getString("document_id"),
+                rs.getString("title"),
+                rs.getString("document_version"),
+                rs.getString("chunk_id"),
+                rs.getString("chunk_text"),
+                rs.getDouble("score")
+        ), args.toArray());
     }
 
     private static String toVectorLiteral(float[] embedding) {
