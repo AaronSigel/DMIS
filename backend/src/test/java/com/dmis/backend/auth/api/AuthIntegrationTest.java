@@ -36,6 +36,7 @@ class AuthIntegrationTest {
                         .content("{\"email\":\"admin@dmis.local\",\"password\":\"demo\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").exists())
+                .andExpect(jsonPath("$.refreshToken").exists())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -46,5 +47,33 @@ class AuthIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("admin@dmis.local"));
+    }
+
+    @Test
+    void refreshWithValidTokenReturnsNewTokenPair() throws Exception {
+        String loginJson = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@dmis.local\",\"password\":\"demo\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String refreshToken = objectMapper.readTree(loginJson).get("refreshToken").asText();
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refreshToken + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").exists())
+                .andExpect(jsonPath("$.refreshToken").exists())
+                .andExpect(jsonPath("$.user.email").value("admin@dmis.local"));
+    }
+
+    @Test
+    void refreshWithInvalidTokenReturns401() throws Exception {
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"not.a.valid.token\"}"))
+                .andExpect(status().isUnauthorized());
     }
 }

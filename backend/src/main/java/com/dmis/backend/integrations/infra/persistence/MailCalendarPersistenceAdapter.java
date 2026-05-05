@@ -51,4 +51,19 @@ public class MailCalendarPersistenceAdapter implements MailCalendarPort {
                 draftView.createdBy()
         );
     }
+
+    @Override
+    public IntegrationDtos.MailDraftView sendMailDraft(IntegrationDtos.MailDraftView draft) {
+        return draft;
+    }
+
+    @Override
+    public IntegrationDtos.CalendarDraftView sendCalendarDraft(IntegrationDtos.CalendarDraftView draft) {
+        return draft;
+    }
+
+    @Override
+    public IntegrationDtos.FreeBusyView getFreeBusy(String attendee, String startIso, String endIso) {
+        return new IntegrationDtos.FreeBusyView(attendee, List.of());
+    }
 }

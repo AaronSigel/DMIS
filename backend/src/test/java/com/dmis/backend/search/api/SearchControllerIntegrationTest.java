@@ -156,6 +156,30 @@ class SearchControllerIntegrationTest {
         assertTrue(response.contains("\"pipeline\":"));
     }
 
+    @Test
+    void ragAnswerAliasMatchesAnswerWithSources() throws Exception {
+        when(chunkSearchPort.search(anyString(), anyBoolean(), eq("policy"), eq(10))).thenReturn(List.of(
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
+        ));
+        when(chunkRerankPort.rerank(eq("policy"), anyList())).thenReturn(List.of(
+                new ChunkRerankPort.RerankScore("c-1", 0.91)
+        ));
+        when(llmChatPort.chat(any())).thenReturn(new LlmChatPort.ChatResponse("Ответ [1]", "fake", "test-model"));
+
+        String token = loginAndGetToken();
+        String response = mockMvc.perform(post("/api/rag/answer")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"policy\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(response.contains("\"answer\":\"Ответ [1]\""));
+        assertTrue(response.contains("\"sources\":[{\"documentId\":\"doc-1\""));
+    }
+
     private String loginAndGetToken() throws Exception {
         String json = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

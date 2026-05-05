@@ -13,6 +13,7 @@ import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.dmis.backend.platform.error.ApiException;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -30,6 +31,8 @@ import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 @Service
 public class DocumentUseCases {
     private static final String INITIAL_VERSION_ID = "v1";
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final DocumentPort documentPort;
     private final ObjectStoragePort objectStoragePort;
@@ -37,6 +40,7 @@ public class DocumentUseCases {
     private final DocumentIndexingService documentIndexingService;
     private final AclService aclService;
     private final AuditService auditService;
+    private final int extractedTextPreviewMaxChars;
 
     public DocumentUseCases(
             DocumentPort documentPort,
@@ -44,7 +48,8 @@ public class DocumentUseCases {
             TextExtractionPort textExtractionPort,
             DocumentIndexingService documentIndexingService,
             AclService aclService,
-            AuditService auditService
+            AuditService auditService,
+            @Value("${documents.extracted-text.preview-max-chars:2000}") int extractedTextPreviewMaxChars
     ) {
         this.documentPort = documentPort;
         this.objectStoragePort = objectStoragePort;
@@ -52,6 +57,7 @@ public class DocumentUseCases {
         this.documentIndexingService = documentIndexingService;
         this.aclService = aclService;
         this.auditService = auditService;
+        this.extractedTextPreviewMaxChars = Math.max(1, extractedTextPreviewMaxChars);
     }
 
     public DocumentDtos.DocumentView upload(UserView actor, String fileName, byte[] content, String contentType) {
@@ -85,16 +91,35 @@ public class DocumentUseCases {
         return toView(saved);
     }
 
-    public List<DocumentDtos.DocumentView> list(UserView actor, DocumentDtos.DocumentListQuery query) {
+    public DocumentDtos.PageResponse<DocumentDtos.DocumentView> list(UserView actor, DocumentDtos.DocumentListQuery query) {
         Comparator<Document> comparator = sortComparator(query.sortBy(), query.order());
-        return documentPort.findAll().stream()
+        List<Document> filtered = documentPort.findAll().stream()
                 .filter(doc -> aclService.isAdmin(actor) || doc.ownerId().equals(actor.id()))
+                .filter(doc -> matchesOwnerFilter(actor, doc, query.ownerId()))
                 .filter(doc -> matchesStatus(doc, query.status()))
                 .filter(doc -> matchesType(doc, query.type()))
                 .filter(doc -> matchesDateRange(doc, query.dateFrom(), query.dateTo()))
+                .filter(doc -> matchesTag(doc, query.tag()))
                 .sorted(comparator)
-                .map(this::toView)
                 .toList();
+
+        int page = Math.max(0, query.page());
+        int size = query.size() > 0 ? query.size() : DEFAULT_PAGE_SIZE;
+        size = Math.min(size, MAX_PAGE_SIZE);
+        long total = filtered.size();
+        int totalPages = total == 0 ? 0 : (int) Math.ceil(total / (double) size);
+        int from = page * size;
+        List<Document> slice = from >= filtered.size()
+                ? List.of()
+                : filtered.subList(from, Math.min(from + size, filtered.size()));
+
+        return new DocumentDtos.PageResponse<>(
+                slice.stream().map(this::toView).toList(),
+                total,
+                totalPages,
+                page,
+                size
+        );
     }
 
     public DocumentDtos.DocumentView get(UserView actor, String documentId) {
@@ -102,6 +127,33 @@ public class DocumentUseCases {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentRead(actor, document.ownerId());
         return toView(document);
+    }
+
+    public DocumentDtos.DocumentView patch(UserView actor, String documentId, DocumentDtos.PatchDocumentRequest request) {
+        Document document = documentPort.findById(DocumentId.from(documentId))
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
+        aclService.requireDocumentWrite(actor, document.ownerId());
+        if (request.tags() == null) {
+            throw new ApiException(UNPROCESSABLE_ENTITY, "TAGS_REQUIRED", "tags field is required", Map.of());
+        }
+        Document updated = document.withTags(request.tags(), Instant.now());
+        Document saved = documentPort.save(updated);
+        auditService.append(actor.id(), "document.patch", "document", saved.id().value(), "Updated tags");
+        return toView(saved);
+    }
+
+    public String getLatestExtractedText(UserView actor, String documentId) {
+        Document document = documentPort.findById(DocumentId.from(documentId))
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
+        aclService.requireDocumentRead(actor, document.ownerId());
+        return document.fullExtractedText();
+    }
+
+    public String getVersionExtractedText(UserView actor, String documentId, String versionId) {
+        Document document = documentPort.findById(DocumentId.from(documentId))
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
+        aclService.requireDocumentRead(actor, document.ownerId());
+        return version(document, new VersionId(versionId)).extractedText();
     }
 
     public DocumentDtos.DocumentBinary downloadVersion(UserView actor, String documentId, String versionId) {
@@ -129,8 +181,8 @@ public class DocumentUseCases {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentWrite(actor, current.ownerId());
 
-        String versionId = "v" + (current.versions().size() + 1);
-        String storageRef = storeFile(objectPath(current.id(), versionId, fileName), content, contentType);
+        String newVersionId = "v" + (current.versions().size() + 1);
+        String storageRef = storeFile(objectPath(current.id(), newVersionId, fileName), content, contentType);
         String extractedText = extractText(fileName, content, contentType);
         Document updated = current.addVersion(
                 fileName,
@@ -142,8 +194,8 @@ public class DocumentUseCases {
         );
         Document saved = documentPort.save(updated);
 
-        auditService.append(actor.id(), "document.version.add", "document", saved.id().value(), "Added " + versionId);
-        VersionId targetVersionId = new VersionId(versionId);
+        auditService.append(actor.id(), "document.version.add", "document", saved.id().value(), "Added " + newVersionId);
+        VersionId targetVersionId = new VersionId(newVersionId);
         saved = indexVersion(saved, targetVersionId, extractedText);
         int chunks = version(saved, targetVersionId).indexedChunkCount();
         auditService.append(
@@ -151,7 +203,7 @@ public class DocumentUseCases {
                 "document.index",
                 "document",
                 saved.id().value(),
-                "Indexed " + chunks + " chunks for " + versionId
+                "Indexed " + chunks + " chunks for " + newVersionId
         );
         return toView(saved);
     }
@@ -160,8 +212,8 @@ public class DocumentUseCases {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentWrite(actor, document.ownerId());
-        for (DocumentVersion version : document.versions()) {
-            deleteFile(version.storageRef(), document.id().value(), version.versionId().value());
+        for (DocumentVersion v : document.versions()) {
+            deleteFile(v.storageRef(), document.id().value(), v.versionId().value());
         }
         documentPort.deleteById(document.id());
         auditService.append(actor.id(), "document.delete", "document", document.id().value(), "Deleted document");
@@ -240,6 +292,16 @@ public class DocumentUseCases {
         }
     }
 
+    private boolean matchesOwnerFilter(UserView actor, Document document, String ownerId) {
+        if (ownerId == null || ownerId.isBlank()) {
+            return true;
+        }
+        if (!aclService.isAdmin(actor)) {
+            return true;
+        }
+        return document.ownerId().equals(ownerId);
+    }
+
     private boolean matchesStatus(Document document, String requestedStatus) {
         if (requestedStatus == null || requestedStatus.isBlank()) {
             return true;
@@ -260,6 +322,14 @@ public class DocumentUseCases {
             return false;
         }
         return dateTo == null || !updatedAt.isAfter(dateTo);
+    }
+
+    private boolean matchesTag(Document document, String tag) {
+        if (tag == null || tag.isBlank()) {
+            return true;
+        }
+        String needle = tag.trim();
+        return document.tags().stream().anyMatch(t -> t.equalsIgnoreCase(needle));
     }
 
     private Comparator<Document> sortComparator(String sortBy, String order) {
@@ -296,6 +366,10 @@ public class DocumentUseCases {
 
     private DocumentDtos.DocumentView toView(Document document) {
         VersionId latestVersionId = document.latestVersion().versionId();
+        String fullText = document.fullExtractedText();
+        int fullLen = fullText.length();
+        boolean truncated = fullLen > extractedTextPreviewMaxChars;
+        String preview = truncated ? fullText.substring(0, extractedTextPreviewMaxChars) : fullText;
         return new DocumentDtos.DocumentView(
                 document.id().value(),
                 document.title(),
@@ -324,7 +398,9 @@ public class DocumentUseCases {
                         version.versionId().equals(latestVersionId)
                 )).toList(),
                 document.latestVersion().storageRef(),
-                document.fullExtractedText()
+                preview,
+                fullLen,
+                truncated
         );
     }
 }

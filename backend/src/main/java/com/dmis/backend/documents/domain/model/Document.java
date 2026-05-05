@@ -189,6 +189,15 @@ public final class Document {
         return new Document(id, title, ownerId, description, tags, source, category, createdAt, updatedAt, updated);
     }
 
+    public Document withTags(List<String> newTags, Instant updatedAt) {
+        List<String> normalized = newTags.stream()
+                .map(String::trim)
+                .filter(tag -> !tag.isBlank())
+                .distinct()
+                .toList();
+        return new Document(id, title, ownerId, description, normalized, source, category, createdAt, updatedAt, versions);
+    }
+
     public DocumentId id() {
         return id;
     }

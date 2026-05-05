@@ -23,6 +23,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -33,6 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -128,7 +130,7 @@ class DocumentProcessingIntegrationTest {
         mockMvc.perform(get("/api/documents")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(documentId));
+                .andExpect(jsonPath("$.content[0].id").value(documentId));
 
         mockMvc.perform(get("/api/documents/{documentId}", documentId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -334,7 +336,7 @@ class DocumentProcessingIntegrationTest {
                 .getResponse()
                 .getContentAsString();
 
-        JsonNode list = objectMapper.readTree(json);
+        JsonNode list = objectMapper.readTree(json).get("content");
         int aaaIndex = -1;
         int zzzIndex = -1;
         for (int i = 0; i < list.size(); i++) {
@@ -403,6 +405,91 @@ class DocumentProcessingIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isPayloadTooLarge())
                 .andExpect(jsonPath("$.errorCode").value("FILE_TOO_LARGE"));
+    }
+
+    @Test
+    void listIsPaged() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        upload(token, "page-a.txt", "a");
+        upload(token, "page-b.txt", "b");
+
+        mockMvc.perform(get("/api/documents")
+                        .param("page", "0")
+                        .param("size", "1")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(1));
+
+        mockMvc.perform(get("/api/documents")
+                        .param("page", "1")
+                        .param("size", "1")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1));
+    }
+
+    @Test
+    void extractedTextEndpointReturnsPlainBody() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "plain.txt", "hello extracted");
+
+        String body = mockMvc.perform(get("/api/documents/{documentId}/extracted-text", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertTrue(body.contains("hello"), "expected extracted text to contain uploaded content");
+    }
+
+    @Test
+    void binaryInlineUsesContentDispositionInline() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "inline.txt", "v1 text");
+
+        mockMvc.perform(get("/api/documents/{documentId}/binary", documentId)
+                        .param("disposition", "inline")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CONTENT_DISPOSITION, containsString("inline")));
+    }
+
+    @Test
+    void patchTagsAndFilterByTag() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String taggedId = upload(token, "tagged.txt", "x");
+        upload(token, "other.txt", "y");
+
+        mockMvc.perform(patch("/api/documents/{documentId}", taggedId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tags\":[\"alpha\",\"beta\"]}")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tags[0]").value("alpha"));
+
+        mockMvc.perform(get("/api/documents")
+                        .param("tag", "alpha")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(taggedId));
     }
 
     @Test

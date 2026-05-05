@@ -50,7 +50,7 @@ public class SearchController {
         return searchService.search(currentUserProvider.currentUser(), request.query());
     }
 
-    @PostMapping("/rag/answer-with-sources")
+    @PostMapping({"/rag/answer-with-sources", "/rag/answer"})
     public SearchDtos.AnswerWithSourcesResponse answer(@Valid @RequestBody RagRequest request) {
         return searchService.answer(currentUserProvider.currentUser(), request.question());
     }

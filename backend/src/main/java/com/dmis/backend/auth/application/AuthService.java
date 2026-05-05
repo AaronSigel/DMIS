@@ -28,7 +28,15 @@ public class AuthService {
         if (!passwordEncoder.matches(password, user.passwordHash())) {
             throw new ResponseStatusException(UNAUTHORIZED, "Invalid credentials");
         }
-        return new AuthResult(tokenPort.issue(user.user()), user.user());
+        return new AuthResult(tokenPort.issue(user.user()), tokenPort.issueRefresh(user.user()), user.user());
+    }
+
+    public AuthResult refresh(String refreshToken) {
+        TokenPort.TokenSubject subject = tokenPort.parseRefresh(refreshToken)
+                .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "Invalid refresh token"));
+        UserView user = userAccessPort.findById(subject.userId())
+                .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "User not found"));
+        return new AuthResult(tokenPort.issue(user), tokenPort.issueRefresh(user), user);
     }
 
     public UserView me(String userId) {

@@ -49,6 +49,35 @@ public class JwtTokenAdapter implements TokenPort {
         }
     }
 
+    @Override
+    public String issueRefresh(UserView userView) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .subject(userView.id())
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(jwtProperties.refreshExpirationSeconds())))
+                .claim("type", "refresh")
+                .signWith(secretKey())
+                .compact();
+    }
+
+    @Override
+    public Optional<TokenSubject> parseRefresh(String refreshToken) {
+        try {
+            var claims = Jwts.parser()
+                    .verifyWith(secretKey())
+                    .build()
+                    .parseSignedClaims(refreshToken)
+                    .getPayload();
+            if (!"refresh".equals(claims.get("type", String.class))) {
+                return Optional.empty();
+            }
+            return Optional.of(new TokenSubject(claims.getSubject()));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
     private SecretKey secretKey() {
         return Keys.hmacShaKeyFor(jwtProperties.secret().getBytes(StandardCharsets.UTF_8));
     }

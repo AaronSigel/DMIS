@@ -30,4 +30,10 @@ public class AclService {
             throw new ResponseStatusException(FORBIDDEN, "Only admin can read full audit");
         }
     }
+
+    public void requireAdmin(UserView actor) {
+        if (!isAdmin(actor)) {
+            throw new ResponseStatusException(FORBIDDEN, "Admin only");
+        }
+    }
 }

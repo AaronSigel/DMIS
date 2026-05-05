@@ -8,7 +8,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -39,14 +41,27 @@ public class IntegrationsController {
     }
 
     @GetMapping("/calendar/free-busy")
-    public IntegrationDtos.FreeBusyView freeBusy(@RequestParam String attendee) {
-        return integrationService.freeBusy(currentUserProvider.currentUser(), attendee);
+    public IntegrationDtos.FreeBusyView freeBusy(
+            @RequestParam String attendee,
+            @RequestParam(required = false, defaultValue = "") String start,
+            @RequestParam(required = false, defaultValue = "") String end
+    ) {
+        return integrationService.freeBusy(currentUserProvider.currentUser(), attendee, start, end);
     }
 
     @PostMapping("/stt/transcripts")
     public ResponseEntity<TranscriptResponse> transcript(@Valid @RequestBody TranscriptRequest request) {
         String text = integrationService.acceptTranscript(currentUserProvider.currentUser(), request.text());
         return ResponseEntity.ok(new TranscriptResponse(text, "accepted"));
+    }
+
+    @PostMapping("/stt/audio")
+    public ResponseEntity<TranscriptResponse> transcribeAudio(
+            @RequestParam("audio") MultipartFile audio,
+            @RequestParam(value = "language", defaultValue = "ru") String language
+    ) throws IOException {
+        String text = integrationService.transcribeAudio(currentUserProvider.currentUser(), audio.getBytes(), language);
+        return ResponseEntity.ok(new TranscriptResponse(text, "transcribed"));
     }
 
     public record MailDraftRequest(@NotBlank String to, @NotBlank String subject, @NotBlank String body) {

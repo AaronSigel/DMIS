@@ -38,7 +38,18 @@ public final class DocumentDtos {
             Instant lastVersionAt,
             List<DocumentVersionView> versions,
             String storageRef,
-            String extractedText
+            String extractedTextPreview,
+            int extractedTextLength,
+            boolean extractedTextTruncated
+    ) {
+    }
+
+    public record PageResponse<T>(
+            List<T> content,
+            long totalElements,
+            int totalPages,
+            int page,
+            int size
     ) {
     }
 
@@ -48,7 +59,16 @@ public final class DocumentDtos {
             Instant dateFrom,
             Instant dateTo,
             String sortBy,
-            String order
+            String order,
+            String ownerId,
+            String tag,
+            int page,
+            int size
+    ) {
+    }
+
+    public record PatchDocumentRequest(
+            List<String> tags
     ) {
     }
 

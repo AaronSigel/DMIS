@@ -3,6 +3,7 @@ package com.dmis.backend.integrations.application;
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.integrations.application.port.MailCalendarPort;
+import com.dmis.backend.integrations.application.port.SttPort;
 import com.dmis.backend.shared.model.UserView;
 import org.springframework.stereotype.Service;
 
@@ -12,10 +13,12 @@ import java.util.UUID;
 @Service
 public class IntegrationService {
     private final MailCalendarPort mailCalendarPort;
+    private final SttPort sttPort;
     private final AuditService auditService;
 
-    public IntegrationService(MailCalendarPort mailCalendarPort, AuditService auditService) {
+    public IntegrationService(MailCalendarPort mailCalendarPort, SttPort sttPort, AuditService auditService) {
         this.mailCalendarPort = mailCalendarPort;
+        this.sttPort = sttPort;
         this.auditService = auditService;
     }
 
@@ -35,16 +38,20 @@ public class IntegrationService {
         return draft;
     }
 
-    public IntegrationDtos.FreeBusyView freeBusy(UserView actor, String attendee) {
+    public IntegrationDtos.FreeBusyView freeBusy(UserView actor, String attendee, String startIso, String endIso) {
         auditService.append(actor.id(), "calendar.free_busy.read", "event", attendee, "Free/busy requested");
-        return new IntegrationDtos.FreeBusyView(attendee, List.of(
-                new IntegrationDtos.BusySlot("2026-04-17T09:00:00Z", "2026-04-17T10:00:00Z"),
-                new IntegrationDtos.BusySlot("2026-04-17T14:00:00Z", "2026-04-17T14:30:00Z")
-        ));
+        return mailCalendarPort.getFreeBusy(attendee, startIso, endIso);
     }
 
     public String acceptTranscript(UserView actor, String text) {
         auditService.append(actor.id(), "stt.transcript.accepted", "ai_action", "n/a", "Transcript accepted");
+        return text;
+    }
+
+    public String transcribeAudio(UserView actor, byte[] audioBytes, String language) {
+        String text = sttPort.transcribe(audioBytes, language);
+        auditService.append(actor.id(), "stt.audio.transcribed", "ai_action", "n/a",
+                "Audio transcribed: " + audioBytes.length + " bytes");
         return text;
     }
 }

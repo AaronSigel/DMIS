@@ -25,8 +25,8 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public AuthResult refresh(@Valid @RequestBody LoginRequest request) {
-        return authService.login(request.email(), request.password());
+    public AuthResult refresh(@Valid @RequestBody RefreshRequest request) {
+        return authService.refresh(request.refreshToken());
     }
 
     @GetMapping("/me")
@@ -35,5 +35,8 @@ public class AuthController {
     }
 
     public record LoginRequest(@NotBlank String email, @NotBlank String password) {
+    }
+
+    public record RefreshRequest(@NotBlank String refreshToken) {
     }
 }

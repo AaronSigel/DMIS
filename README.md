@@ -6,7 +6,6 @@ Monorepo MVP for a controlled AI-driven document workflow system.
 
 - `backend` - Spring Boot core business logic, ACL, audit, orchestration.
 - `frontend` - React TypeScript workspace UI.
-- `mcp` - MCP tools facade over backend HTTP API.
 - `ai-service` - Python LLM inference service for RAG completion.
 - `embeddings-service` - Python embeddings service for document indexing and retrieval.
 - `stt-service` - Python STT service (Whisper).
@@ -23,24 +22,35 @@ All write actions follow:
 
 ## Quick Start (docker-first)
 
-1. `cd infra`
-2. `cp .env.example .env`
-3. Fill required secrets in `.env`:
+From the **repository root**:
+
+1. `cd infra && cp .env.example .env`
+2. Fill required secrets in `infra/.env`:
    - `DB_PASSWORD` and `POSTGRES_PASSWORD` (keep equal unless you intentionally split DB users)
    - `JWT_SECRET`
    - `MINIO_SECRET_KEY`
    - `MINIO_ROOT_PASSWORD`
    - `OPENROUTER_API_KEY` (required when `AI_PROVIDER=openrouter`)
-4. `docker compose up --build`
-5. Run startup smoke-check: `bash smoke.sh`
-6. Open frontend: `http://localhost:5173`
-7. Use demo login: `admin@dmis.local` / `demo`
+3. `make up` (runs `docker compose up -d --build` in `infra/`)
+4. `make smoke` (runs `infra/smoke.sh`)
+5. Open frontend: `http://localhost:5173`
+6. Use demo login: `admin@dmis.local` / `demo`
+
+Shut down: `make down` from the repo root.
 
 For a clean restart from zero data:
 
-- `docker compose down -v`
-- `docker compose up --build`
-- `bash smoke.sh`
+- `cd infra && docker compose down -v`
+- `make up`
+- `make smoke`
+
+### Local frontend dev (`npm run dev`)
+
+Run the backend on `:8080`, then in `frontend/` run `npm run dev`. The UI uses `VITE_API_BASE_URL` (defaults to `http://localhost:8080/api`); CORS is enabled for typical Vite dev origins. Vite also proxies `/api` to `http://localhost:8080` for optional same-origin setups.
+
+### Health checks (smoke)
+
+- Backend: `GET http://localhost:8080/api/health`
 
 ## Backend profiles
 
@@ -53,8 +63,9 @@ Profile can be switched with `SPRING_PROFILES_ACTIVE`.
 ## Runtime endpoints
 
 - Frontend: `http://localhost:5173`
-- MCP: `http://localhost:8090`
-- Backend: `http://localhost:8080`
+- Backend API: `http://localhost:8080/api`
 - AI service: `http://localhost:8002`
 - Embeddings service: `http://localhost:8001`
 - STT service: `http://localhost:8000`
+
+Per-service `.env.example` stubs (for running containers or Python services outside compose) live next to each service; the full stack list remains in `infra/.env.example`.
