@@ -3,7 +3,6 @@
 export type SearchHitView = {
   documentId: string;
   documentTitle: string;
-  documentVersion: string;
   chunkId: string;
   chunkText: string;
   score: number;
@@ -19,7 +18,6 @@ export type SearchOnlyResponse = {
 export type RagSourceView = {
   documentId: string;
   documentTitle: string;
-  documentVersion: string;
   chunkId: string;
   chunkText: string;
   score: number;
@@ -39,4 +37,17 @@ export type RagRequest = {
   documentIds?: string[];
   knowledgeSourceIds?: string[];
   ideologyProfileId?: string;
+};
+
+/**
+ * Цитата источника в ответе ассистента: соответствует backend `RagSourceView`,
+ * дополненная порядковым номером (1-based), который LLM использует в тексте ответа: [1], [2], ...
+ */
+export type Citation = {
+  index: number;
+  documentId: string;
+  documentTitle: string;
+  chunkId: string;
+  chunkText: string;
+  score: number;
 };

@@ -7,20 +7,6 @@ public final class DocumentDtos {
     private DocumentDtos() {
     }
 
-    public record DocumentVersionView(
-            String versionId,
-            String fileName,
-            String contentType,
-            long sizeBytes,
-            String storageRef,
-            Instant createdAt,
-            String indexStatus,
-            int indexedChunkCount,
-            Instant indexedAt,
-            boolean latest
-    ) {
-    }
-
     public record DocumentView(
             String id,
             String title,
@@ -33,11 +19,12 @@ public final class DocumentDtos {
             String type,
             Instant createdAt,
             Instant updatedAt,
-            int versionCount,
             long totalSizeBytes,
-            Instant lastVersionAt,
-            List<DocumentVersionView> versions,
+            String fileName,
+            String contentType,
             String storageRef,
+            int indexedChunkCount,
+            Instant indexedAt,
             String extractedTextPreview,
             int extractedTextLength,
             boolean extractedTextTruncated
@@ -67,8 +54,15 @@ public final class DocumentDtos {
     ) {
     }
 
+    /**
+     * Частичное обновление документа: каждое поле опционально.
+     * {@code tags == null} — не менять теги; иначе заменить список тегов.
+     * {@code title} / {@code fileName} — {@code null} означает «не менять».
+     */
     public record PatchDocumentRequest(
-            List<String> tags
+            List<String> tags,
+            String title,
+            String fileName
     ) {
     }
 

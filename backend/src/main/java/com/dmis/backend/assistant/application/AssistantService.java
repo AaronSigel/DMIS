@@ -2,6 +2,7 @@ package com.dmis.backend.assistant.application;
 
 import com.dmis.backend.assistant.application.dto.AssistantDtos;
 import com.dmis.backend.assistant.application.port.AssistantPort;
+import com.dmis.backend.assistant.application.port.ThreadTitleGeneratorPort;
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.documents.application.DocumentUseCases;
 import com.dmis.backend.documents.application.dto.DocumentDtos;
@@ -28,19 +29,22 @@ public class AssistantService {
     private final SearchService searchService;
     private final AclService aclService;
     private final AuditService auditService;
+    private final ThreadTitleGeneratorPort threadTitleGeneratorPort;
 
     public AssistantService(
             AssistantPort assistantPort,
             DocumentUseCases documentUseCases,
             SearchService searchService,
             AclService aclService,
-            AuditService auditService
+            AuditService auditService,
+            ThreadTitleGeneratorPort threadTitleGeneratorPort
     ) {
         this.assistantPort = assistantPort;
         this.documentUseCases = documentUseCases;
         this.searchService = searchService;
         this.aclService = aclService;
         this.auditService = auditService;
+        this.threadTitleGeneratorPort = threadTitleGeneratorPort;
     }
 
     public AssistantDtos.ThreadView createThread(UserView actor, String title) {
@@ -72,6 +76,31 @@ public class AssistantService {
                 assistantPort.findMessagesByThreadId(thread.id()),
                 assistantPort.findLinkedDocumentIds(thread.id())
         );
+    }
+
+    public AssistantDtos.ThreadView generateThreadTitle(UserView actor, String threadId) {
+        AssistantDtos.ThreadView thread = loadAccessibleThread(actor, threadId);
+        List<AssistantDtos.MessageView> messages = assistantPort.findMessagesByThreadId(thread.id());
+        String currentTitle = thread.title() == null || thread.title().isBlank() ? "Новый диалог" : thread.title();
+
+        String generated = threadTitleGeneratorPort.generateTitle(
+                extractFirstUserMessage(messages),
+                extractFirstAssistantMessage(messages),
+                currentTitle
+        );
+        String safeTitle = normalizeGeneratedTitle(generated, currentTitle);
+        Instant now = Instant.now();
+        AssistantDtos.ThreadView updated = assistantPort.saveThread(new AssistantDtos.ThreadView(
+                thread.id(),
+                thread.ownerId(),
+                safeTitle,
+                thread.ideologyProfileId(),
+                thread.knowledgeSourceIds(),
+                thread.createdAt(),
+                now
+        ));
+        auditService.append(actor.id(), "assistant.thread.title.generate", "assistant_thread", thread.id(), "Thread title generated");
+        return updated;
     }
 
     public AssistantDtos.SendMessageResult sendMessage(
@@ -123,6 +152,58 @@ public class AssistantService {
         ));
         auditService.append(actor.id(), "assistant.message.send", "assistant_thread", thread.id(), "Message sent");
         return new AssistantDtos.SendMessageResult(userMessage, assistantMessage, rag);
+    }
+
+    public void appendStreamMessages(
+            UserView actor,
+            String threadId,
+            String question,
+            String answer,
+            List<String> selectedDocumentIds,
+            List<String> knowledgeSourceIds,
+            String ideologyProfileId
+    ) {
+        if (threadId == null || threadId.isBlank()) {
+            return;
+        }
+        AssistantDtos.ThreadView thread = loadAccessibleThread(actor, threadId);
+        List<String> linkedDocumentIds = assistantPort.findLinkedDocumentIds(thread.id());
+        List<String> effectiveSelected = selectedDocumentIds == null || selectedDocumentIds.isEmpty()
+                ? linkedDocumentIds
+                : selectedDocumentIds.stream().distinct().toList();
+        validateDocumentAccess(actor, effectiveSelected);
+        SearchService.AnswerOptions options = new SearchService.AnswerOptions(
+                effectiveSelected,
+                normalizeKnowledgeSources(knowledgeSourceIds, thread.knowledgeSourceIds()),
+                normalizeIdeologyProfile(ideologyProfileId, thread.ideologyProfileId())
+        );
+        Instant now = Instant.now();
+        assistantPort.saveMessage(new AssistantDtos.MessageView(
+                "msg-" + UUID.randomUUID(),
+                thread.id(),
+                "USER",
+                question,
+                effectiveSelected,
+                now
+        ));
+        assistantPort.saveMessage(new AssistantDtos.MessageView(
+                "msg-" + UUID.randomUUID(),
+                thread.id(),
+                "ASSISTANT",
+                answer,
+                effectiveSelected,
+                Instant.now()
+        ));
+        assistantPort.saveThread(new AssistantDtos.ThreadView(
+                thread.id(),
+                thread.ownerId(),
+                thread.title(),
+                options.ideologyProfileId(),
+                options.knowledgeSourceIds(),
+                thread.createdAt(),
+                Instant.now()
+        ));
+        auditService.append(actor.id(), "assistant.message.stream.save", "assistant_thread", thread.id(), "Stream message pair saved");
     }
 
     public void linkDocument(UserView actor, String threadId, String documentId) {
@@ -208,5 +289,31 @@ public class AssistantService {
             return DEFAULT_IDEOLOGY_PROFILE;
         }
         return value.trim();
+    }
+
+    private static String extractFirstUserMessage(List<AssistantDtos.MessageView> messages) {
+        return messages.stream()
+                .filter(message -> "USER".equalsIgnoreCase(message.role()))
+                .map(AssistantDtos.MessageView::content)
+                .filter(content -> content != null && !content.isBlank())
+                .findFirst()
+                .orElse("");
+    }
+
+    private static String extractFirstAssistantMessage(List<AssistantDtos.MessageView> messages) {
+        return messages.stream()
+                .filter(message -> "ASSISTANT".equalsIgnoreCase(message.role()))
+                .map(AssistantDtos.MessageView::content)
+                .filter(content -> content != null && !content.isBlank())
+                .findFirst()
+                .orElse("");
+    }
+
+    private static String normalizeGeneratedTitle(String generated, String fallback) {
+        String value = generated == null || generated.isBlank() ? fallback : generated.trim();
+        if (value.length() > 120) {
+            return value.substring(0, 120).trim();
+        }
+        return value;
     }
 }

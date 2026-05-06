@@ -8,7 +8,6 @@ public interface ChunkSearchPort {
     record ChunkHit(
             String documentId,
             String title,
-            String documentVersion,
             String chunkId,
             String chunkText,
             double score

@@ -9,7 +9,6 @@ public final class SearchDtos {
     public record SearchHitView(
             String documentId,
             String documentTitle,
-            String documentVersion,
             String chunkId,
             String chunkText,
             double score
@@ -27,7 +26,6 @@ public final class SearchDtos {
     public record RagSourceView(
             String documentId,
             String documentTitle,
-            String documentVersion,
             String chunkId,
             String chunkText,
             double score

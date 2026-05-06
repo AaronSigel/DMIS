@@ -16,3 +16,12 @@ infra/.env.*
 /mcp-server
 /.playwright-mcp
 /test-artifacts
+/playwright-tests
+/.agent
+/.husky
+# Core dumps и аварийные дампы
+core
+core.*
+*.core
+*.dmp
+frontend/core.*

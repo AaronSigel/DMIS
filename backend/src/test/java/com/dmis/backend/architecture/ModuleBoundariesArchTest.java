@@ -63,6 +63,7 @@ class ModuleBoundariesArchTest {
                         "javax..",
                         "jakarta..",
                         "org.springframework..",
+                        "org.slf4j..",
                         "com.fasterxml.."
                 );
 

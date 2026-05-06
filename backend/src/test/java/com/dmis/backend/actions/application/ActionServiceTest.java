@@ -1,6 +1,9 @@
 package com.dmis.backend.actions.application;
 
 import com.dmis.backend.actions.application.dto.ActionDtos;
+import com.dmis.backend.actions.application.dto.ActionDtos.CreateCalendarEventEntities;
+import com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities;
+import com.dmis.backend.actions.application.dto.ActionDtos.UpdateDocumentTagsEntities;
 import com.dmis.backend.actions.application.port.AiActionPort;
 import com.dmis.backend.actions.domain.ActionStatus;
 import com.dmis.backend.audit.application.AuditService;
@@ -49,14 +52,22 @@ class ActionServiceTest {
 
     @Test
     void executeRequiresConfirmedState() {
-        ActionDtos.AiActionView draft = actionService.draft(owner, "send_mail", Map.of("to", "a@b.c"));
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "send_email",
+                new SendEmailEntities("a@b.c", "Subj", "Body")
+        );
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> actionService.execute(owner, draft.id()));
         assertTrue(exception.getReason().contains("confirmed"));
     }
 
     @Test
     void executeChecksActorAcl() {
-        ActionDtos.AiActionView draft = actionService.draft(owner, "send_mail", Map.of("to", "a@b.c"));
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "send_email",
+                new SendEmailEntities("a@b.c", "Subj", "Body")
+        );
         ActionDtos.AiActionView confirmed = actionService.confirm(owner, draft.id());
         assertEquals(ActionStatus.CONFIRMED, confirmed.status());
         assertThrows(ResponseStatusException.class, () -> actionService.execute(outsider, draft.id()));
@@ -64,8 +75,8 @@ class ActionServiceTest {
 
     @Test
     void listReturnsOnlyActorActionsForNonAdmin() {
-        actionService.draft(owner, "send_mail", Map.of("to", "owner@dmis.local"));
-        actionService.draft(outsider, "send_mail", Map.of("to", "out@dmis.local"));
+        actionService.draft(owner, "send_email", new SendEmailEntities("owner@dmis.local", "Subj", "Body"));
+        actionService.draft(outsider, "send_email", new SendEmailEntities("out@dmis.local", "Subj", "Body"));
 
         List<ActionDtos.AiActionView> ownerActions = actionService.list(owner);
 
@@ -75,11 +86,11 @@ class ActionServiceTest {
 
     @Test
     void executeSendEmailUsesSendPath() {
-        ActionDtos.AiActionView draft = actionService.draft(owner, "send_email", Map.of(
-                "to", "recipient@example.com",
-                "subject", "Test",
-                "body", "Hello"
-        ));
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "send_email",
+                new SendEmailEntities("recipient@example.com", "Test", "Hello")
+        );
         actionService.confirm(owner, draft.id());
 
         ActionDtos.AiActionView executed = actionService.execute(owner, draft.id());
@@ -90,12 +101,16 @@ class ActionServiceTest {
 
     @Test
     void executeIntegrationFailureKeepsActionConfirmed() {
-        ActionDtos.AiActionView draft = actionService.draft(owner, "create_calendar_event", Map.of(
-                "title", "Standup",
-                "attendees", "a@b.com,c@d.com",
-                "startIso", "2026-05-10T09:00:00Z",
-                "endIso", "2026-05-10T09:30:00Z"
-        ));
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "create_calendar_event",
+                new CreateCalendarEventEntities(
+                        "Standup",
+                        List.of("a@b.com", "c@d.com"),
+                        "2026-05-10T09:00:00Z",
+                        "2026-05-10T09:30:00Z"
+                )
+        );
         actionService.confirm(owner, draft.id());
         doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Calendar service unavailable"))
                 .when(integrationService)
@@ -107,6 +122,32 @@ class ActionServiceTest {
         assertTrue(exception.getReason().contains("Calendar service unavailable"));
         assertEquals(ActionStatus.CONFIRMED, aiActionPort.findById(draft.id()).orElseThrow().status());
         verify(integrationService).sendCalendarEvent(eq(owner), eq("Standup"), anyList(), eq("2026-05-10T09:00:00Z"), eq("2026-05-10T09:30:00Z"));
+    }
+
+    @Test
+    void draftRejectsUnsupportedIntent() {
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> actionService.draft(owner, "unknown_intent", new SendEmailEntities("a@b.com", "S", "B"))
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("Unsupported intent"));
+    }
+
+    @Test
+    void draftRejectsMismatchedEntitiesType() {
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> actionService.draft(
+                        owner,
+                        "send_email",
+                        new UpdateDocumentTagsEntities("doc-1", List.of("tag"))
+                )
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("Entities type does not match intent"));
     }
 
     private static class InMemoryAiActionPort implements AiActionPort {

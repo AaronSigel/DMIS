@@ -92,27 +92,25 @@ class DocumentProcessingIntegrationTest {
         String documentId = tree.get("id").asText();
 
         Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ? AND version_id = ?",
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
                 Integer.class,
-                documentId,
-                "v1"
+                documentId
         );
         assertTrue(count != null && count > 0, "expected chunks to be created");
 
         Integer metadataCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM document_chunks " +
-                        "WHERE document_id = ? AND version_id = ? " +
+                        "WHERE document_id = ? " +
                         "AND embedding_model = ? AND embedding_dim = 1024 AND embedding_normalized = TRUE",
                 Integer.class,
                 documentId,
-                "v1",
                 "/models/bge-m3"
         );
         assertEquals(count, metadataCount, "expected all chunks to contain embedding metadata");
     }
 
     @Test
-    void documentCardAndVersionsFlowWorks() throws Exception {
+    void documentCardFlowWorks() throws Exception {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -136,84 +134,50 @@ class DocumentProcessingIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(documentId))
-                .andExpect(jsonPath("$.versions[0].versionId").value("v1"));
-
-        MockMultipartFile nextVersion = new MockMultipartFile(
-                "file",
-                "policy-v2.txt",
-                MediaType.TEXT_PLAIN_VALUE,
-                "v2 text".getBytes(StandardCharsets.UTF_8)
-        );
-
-        mockMvc.perform(multipart("/api/documents/{documentId}/versions", documentId)
-                        .file(nextVersion)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.versions.length()").value(2))
-                .andExpect(jsonPath("$.versions[1].versionId").value("v2"));
-
-        Integer v1ChunkCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ? AND version_id = ?",
-                Integer.class,
-                documentId,
-                "v1"
-        );
-        Integer v2ChunkCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ? AND version_id = ?",
-                Integer.class,
-                documentId,
-                "v2"
-        );
-        assertTrue(v1ChunkCount != null && v1ChunkCount > 0, "expected v1 chunks to remain");
-        assertTrue(v2ChunkCount != null && v2ChunkCount > 0, "expected v2 chunks to be created");
+                .andExpect(jsonPath("$.fileName").value("policy-v1.txt"));
     }
 
     @Test
-    void replaceChunksRewritesRowsForSameDocumentVersion() throws Exception {
+    void replaceChunksRewritesRowsForSameDocument() throws Exception {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
         String token = loginAndGetToken("admin@dmis.local");
         String documentId = upload(token, "replace-source.txt", "initial");
-        String versionId = "v1";
         Instant now = Instant.now();
 
         documentChunkPort.replaceChunks(
                 documentId,
-                versionId,
                 now,
                 List.of(
-                        new DocumentChunkPort.DocumentChunk("doc-replace-v1-0", 0, "first", dummyEmbedding1024(), "/models/bge-m3", 1024, true),
-                        new DocumentChunkPort.DocumentChunk("doc-replace-v1-1", 1, "second", dummyEmbedding1024(), "/models/bge-m3", 1024, true)
+                        new DocumentChunkPort.DocumentChunk("doc-replace-0", 0, "first", dummyEmbedding1024(), "/models/bge-m3", 1024, true),
+                        new DocumentChunkPort.DocumentChunk("doc-replace-1", 1, "second", dummyEmbedding1024(), "/models/bge-m3", 1024, true)
                 )
         );
         documentChunkPort.replaceChunks(
                 documentId,
-                versionId,
                 now,
                 List.of(
-                        new DocumentChunkPort.DocumentChunk("doc-replace-v1-0", 0, "rewritten", dummyEmbedding1024(), "/models/bge-m3", 1024, true)
+                        new DocumentChunkPort.DocumentChunk("doc-replace-0", 0, "rewritten", dummyEmbedding1024(), "/models/bge-m3", 1024, true)
                 )
         );
 
         Integer chunkCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ? AND version_id = ?",
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
                 Integer.class,
-                documentId,
-                versionId
+                documentId
         );
         String onlyChunkText = jdbcTemplate.queryForObject(
-                "SELECT chunk_text FROM document_chunks WHERE document_id = ? AND version_id = ?",
+                "SELECT chunk_text FROM document_chunks WHERE document_id = ?",
                 String.class,
-                documentId,
-                versionId
+                documentId
         );
-        assertEquals(1, chunkCount, "expected stale version chunks to be replaced");
+        assertEquals(1, chunkCount, "expected stale chunks to be replaced");
         assertEquals("rewritten", onlyChunkText);
     }
 
     @Test
-    void addVersionDeniedWhenActorHasNoWriteAccess() throws Exception {
+    void patchDeniedWhenActorHasNoWriteAccess() throws Exception {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
@@ -221,21 +185,15 @@ class DocumentProcessingIntegrationTest {
         String analystToken = loginAndGetToken("analyst@dmis.local");
         String documentId = upload(adminToken, "admin-doc.txt", "admin text");
 
-        MockMultipartFile nextVersion = new MockMultipartFile(
-                "file",
-                "denied.txt",
-                MediaType.TEXT_PLAIN_VALUE,
-                "analyst edit".getBytes(StandardCharsets.UTF_8)
-        );
-
-        mockMvc.perform(multipart("/api/documents/{documentId}/versions", documentId)
-                        .file(nextVersion)
+        mockMvc.perform(patch("/api/documents/{documentId}", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tags\":[\"denied\"]}")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + analystToken))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    void searchReturnsHitsFromAllVersions() throws Exception {
+    void searchReturnsHitsFromDocumentChunks() throws Exception {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -248,18 +206,7 @@ class DocumentProcessingIntegrationTest {
         });
 
         String token = loginAndGetToken("admin@dmis.local");
-        String documentId = upload(token, "v1.txt", "alpha policy text");
-
-        MockMultipartFile nextVersion = new MockMultipartFile(
-                "file",
-                "v2.txt",
-                MediaType.TEXT_PLAIN_VALUE,
-                "beta policy text".getBytes(StandardCharsets.UTF_8)
-        );
-        mockMvc.perform(multipart("/api/documents/{documentId}/versions", documentId)
-                        .file(nextVersion)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk());
+        String documentId = upload(token, "policy.txt", "alpha beta policy text");
 
         String searchJson = mockMvc.perform(post("/api/search")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -271,15 +218,12 @@ class DocumentProcessingIntegrationTest {
                 .getContentAsString();
 
         JsonNode hits = objectMapper.readTree(searchJson).get("hits");
-        boolean hasV1 = false;
-        boolean hasV2 = false;
+        boolean hasCurrent = false;
         for (JsonNode hit : hits) {
             String chunkId = hit.get("chunkId").asText();
-            hasV1 = hasV1 || chunkId.startsWith(documentId + "-v1-");
-            hasV2 = hasV2 || chunkId.startsWith(documentId + "-v2-");
+            hasCurrent = hasCurrent || chunkId.startsWith(documentId + "-");
         }
-        assertTrue(hasV1, "expected at least one hit from v1");
-        assertTrue(hasV2, "expected at least one hit from v2");
+        assertTrue(hasCurrent, "expected at least one hit from current document");
     }
 
     @Test
@@ -371,7 +315,7 @@ class DocumentProcessingIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.errorCode").value("EMBEDDING_FAILED"))
-                .andExpect(jsonPath("$.message").value("Failed to index document version"));
+                .andExpect(jsonPath("$.message").value("Failed to index document"));
     }
 
     @Test
@@ -490,6 +434,61 @@ class DocumentProcessingIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(taggedId));
+    }
+
+    @Test
+    void patchRenameTitleAndFileNameUpdatesViewAndDownloadHeader() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "original-name.txt", "v1 text");
+
+        mockMvc.perform(patch("/api/documents/{documentId}", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Новое имя\",\"fileName\":\"renamed-on-disk.txt\"}")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Новое имя"))
+                .andExpect(jsonPath("$.fileName").value("renamed-on-disk.txt"));
+
+        mockMvc.perform(get("/api/documents/{documentId}/binary", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(header().string(CONTENT_DISPOSITION, "attachment; filename=\"renamed-on-disk.txt\""));
+    }
+
+    @Test
+    void patchRejectsNoOpBody() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "noop-patch.txt", "x");
+
+        mockMvc.perform(patch("/api/documents/{documentId}", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("NO_CHANGES"));
+    }
+
+    @Test
+    void patchRejectsFileNameWithMismatchedExtension() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "ext-test.txt", "body");
+
+        mockMvc.perform(patch("/api/documents/{documentId}", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fileName\":\"wrong.pdf\"}")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("FILENAME_EXTENSION_MISMATCH"));
     }
 
     @Test

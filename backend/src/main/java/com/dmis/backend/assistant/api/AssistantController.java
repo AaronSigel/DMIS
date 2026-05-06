@@ -32,13 +32,18 @@ public class AssistantController {
         return assistantService.createThread(currentUserProvider.currentUser(), request.title());
     }
 
+    @PostMapping("/threads/{threadId}/title")
+    public AssistantDtos.ThreadView generateThreadTitle(@PathVariable("threadId") String threadId) {
+        return assistantService.generateThreadTitle(currentUserProvider.currentUser(), threadId);
+    }
+
     @GetMapping("/threads/{threadId}")
-    public AssistantDtos.ThreadDetailView getThread(@PathVariable String threadId) {
+    public AssistantDtos.ThreadDetailView getThread(@PathVariable("threadId") String threadId) {
         return assistantService.getThread(currentUserProvider.currentUser(), threadId);
     }
 
     @PostMapping("/threads/{threadId}/messages")
-    public AssistantDtos.SendMessageResult sendMessage(@PathVariable String threadId, @RequestBody SendMessageRequest request) {
+    public AssistantDtos.SendMessageResult sendMessage(@PathVariable("threadId") String threadId, @RequestBody SendMessageRequest request) {
         return assistantService.sendMessage(
                 currentUserProvider.currentUser(),
                 threadId,
@@ -50,17 +55,17 @@ public class AssistantController {
     }
 
     @PostMapping("/threads/{threadId}/documents")
-    public void linkDocument(@PathVariable String threadId, @RequestBody LinkDocumentRequest request) {
+    public void linkDocument(@PathVariable("threadId") String threadId, @RequestBody LinkDocumentRequest request) {
         assistantService.linkDocument(currentUserProvider.currentUser(), threadId, request.documentId());
     }
 
     @DeleteMapping("/threads/{threadId}/documents/{documentId}")
-    public void unlinkDocument(@PathVariable String threadId, @PathVariable String documentId) {
+    public void unlinkDocument(@PathVariable("threadId") String threadId, @PathVariable("documentId") String documentId) {
         assistantService.unlinkDocument(currentUserProvider.currentUser(), threadId, documentId);
     }
 
     @PostMapping(value = "/threads/{threadId}/uploads", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public AssistantDtos.MentionDocumentView uploadToThread(@PathVariable String threadId, @RequestParam("file") MultipartFile file) throws IOException {
+    public AssistantDtos.MentionDocumentView uploadToThread(@PathVariable("threadId") String threadId, @RequestParam("file") MultipartFile file) throws IOException {
         return assistantService.uploadAndLink(
                 currentUserProvider.currentUser(),
                 threadId,

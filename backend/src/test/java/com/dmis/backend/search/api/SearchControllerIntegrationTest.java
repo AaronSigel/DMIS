@@ -49,8 +49,8 @@ class SearchControllerIntegrationTest {
     @Test
     void ragStreamDoneEventContainsAnswerAndSources() throws Exception {
         when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
-                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9),
-                new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "v2", "c-2", "beta context", 0.8)
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "alpha context", 0.9),
+                new ChunkSearchPort.ChunkHit("doc-2", "Doc 2", "c-2", "beta context", 0.8)
         ));
         when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-2", 0.95),
@@ -78,7 +78,6 @@ class SearchControllerIntegrationTest {
         assertTrue(body.contains("\"status\":\"OK\""));
         assertTrue(body.contains("\"answer\":\"Ответ готов\""));
         assertTrue(body.contains("\"sources\":[{\"documentId\":\"doc-2\""));
-        assertTrue(body.contains("\"documentVersion\":\"v2\""));
         assertTrue(body.contains("\"chunkId\":\"c-2\""));
     }
 
@@ -107,7 +106,7 @@ class SearchControllerIntegrationTest {
     @Test
     void searchOnlyEndpointReturnsStableContract() throws Exception {
         when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
-                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "alpha context", 0.9)
         ));
         when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-1", 0.91)
@@ -125,7 +124,6 @@ class SearchControllerIntegrationTest {
 
         assertTrue(response.contains("\"status\":\"OK\""));
         assertTrue(response.contains("\"hits\":[{\"documentId\":\"doc-1\""));
-        assertTrue(response.contains("\"documentVersion\":\"v1\""));
         assertTrue(response.contains("\"pipeline\":"));
         assertTrue(response.contains("\"retrievalTopK\":10"));
     }
@@ -133,7 +131,7 @@ class SearchControllerIntegrationTest {
     @Test
     void answerWithSourcesEndpointReturnsStableContract() throws Exception {
         when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
-                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "alpha context", 0.9)
         ));
         when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-1", 0.91)
@@ -153,14 +151,13 @@ class SearchControllerIntegrationTest {
         assertTrue(response.contains("\"status\":\"OK\""));
         assertTrue(response.contains("\"answer\":\"Ответ [1]\""));
         assertTrue(response.contains("\"sources\":[{\"documentId\":\"doc-1\""));
-        assertTrue(response.contains("\"documentVersion\":\"v1\""));
         assertTrue(response.contains("\"pipeline\":"));
     }
 
     @Test
     void ragAnswerAliasMatchesAnswerWithSources() throws Exception {
         when(chunkSearchPort.search(anyString(), anyBoolean(), anyString(), anyInt(), nullable(List.class))).thenReturn(List.of(
-                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "v1", "c-1", "alpha context", 0.9)
+                new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "alpha context", 0.9)
         ));
         when(chunkRerankPort.rerank(anyString(), anyList())).thenReturn(List.of(
                 new ChunkRerankPort.RerankScore("c-1", 0.91)

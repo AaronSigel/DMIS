@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -51,7 +52,7 @@ class ActionExecutionIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .content("""
-                                {"intent":"send_email","entities":{"to":"recipient@example.com","subject":"Test","body":"Hello"}}
+                                {"intent":"send_email","entities":{"type":"send_email","to":"recipient@example.com","subject":"Test","body":"Hello"}}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
@@ -83,7 +84,7 @@ class ActionExecutionIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .content("""
-                                {"intent":"create_calendar_event","entities":{"title":"Standup","attendees":"a@b.com,c@d.com","startIso":"2026-05-10T09:00:00Z","endIso":"2026-05-10T09:30:00Z"}}
+                                {"intent":"create_calendar_event","entities":{"type":"create_calendar_event","title":"Standup","attendees":["a@b.com","c@d.com"],"startIso":"2026-05-10T09:00:00Z","endIso":"2026-05-10T09:30:00Z"}}
                                 """))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -113,7 +114,7 @@ class ActionExecutionIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .content("""
-                                {"intent":"send_email","entities":{"to":"recipient@example.com","subject":"Test","body":"Hello"}}
+                                {"intent":"send_email","entities":{"type":"send_email","to":"recipient@example.com","subject":"Test","body":"Hello"}}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
@@ -129,8 +130,53 @@ class ActionExecutionIntegrationTest {
     }
 
     @Test
+    void draftRejectsUnsupportedIntent() throws Exception {
+        String token = loginAndGetToken();
+
+        mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"unknown_intent","entities":{"type":"send_email","to":"recipient@example.com","subject":"Test","body":"Hello"}}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_ERROR"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Unsupported intent")));
+    }
+
+    @Test
+    void draftRejectsInvalidEntitiesOnValidation() throws Exception {
+        String token = loginAndGetToken();
+
+        mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"send_email","entities":{"type":"send_email","to":"not-email","subject":"","body":"Hello"}}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").value("Validation failed"));
+    }
+
+    @Test
+    void draftRejectsMismatchedIntentAndEntitiesType() throws Exception {
+        String token = loginAndGetToken();
+
+        mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"send_email","entities":{"type":"update_document_tags","documentId":"doc-1","tags":["urgent"]}}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_ERROR"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Entities type does not match intent")));
+    }
+
+    @Test
     void sttAudioEndpointReturnsTranscript() throws Exception {
-        when(sttPort.transcribe(any(byte[].class), anyString())).thenReturn("Привет, мир");
+        when(sttPort.transcribe(any(), anyLong(), anyString(), anyString())).thenReturn("Привет, мир");
 
         String token = loginAndGetToken();
 

@@ -53,7 +53,9 @@ services:
       args:
         RUNTIME_BASE_IMAGE: ${STT_RUNTIME_BASE_IMAGE:-base}
     environment:
-      MODEL_PATH: ${STT_MODEL_PATH:-/models/whisper-large-v3-turbo}
+      MODEL_PATH: ${STT_MODEL_PATH:-/models/whisper-medium}
+      MODEL_PATH_FAST: ${STT_MODEL_PATH_FAST:-/models/whisper-small}
+      MODEL_PATH_ACCURATE: ${STT_MODEL_PATH_ACCURATE:-/models/whisper-medium}
     volumes:
       - ../models:/models:ro
     ports:
@@ -72,7 +74,7 @@ services:
         RUNTIME_BASE_IMAGE: ${EMBEDDINGS_RUNTIME_BASE_IMAGE:-base}
     environment:
       MODEL_PATH: ${EMBEDDINGS_MODEL_PATH:-/models/bge-m3}
-      MODEL_RERANKER_PATH: ${EMBEDDINGS_RERANKER_MODEL_PATH:-/models/bge-reranker}
+      MODEL_RERANKER_PATH: ${EMBEDDINGS_RERANKER_MODEL_PATH:-/models/bge-reranker-v2-m3}
     volumes:
       - ../models:/models:ro
     ports:

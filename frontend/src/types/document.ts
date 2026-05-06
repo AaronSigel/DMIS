@@ -1,16 +1,3 @@
-export type DocumentVersion = {
-  versionId: string;
-  fileName: string;
-  contentType: string;
-  sizeBytes: number;
-  storageRef: string;
-  createdAt: string;
-  indexStatus?: string;
-  indexedChunkCount?: number;
-  indexedAt?: string | null;
-  latest?: boolean;
-};
-
 export type DocumentView = {
   id: string;
   title: string;
@@ -23,11 +10,12 @@ export type DocumentView = {
   type: string;
   createdAt: string;
   updatedAt: string;
-  versionCount: number;
   totalSizeBytes: number;
-  lastVersionAt: string;
-  versions: DocumentVersion[];
+  fileName: string;
+  contentType: string;
   storageRef: string;
+  indexedChunkCount: number;
+  indexedAt: string | null;
   extractedTextPreview: string;
   extractedTextLength: number;
   extractedTextTruncated: boolean;

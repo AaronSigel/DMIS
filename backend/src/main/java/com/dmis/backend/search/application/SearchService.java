@@ -49,6 +49,7 @@ public class SearchService {
     private final int rerankTopN;
     private final int maxContextChunks;
     private final int maxContextChars;
+    private final int ragMaxTokens;
 
     public SearchService(
             ChunkSearchPort chunkSearchPort,
@@ -59,7 +60,8 @@ public class SearchService {
             @Value("${search.retrieval.top-k:10}") int retrievalTopK,
             @Value("${search.rerank.top-n:5}") int rerankTopN,
             @Value("${search.rag.max-context-chunks:3}") int maxContextChunks,
-            @Value("${search.rag.max-context-chars:4000}") int maxContextChars
+            @Value("${search.rag.max-context-chars:4000}") int maxContextChars,
+            @Value("${search.rag.max-tokens:0}") int ragMaxTokens
     ) {
         this.chunkSearchPort = chunkSearchPort;
         this.chunkRerankPort = chunkRerankPort;
@@ -70,6 +72,7 @@ public class SearchService {
         this.rerankTopN = rerankTopN;
         this.maxContextChunks = maxContextChunks;
         this.maxContextChars = maxContextChars;
+        this.ragMaxTokens = ragMaxTokens;
     }
 
     public SearchDtos.SearchOnlyResponse search(UserView actor, String query) {
@@ -129,7 +132,6 @@ public class SearchService {
                 .map(hit -> new SearchDtos.SearchHitView(
                         hit.documentId(),
                         hit.title(),
-                        hit.documentVersion(),
                         hit.chunkId(),
                         hit.chunkText(),
                         rerank.scores().getOrDefault(hit.chunkId(), hit.score())
@@ -255,7 +257,7 @@ public class SearchService {
                 prepared.contextChunks(),
                 prepared.systemPrompt(),
                 null,
-                null,
+                resolveMaxTokens(),
                 null
         ));
         long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
@@ -340,7 +342,6 @@ public class SearchService {
             sources.add(new SearchDtos.RagSourceView(
                     hit.documentId(),
                     hit.documentTitle(),
-                    hit.documentVersion(),
                     hit.chunkId(),
                     chunkText,
                     hit.score()
@@ -383,5 +384,12 @@ public class SearchService {
             int usedContextChars,
             boolean contextTrimmed
     ) {
+    }
+
+    /**
+     * `<= 0` означает отсутствие явного лимита для провайдера LLM.
+     */
+    public Integer resolveMaxTokens() {
+        return ragMaxTokens > 0 ? ragMaxTokens : null;
     }
 }

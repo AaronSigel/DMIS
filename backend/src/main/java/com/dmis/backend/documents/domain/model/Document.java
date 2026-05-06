@@ -1,8 +1,6 @@
 package com.dmis.backend.documents.domain.model;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -16,7 +14,14 @@ public final class Document {
     private final String category;
     private final Instant createdAt;
     private final Instant updatedAt;
-    private final List<DocumentVersion> versions;
+    private final String fileName;
+    private final String contentType;
+    private final long sizeBytes;
+    private final String storageRef;
+    private final String extractedText;
+    private final IndexStatus indexStatus;
+    private final int indexedChunkCount;
+    private final Instant indexedAt;
 
     private Document(
             DocumentId id,
@@ -28,7 +33,14 @@ public final class Document {
             String category,
             Instant createdAt,
             Instant updatedAt,
-            List<DocumentVersion> versions
+            String fileName,
+            String contentType,
+            long sizeBytes,
+            String storageRef,
+            String extractedText,
+            IndexStatus indexStatus,
+            int indexedChunkCount,
+            Instant indexedAt
     ) {
         if (id == null) {
             throw new IllegalArgumentException("Document id is required");
@@ -57,8 +69,29 @@ public final class Document {
         if (updatedAt == null) {
             throw new IllegalArgumentException("Updated at is required");
         }
-        if (versions == null || versions.isEmpty()) {
-            throw new IllegalArgumentException("Document must have at least one version");
+        if (fileName == null || fileName.isBlank()) {
+            throw new IllegalArgumentException("File name is required");
+        }
+        if (contentType == null || contentType.isBlank()) {
+            throw new IllegalArgumentException("Content type is required");
+        }
+        if (sizeBytes < 0) {
+            throw new IllegalArgumentException("Size must be non-negative");
+        }
+        if (storageRef == null || storageRef.isBlank()) {
+            throw new IllegalArgumentException("Storage reference is required");
+        }
+        if (extractedText == null) {
+            throw new IllegalArgumentException("Extracted text is required");
+        }
+        if (indexStatus == null) {
+            throw new IllegalArgumentException("Index status is required");
+        }
+        if (indexedChunkCount < 0) {
+            throw new IllegalArgumentException("Indexed chunk count must be non-negative");
+        }
+        if (indexStatus == IndexStatus.INDEXED && indexedAt == null) {
+            throw new IllegalArgumentException("Indexed at is required when status is INDEXED");
         }
         this.id = id;
         this.title = title;
@@ -69,7 +102,14 @@ public final class Document {
         this.category = category;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
-        this.versions = List.copyOf(versions);
+        this.fileName = fileName;
+        this.contentType = contentType;
+        this.sizeBytes = sizeBytes;
+        this.storageRef = storageRef;
+        this.extractedText = extractedText;
+        this.indexStatus = indexStatus;
+        this.indexedChunkCount = indexedChunkCount;
+        this.indexedAt = indexedAt;
     }
 
     public static Document create(
@@ -93,20 +133,15 @@ public final class Document {
                 "general",
                 createdAt,
                 createdAt,
-                List.of(
-                new DocumentVersion(
-                        VersionId.initial(),
-                        fileName,
-                        contentType,
-                        sizeBytes,
-                        storageRef,
-                        extractedText,
-                        createdAt,
-                        IndexStatus.PENDING,
-                        0,
-                        null
-                )
-        ));
+                fileName,
+                contentType,
+                sizeBytes,
+                storageRef,
+                extractedText,
+                IndexStatus.PENDING,
+                0,
+                null
+        );
     }
 
     public static Document rehydrate(
@@ -119,74 +154,78 @@ public final class Document {
             String category,
             Instant createdAt,
             Instant updatedAt,
-            List<DocumentVersion> versions
-    ) {
-        return new Document(id, title, ownerId, description, tags, source, category, createdAt, updatedAt, versions);
-    }
-
-    public Document addVersion(
             String fileName,
             String contentType,
             long sizeBytes,
             String storageRef,
             String extractedText,
-            Instant createdAt
+            IndexStatus indexStatus,
+            int indexedChunkCount,
+            Instant indexedAt
     ) {
-        List<DocumentVersion> updated = new ArrayList<>(versions);
-        Instant now = Instant.now();
-        updated.add(new DocumentVersion(
-                VersionId.next(versions.size()),
+        return new Document(
+                id,
+                title,
+                ownerId,
+                description,
+                tags,
+                source,
+                category,
+                createdAt,
+                updatedAt,
                 fileName,
                 contentType,
                 sizeBytes,
                 storageRef,
                 extractedText,
+                indexStatus,
+                indexedChunkCount,
+                indexedAt
+        );
+    }
+
+    public Document markIndexed(int chunks, Instant indexedAt) {
+        return new Document(
+                id,
+                title,
+                ownerId,
+                description,
+                tags,
+                source,
+                category,
                 createdAt,
-                IndexStatus.PENDING,
+                indexedAt,
+                fileName,
+                contentType,
+                sizeBytes,
+                storageRef,
+                extractedText,
+                IndexStatus.INDEXED,
+                chunks,
+                indexedAt
+        );
+    }
+
+    public Document markFailed(Instant updatedAt) {
+        return new Document(
+                id,
+                title,
+                ownerId,
+                description,
+                tags,
+                source,
+                category,
+                createdAt,
+                updatedAt,
+                fileName,
+                contentType,
+                sizeBytes,
+                storageRef,
+                extractedText,
+                IndexStatus.FAILED,
                 0,
                 null
-        ));
-        return new Document(id, title, ownerId, description, tags, source, category, this.createdAt, now, updated);
-    }
-
-    public Document markVersionIndexed(VersionId versionId, int chunks, Instant indexedAt) {
-        List<DocumentVersion> updated = versions.stream()
-                .map(version -> version.versionId().equals(versionId)
-                        ? new DocumentVersion(
-                        version.versionId(),
-                        version.fileName(),
-                        version.contentType(),
-                        version.sizeBytes(),
-                        version.storageRef(),
-                        version.extractedText(),
-                        version.createdAt(),
-                        IndexStatus.INDEXED,
-                        chunks,
-                        indexedAt
-                )
-                        : version)
-                .toList();
-        return new Document(id, title, ownerId, description, tags, source, category, createdAt, indexedAt, updated);
-    }
-
-    public Document markVersionFailed(VersionId versionId, Instant updatedAt) {
-        List<DocumentVersion> updated = versions.stream()
-                .map(version -> version.versionId().equals(versionId)
-                        ? new DocumentVersion(
-                        version.versionId(),
-                        version.fileName(),
-                        version.contentType(),
-                        version.sizeBytes(),
-                        version.storageRef(),
-                        version.extractedText(),
-                        version.createdAt(),
-                        IndexStatus.FAILED,
-                        0,
-                        null
-                )
-                        : version)
-                .toList();
-        return new Document(id, title, ownerId, description, tags, source, category, createdAt, updatedAt, updated);
+        );
     }
 
     public Document withTags(List<String> newTags, Instant updatedAt) {
@@ -195,7 +234,79 @@ public final class Document {
                 .filter(tag -> !tag.isBlank())
                 .distinct()
                 .toList();
-        return new Document(id, title, ownerId, description, normalized, source, category, createdAt, updatedAt, versions);
+        return new Document(
+                id,
+                title,
+                ownerId,
+                description,
+                normalized,
+                source,
+                category,
+                createdAt,
+                updatedAt,
+                fileName,
+                contentType,
+                sizeBytes,
+                storageRef,
+                extractedText,
+                indexStatus,
+                indexedChunkCount,
+                indexedAt
+        );
+    }
+
+    /** Новое отображаемое имя документа (trim, non-blank). */
+    public Document withTitle(String newTitle, Instant updatedAt) {
+        String t = newTitle == null ? "" : newTitle.trim();
+        if (t.isBlank()) {
+            throw new IllegalArgumentException("Document title is required");
+        }
+        return new Document(
+                id,
+                t,
+                ownerId,
+                description,
+                tags,
+                source,
+                category,
+                createdAt,
+                updatedAt,
+                fileName,
+                contentType,
+                sizeBytes,
+                storageRef,
+                extractedText,
+                indexStatus,
+                indexedChunkCount,
+                indexedAt
+        );
+    }
+
+    /** Переименование текущего файла документа; MinIO-ключ не меняется. */
+    public Document withFileName(String newFileName, Instant updatedAt) {
+        String f = newFileName == null ? "" : newFileName.trim();
+        if (f.isBlank()) {
+            throw new IllegalArgumentException("File name is required");
+        }
+        return new Document(
+                id,
+                title,
+                ownerId,
+                description,
+                tags,
+                source,
+                category,
+                createdAt,
+                updatedAt,
+                f,
+                contentType,
+                sizeBytes,
+                storageRef,
+                extractedText,
+                indexStatus,
+                indexedChunkCount,
+                indexedAt
+        );
     }
 
     public DocumentId id() {
@@ -234,34 +345,52 @@ public final class Document {
         return updatedAt;
     }
 
-    public List<DocumentVersion> versions() {
-        return versions;
+    public String fileName() {
+        return fileName;
     }
 
-    public DocumentVersion latestVersion() {
-        return versions.stream()
-                .max(Comparator.comparing(DocumentVersion::createdAt))
-                .orElseThrow();
+    public String contentType() {
+        return contentType;
+    }
+
+    public long sizeBytes() {
+        return sizeBytes;
+    }
+
+    public String storageRef() {
+        return storageRef;
+    }
+
+    public String extractedText() {
+        return extractedText;
+    }
+
+    public IndexStatus indexStatus() {
+        return indexStatus;
+    }
+
+    public int indexedChunkCount() {
+        return indexedChunkCount;
+    }
+
+    public Instant indexedAt() {
+        return indexedAt;
     }
 
     public String fullExtractedText() {
-        return versions.stream()
-                .map(DocumentVersion::extractedText)
-                .filter(text -> !text.isBlank())
-                .reduce((left, right) -> left + "\n" + right)
-                .orElse("");
+        return extractedText;
     }
 
     public int versionCount() {
-        return versions.size();
+        return 1;
     }
 
     public long totalSizeBytes() {
-        return versions.stream().mapToLong(DocumentVersion::sizeBytes).sum();
+        return sizeBytes;
     }
 
     public Instant lastVersionAt() {
-        return latestVersion().createdAt();
+        return createdAt;
     }
 
     @Override

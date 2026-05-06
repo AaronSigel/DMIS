@@ -5,10 +5,10 @@ import com.dmis.backend.actions.application.dto.ActionDtos;
 import com.dmis.backend.platform.security.CurrentUserProvider;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/actions")
@@ -41,6 +41,9 @@ public class ActionsController {
         return actionService.execute(currentUserProvider.currentUser(), actionId);
     }
 
-    public record DraftRequest(@NotBlank String intent, Map<String, String> entities) {
+    public record DraftRequest(
+            @NotBlank String intent,
+            @NotNull @Valid ActionDtos.ActionEntities entities
+    ) {
     }
 }

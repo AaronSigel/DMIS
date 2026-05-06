@@ -25,10 +25,10 @@ public class DocumentIndexingService {
         this.documentChunkPort = documentChunkPort;
     }
 
-    public int index(String documentId, String versionId, String text) {
+    public int index(String documentId, String text) {
         List<String> chunks = chunker.chunk(text);
         if (chunks.isEmpty()) {
-            documentChunkPort.replaceChunks(documentId, versionId, Instant.now(), List.of());
+            documentChunkPort.replaceChunks(documentId, Instant.now(), List.of());
             return 0;
         }
 
@@ -47,7 +47,7 @@ public class DocumentIndexingService {
             if (embedding.length != EMBEDDING_DIM) {
                 throw new IllegalStateException("Embedding dimension mismatch for chunk index " + i + ": " + embedding.length + " != " + EMBEDDING_DIM);
             }
-            String id = documentId + "-" + versionId + "-" + i;
+            String id = documentId + "-" + i;
             rows.add(new DocumentChunkPort.DocumentChunk(
                     id,
                     i,
@@ -58,7 +58,7 @@ public class DocumentIndexingService {
                     EMBEDDING_NORMALIZED
             ));
         }
-        documentChunkPort.replaceChunks(documentId, versionId, now, rows);
+        documentChunkPort.replaceChunks(documentId, now, rows);
         return rows.size();
     }
 }

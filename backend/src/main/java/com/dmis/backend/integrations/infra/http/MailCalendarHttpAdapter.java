@@ -99,8 +99,12 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
                 return new IntegrationDtos.FreeBusyView(attendee, List.of());
             }
             return new IntegrationDtos.FreeBusyView(attendee, response.busySlots());
-        } catch (RestClientException ignored) {
-            return new IntegrationDtos.FreeBusyView(attendee, List.of());
+        } catch (RestClientException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Free/busy service request failed: " + ex.getMessage(),
+                    ex
+            );
         }
     }
 

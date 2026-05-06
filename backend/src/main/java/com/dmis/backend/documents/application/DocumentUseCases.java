@@ -6,9 +6,7 @@ import com.dmis.backend.documents.application.port.DocumentPort;
 import com.dmis.backend.documents.application.port.TextExtractionPort;
 import com.dmis.backend.documents.domain.model.Document;
 import com.dmis.backend.documents.domain.model.DocumentId;
-import com.dmis.backend.documents.domain.model.DocumentVersion;
 import com.dmis.backend.documents.domain.model.IndexStatus;
-import com.dmis.backend.documents.domain.model.VersionId;
 import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.dmis.backend.platform.error.ApiException;
 import com.dmis.backend.shared.model.UserView;
@@ -18,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -30,9 +29,9 @@ import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
 @Service
 public class DocumentUseCases {
-    private static final String INITIAL_VERSION_ID = "v1";
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_DOCUMENT_NAME_LENGTH = 255;
 
     private final DocumentPort documentPort;
     private final ObjectStoragePort objectStoragePort;
@@ -63,7 +62,7 @@ public class DocumentUseCases {
     public DocumentDtos.DocumentView upload(UserView actor, String fileName, byte[] content, String contentType) {
         Instant now = Instant.now();
         DocumentId documentId = DocumentId.from("doc-" + UUID.randomUUID());
-        String storageRef = storeFile(objectPath(documentId, INITIAL_VERSION_ID, fileName), content, contentType);
+        String storageRef = storeFile(objectPath(documentId, fileName), content, contentType);
         String extractedText = extractText(fileName, content, contentType);
 
         Document created = Document.create(
@@ -78,15 +77,15 @@ public class DocumentUseCases {
                 now
         );
         Document saved = documentPort.save(created);
-        saved = indexVersion(saved, VersionId.initial(), extractedText);
-        int chunks = version(saved, VersionId.initial()).indexedChunkCount();
-        auditService.append(actor.id(), "document.upload", "document", saved.id().value(), "Uploaded initial version");
+        saved = indexDocument(saved, extractedText);
+        int chunks = saved.indexedChunkCount();
+        auditService.append(actor.id(), "document.upload", "document", saved.id().value(), "Uploaded document");
         auditService.append(
                 actor.id(),
                 "document.index",
                 "document",
                 saved.id().value(),
-                "Indexed " + chunks + " chunks for " + INITIAL_VERSION_ID
+                "Indexed " + chunks + " chunks"
         );
         return toView(saved);
     }
@@ -133,13 +132,96 @@ public class DocumentUseCases {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentWrite(actor, document.ownerId());
-        if (request.tags() == null) {
-            throw new ApiException(UNPROCESSABLE_ENTITY, "TAGS_REQUIRED", "tags field is required", Map.of());
+
+        boolean changeTags = request.tags() != null;
+        boolean changeTitle = request.title() != null;
+        boolean changeFileName = request.fileName() != null;
+        if (!changeTags && !changeTitle && !changeFileName) {
+            throw new ApiException(
+                    UNPROCESSABLE_ENTITY,
+                    "NO_CHANGES",
+                    "At least one of tags, title, or fileName must be provided",
+                    Map.of()
+            );
         }
-        Document updated = document.withTags(request.tags(), Instant.now());
+
+        String oldTitle = document.title();
+        String oldFileName = document.fileName();
+        Instant now = Instant.now();
+        Document updated = document;
+
+        if (changeTags) {
+            updated = updated.withTags(request.tags(), now);
+        }
+        if (changeTitle) {
+            String t = request.title().trim();
+            if (t.isBlank()) {
+                throw new ApiException(UNPROCESSABLE_ENTITY, "TITLE_INVALID", "title must be non-blank", Map.of());
+            }
+            if (t.length() > MAX_DOCUMENT_NAME_LENGTH) {
+                throw new ApiException(
+                        UNPROCESSABLE_ENTITY,
+                        "TITLE_TOO_LONG",
+                        "title exceeds max length",
+                        Map.of("max", MAX_DOCUMENT_NAME_LENGTH)
+                );
+            }
+            updated = updated.withTitle(t, now);
+        }
+        if (changeFileName) {
+            String f = request.fileName().trim();
+            if (f.isBlank()) {
+                throw new ApiException(UNPROCESSABLE_ENTITY, "FILENAME_INVALID", "fileName must be non-blank", Map.of());
+            }
+            if (f.length() > MAX_DOCUMENT_NAME_LENGTH) {
+                throw new ApiException(
+                        UNPROCESSABLE_ENTITY,
+                        "FILENAME_TOO_LONG",
+                        "fileName exceeds max length",
+                        Map.of("max", MAX_DOCUMENT_NAME_LENGTH)
+                );
+            }
+            String currentExtension = fileExtension(updated.fileName());
+            String newExtension = fileExtension(f);
+            if (!currentExtension.equalsIgnoreCase(newExtension)) {
+                throw new ApiException(
+                        UNPROCESSABLE_ENTITY,
+                        "FILENAME_EXTENSION_MISMATCH",
+                        "fileName extension must match the current file",
+                        Map.of("expectedExtension", currentExtension, "actualExtension", newExtension)
+                );
+            }
+            updated = updated.withFileName(f, now);
+        }
+
         Document saved = documentPort.save(updated);
-        auditService.append(actor.id(), "document.patch", "document", saved.id().value(), "Updated tags");
+
+        boolean titleRenamed = changeTitle && !oldTitle.equals(saved.title());
+        boolean fileRenamed = changeFileName && !oldFileName.equals(saved.fileName());
+        if (titleRenamed || fileRenamed) {
+            List<String> renameParts = new ArrayList<>();
+            if (titleRenamed) {
+                renameParts.add("title: \"" + oldTitle + "\" → \"" + saved.title() + "\"");
+            }
+            if (fileRenamed) {
+                renameParts.add("fileName: \"" + oldFileName + "\" → \"" + saved.fileName() + "\"");
+            }
+            if (!renameParts.isEmpty()) {
+                auditService.append(actor.id(), "document.rename", "document", saved.id().value(), String.join("; ", renameParts));
+            }
+        }
+        if (changeTags) {
+            auditService.append(actor.id(), "document.patch", "document", saved.id().value(), "Updated tags");
+        }
         return toView(saved);
+    }
+
+    private static String fileExtension(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        if (dot <= 0 || dot == fileName.length() - 1) {
+            return "";
+        }
+        return fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
     public String getLatestExtractedText(UserView actor, String documentId) {
@@ -149,78 +231,26 @@ public class DocumentUseCases {
         return document.fullExtractedText();
     }
 
-    public String getVersionExtractedText(UserView actor, String documentId, String versionId) {
-        Document document = documentPort.findById(DocumentId.from(documentId))
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentRead(actor, document.ownerId());
-        return version(document, new VersionId(versionId)).extractedText();
-    }
-
-    public DocumentDtos.DocumentBinary downloadVersion(UserView actor, String documentId, String versionId) {
-        Document document = documentPort.findById(DocumentId.from(documentId))
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentRead(actor, document.ownerId());
-        DocumentVersion target = version(document, new VersionId(versionId));
-        byte[] bytes = loadFile(target.storageRef(), documentId, versionId);
-        auditService.append(actor.id(), "document.download", "document", document.id().value(), "Downloaded " + versionId);
-        return new DocumentDtos.DocumentBinary(target.fileName(), target.contentType(), bytes);
-    }
-
     public DocumentDtos.DocumentBinary downloadLatest(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentRead(actor, document.ownerId());
-        DocumentVersion latest = document.latestVersion();
-        byte[] bytes = loadFile(latest.storageRef(), documentId, latest.versionId().value());
+        byte[] bytes = loadFile(document.storageRef(), documentId);
         auditService.append(actor.id(), "document.download", "document", document.id().value(), "Downloaded latest");
-        return new DocumentDtos.DocumentBinary(latest.fileName(), latest.contentType(), bytes);
-    }
-
-    public DocumentDtos.DocumentView addVersion(UserView actor, String documentId, String fileName, byte[] content, String contentType) {
-        Document current = documentPort.findById(DocumentId.from(documentId))
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentWrite(actor, current.ownerId());
-
-        String newVersionId = "v" + (current.versions().size() + 1);
-        String storageRef = storeFile(objectPath(current.id(), newVersionId, fileName), content, contentType);
-        String extractedText = extractText(fileName, content, contentType);
-        Document updated = current.addVersion(
-                fileName,
-                contentType,
-                content.length,
-                storageRef,
-                extractedText,
-                Instant.now()
-        );
-        Document saved = documentPort.save(updated);
-
-        auditService.append(actor.id(), "document.version.add", "document", saved.id().value(), "Added " + newVersionId);
-        VersionId targetVersionId = new VersionId(newVersionId);
-        saved = indexVersion(saved, targetVersionId, extractedText);
-        int chunks = version(saved, targetVersionId).indexedChunkCount();
-        auditService.append(
-                actor.id(),
-                "document.index",
-                "document",
-                saved.id().value(),
-                "Indexed " + chunks + " chunks for " + newVersionId
-        );
-        return toView(saved);
+        return new DocumentDtos.DocumentBinary(document.fileName(), document.contentType(), bytes);
     }
 
     public void delete(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentWrite(actor, document.ownerId());
-        for (DocumentVersion v : document.versions()) {
-            deleteFile(v.storageRef(), document.id().value(), v.versionId().value());
-        }
+        deleteFile(document.storageRef(), document.id().value());
         documentPort.deleteById(document.id());
         auditService.append(actor.id(), "document.delete", "document", document.id().value(), "Deleted document");
     }
 
-    private String objectPath(DocumentId documentId, String versionId, String fileName) {
-        return documentId.value() + "/" + versionId + "/" + fileName;
+    private String objectPath(DocumentId documentId, String fileName) {
+        return documentId.value() + "/" + fileName;
     }
 
     private String storeFile(String objectPath, byte[] content, String contentType) {
@@ -236,7 +266,7 @@ public class DocumentUseCases {
         }
     }
 
-    private byte[] loadFile(String storageRef, String documentId, String versionId) {
+    private byte[] loadFile(String storageRef, String documentId) {
         try {
             return objectStoragePort.load(storageRef);
         } catch (RuntimeException exception) {
@@ -244,12 +274,12 @@ public class DocumentUseCases {
                     INTERNAL_SERVER_ERROR,
                     "STORAGE_FAILED",
                     "Failed to download file",
-                    Map.of("documentId", documentId, "versionId", versionId)
+                    Map.of("documentId", documentId)
             );
         }
     }
 
-    private void deleteFile(String storageRef, String documentId, String versionId) {
+    private void deleteFile(String storageRef, String documentId) {
         try {
             objectStoragePort.delete(storageRef);
         } catch (RuntimeException exception) {
@@ -257,7 +287,7 @@ public class DocumentUseCases {
                     INTERNAL_SERVER_ERROR,
                     "STORAGE_FAILED",
                     "Failed to delete file",
-                    Map.of("documentId", documentId, "versionId", versionId)
+                    Map.of("documentId", documentId)
             );
         }
     }
@@ -275,19 +305,19 @@ public class DocumentUseCases {
         }
     }
 
-    private Document indexVersion(Document saved, VersionId versionId, String extractedText) {
+    private Document indexDocument(Document saved, String extractedText) {
         try {
-            int chunks = documentIndexingService.index(saved.id().value(), versionId.value(), extractedText);
-            return documentPort.save(saved.markVersionIndexed(versionId, chunks, Instant.now()));
+            int chunks = documentIndexingService.index(saved.id().value(), extractedText);
+            return documentPort.save(saved.markIndexed(chunks, Instant.now()));
         } catch (RuntimeException exception) {
-            documentPort.save(saved.markVersionFailed(versionId, Instant.now()));
+            documentPort.save(saved.markFailed(Instant.now()));
             String message = exception.getMessage() == null ? "" : exception.getMessage().toLowerCase(Locale.ROOT);
             String errorCode = message.contains("embed") ? "EMBEDDING_FAILED" : "INDEXING_FAILED";
             throw new ApiException(
                     UNPROCESSABLE_ENTITY,
                     errorCode,
-                    "Failed to index document version",
-                    Map.of("documentId", saved.id().value(), "versionId", versionId.value())
+                    "Failed to index document",
+                    Map.of("documentId", saved.id().value())
             );
         }
     }
@@ -344,28 +374,18 @@ public class DocumentUseCases {
         return ascending ? comparator : comparator.reversed();
     }
 
-    private DocumentVersion version(Document document, VersionId versionId) {
-        return document.versions().stream()
-                .filter(v -> v.versionId().equals(versionId))
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Version not found"));
-    }
-
     private String documentStatus(Document document) {
-        boolean hasFailed = document.versions().stream().anyMatch(version -> version.indexStatus() == IndexStatus.FAILED);
-        if (hasFailed) {
+        if (document.indexStatus() == IndexStatus.FAILED) {
             return IndexStatus.FAILED.name();
         }
-        boolean hasPending = document.versions().stream().anyMatch(version -> version.indexStatus() == IndexStatus.PENDING);
-        return hasPending ? IndexStatus.PENDING.name() : IndexStatus.INDEXED.name();
+        return document.indexStatus() == IndexStatus.PENDING ? IndexStatus.PENDING.name() : IndexStatus.INDEXED.name();
     }
 
     private String documentType(Document document) {
-        return document.latestVersion().contentType();
+        return document.contentType();
     }
 
     private DocumentDtos.DocumentView toView(Document document) {
-        VersionId latestVersionId = document.latestVersion().versionId();
         String fullText = document.fullExtractedText();
         int fullLen = fullText.length();
         boolean truncated = fullLen > extractedTextPreviewMaxChars;
@@ -382,22 +402,12 @@ public class DocumentUseCases {
                 documentType(document),
                 document.createdAt(),
                 document.updatedAt(),
-                document.versionCount(),
                 document.totalSizeBytes(),
-                document.lastVersionAt(),
-                document.versions().stream().map(version -> new DocumentDtos.DocumentVersionView(
-                        version.versionId().value(),
-                        version.fileName(),
-                        version.contentType(),
-                        version.sizeBytes(),
-                        version.storageRef(),
-                        version.createdAt(),
-                        version.indexStatus().name(),
-                        version.indexedChunkCount(),
-                        version.indexedAt(),
-                        version.versionId().equals(latestVersionId)
-                )).toList(),
-                document.latestVersion().storageRef(),
+                document.fileName(),
+                document.contentType(),
+                document.storageRef(),
+                document.indexedChunkCount(),
+                document.indexedAt(),
                 preview,
                 fullLen,
                 truncated

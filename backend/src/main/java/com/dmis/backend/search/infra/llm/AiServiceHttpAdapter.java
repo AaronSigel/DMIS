@@ -19,9 +19,11 @@ public class AiServiceHttpAdapter implements LlmChatPort {
     private final URI baseUri;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final long streamTimeoutMs;
 
     public AiServiceHttpAdapter(
             @Value("${AI_BASE_URL:http://localhost:8002}") String baseUrl,
+            @Value("${ai.stream.timeout-ms:0}") long streamTimeoutMs,
             ObjectMapper objectMapper
     ) {
         this.restClient = RestClient.builder()
@@ -32,6 +34,7 @@ public class AiServiceHttpAdapter implements LlmChatPort {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.objectMapper = objectMapper;
+        this.streamTimeoutMs = streamTimeoutMs;
     }
 
     @Override
@@ -54,13 +57,15 @@ public class AiServiceHttpAdapter implements LlmChatPort {
             URI uri = baseUri.resolve("/chat/stream");
             String body = objectMapper.writeValueAsString(request);
 
-            HttpRequest httpRequest = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(uri)
-                    .timeout(Duration.ofMinutes(5))
                     .header("Accept", "text/event-stream")
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
+                    .POST(HttpRequest.BodyPublishers.ofString(body));
+            if (streamTimeoutMs > 0) {
+                requestBuilder.timeout(Duration.ofMillis(streamTimeoutMs));
+            }
+            HttpRequest httpRequest = requestBuilder.build();
 
             HttpResponse<InputStream> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             int code = response.statusCode();

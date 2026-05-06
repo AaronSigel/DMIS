@@ -24,7 +24,7 @@ public class ChunkSearchTestAdapter implements ChunkSearchPort {
         List<String> tokens = q.isEmpty() ? List.of() : Arrays.asList(q.split("\\s+"));
 
         String sql =
-                "SELECT d.id AS document_id, d.title AS title, dc.version_id AS document_version, dc.id AS chunk_id, dc.chunk_text AS chunk_text " +
+                "SELECT d.id AS document_id, d.title AS title, dc.id AS chunk_id, dc.chunk_text AS chunk_text " +
                         "FROM document_chunks dc " +
                         "JOIN documents d ON d.id = dc.document_id " +
                         "WHERE (? = true OR d.owner_id = ?) " +
@@ -42,7 +42,6 @@ public class ChunkSearchTestAdapter implements ChunkSearchPort {
         List<ChunkHit> raw = jdbcTemplate.query(sql, (rs, rowNum) -> new ChunkHit(
                 rs.getString("document_id"),
                 rs.getString("title"),
-                rs.getString("document_version"),
                 rs.getString("chunk_id"),
                 rs.getString("chunk_text"),
                 0.0
@@ -52,7 +51,6 @@ public class ChunkSearchTestAdapter implements ChunkSearchPort {
                 .map(hit -> new ChunkHit(
                         hit.documentId(),
                         hit.title(),
-                        hit.documentVersion(),
                         hit.chunkId(),
                         hit.chunkText(),
                         lexicalScore(tokens, hit.chunkText())

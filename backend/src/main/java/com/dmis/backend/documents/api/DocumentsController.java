@@ -86,17 +86,6 @@ public class DocumentsController {
                 .body(text);
     }
 
-    @GetMapping(value = "/{documentId}/versions/{versionId}/extracted-text", produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> getVersionExtractedText(
-            @PathVariable("documentId") String documentId,
-            @PathVariable("versionId") String versionId
-    ) {
-        String text = documentUseCases.getVersionExtractedText(currentUserProvider.currentUser(), documentId, versionId);
-        return ResponseEntity.ok()
-                .contentType(new MediaType(MediaType.TEXT_PLAIN, StandardCharsets.UTF_8))
-                .body(text);
-    }
-
     @GetMapping("/{documentId}/binary")
     public ResponseEntity<ByteArrayResource> downloadLatest(
             @PathVariable("documentId") String documentId,
@@ -104,19 +93,6 @@ public class DocumentsController {
     ) {
         boolean inline = "inline".equalsIgnoreCase(disposition);
         return toBinaryResponse(documentUseCases.downloadLatest(currentUserProvider.currentUser(), documentId), inline);
-    }
-
-    @GetMapping("/{documentId}/versions/{versionId}/binary")
-    public ResponseEntity<ByteArrayResource> downloadVersion(
-            @PathVariable("documentId") String documentId,
-            @PathVariable("versionId") String versionId,
-            @RequestParam(value = "disposition", required = false, defaultValue = "attachment") String disposition
-    ) {
-        boolean inline = "inline".equalsIgnoreCase(disposition);
-        return toBinaryResponse(
-                documentUseCases.downloadVersion(currentUserProvider.currentUser(), documentId, versionId),
-                inline
-        );
     }
 
     @PatchMapping("/{documentId}")
@@ -130,21 +106,6 @@ public class DocumentsController {
     @GetMapping("/{documentId}")
     public DocumentDtos.DocumentView get(@PathVariable("documentId") String documentId) {
         return documentUseCases.get(currentUserProvider.currentUser(), documentId);
-    }
-
-    @PostMapping("/{documentId}/versions")
-    public DocumentDtos.DocumentView addVersion(
-            @PathVariable("documentId") String documentId,
-            @RequestParam("file") MultipartFile file
-    ) throws IOException {
-        validateFile(file);
-        return documentUseCases.addVersion(
-                currentUserProvider.currentUser(),
-                documentId,
-                file.getOriginalFilename(),
-                file.getBytes(),
-                file.getContentType()
-        );
     }
 
     @DeleteMapping("/{documentId}")

@@ -22,22 +22,20 @@ public class DocumentChunkPersistenceAdapter implements DocumentChunkPort {
 
     @Override
     @Transactional
-    public void replaceChunks(String documentId, String versionId, Instant createdAt, List<DocumentChunk> chunks) {
+    public void replaceChunks(String documentId, Instant createdAt, List<DocumentChunk> chunks) {
         jdbcTemplate.update(
-                "DELETE FROM document_chunks WHERE document_id = ? AND version_id = ?",
-                documentId,
-                versionId
+                "DELETE FROM document_chunks WHERE document_id = ?",
+                documentId
         );
 
         for (DocumentChunk chunk : chunks) {
             jdbcTemplate.update(
                     "INSERT INTO document_chunks (" +
-                            "id, document_id, version_id, chunk_index, chunk_text, embedding, " +
+                            "id, document_id, chunk_index, chunk_text, embedding, " +
                             "embedding_model, embedding_dim, embedding_normalized, created_at, indexed_at) " +
-                            "VALUES (?, ?, ?, ?, ?, (?::vector), ?, ?, ?, ?, ?)",
+                            "VALUES (?, ?, ?, ?, (?::vector), ?, ?, ?, ?, ?)",
                     chunk.id(),
                     documentId,
-                    versionId,
                     chunk.chunkIndex(),
                     chunk.chunkText(),
                     toVectorLiteral(chunk.embedding()),

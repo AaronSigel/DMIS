@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 public interface DocumentChunkPort {
-    void replaceChunks(String documentId, String versionId, Instant createdAt, List<DocumentChunk> chunks);
+    void replaceChunks(String documentId, Instant createdAt, List<DocumentChunk> chunks);
 
     record DocumentChunk(
             String id,

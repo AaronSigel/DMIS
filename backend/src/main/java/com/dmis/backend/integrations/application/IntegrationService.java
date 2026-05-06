@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.InputStream;
 import java.util.List;
 import java.util.UUID;
 
@@ -84,10 +85,10 @@ public class IntegrationService {
         return text;
     }
 
-    public String transcribeAudio(UserView actor, byte[] audioBytes, String language) {
-        String text = sttPort.transcribe(audioBytes, language);
+    public String transcribeAudio(UserView actor, InputStream audioStream, long audioSizeBytes, String language, String profile) {
+        String text = sttPort.transcribe(audioStream, audioSizeBytes, language, profile);
         auditService.append(actor.id(), "stt.audio.transcribed", "ai_action", "n/a",
-                "Audio transcribed: " + audioBytes.length + " bytes");
+                "Audio transcribed: " + audioSizeBytes + " bytes, profile=" + profile);
         return text;
     }
 }

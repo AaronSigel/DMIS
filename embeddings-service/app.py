@@ -46,7 +46,7 @@ def get_model() -> SentenceTransformer:
 
 @lru_cache(maxsize=1)
 def get_reranker() -> CrossEncoder:
-    model_path = os.environ.get("MODEL_RERANKER_PATH", "/models/bge-reranker")
+    model_path = os.environ.get("MODEL_RERANKER_PATH", "/models/bge-reranker-v2-m3")
     if not os.path.exists(model_path):
         raise RuntimeError(f"Reranker model path not found: {model_path}")
     return CrossEncoder(model_path)
@@ -86,7 +86,7 @@ def embed(payload: EmbedRequest) -> EmbedResponse:
 @app.post("/rerank", response_model=RerankResponse)
 def rerank(payload: RerankRequest) -> RerankResponse:
     try:
-        model_path = os.environ.get("MODEL_RERANKER_PATH", "/models/bge-reranker")
+        model_path = os.environ.get("MODEL_RERANKER_PATH", "/models/bge-reranker-v2-m3")
         reranker = get_reranker()
         pairs = [(payload.query, candidate) for candidate in payload.candidates]
         raw_scores = reranker.predict(pairs)

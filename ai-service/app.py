@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from typing import Any, AsyncIterator, Literal
@@ -156,7 +157,16 @@ async def chat_stream(req: ChatRequest):
                         json=payload,
                     ) as r:
                         r.raise_for_status()
-                        async for line in r.aiter_lines():
+                        line_iterator = r.aiter_lines().__aiter__()
+                        while True:
+                            try:
+                                line = await asyncio.wait_for(line_iterator.__anext__(), timeout=15.0)
+                            except TimeoutError:
+                                # Keepalive для прокси/клиентов во время пауз между токенами.
+                                yield b": ping\n\n"
+                                continue
+                            except StopAsyncIteration:
+                                break
                             if not line:
                                 continue
                             if not line.startswith("data:"):
@@ -190,4 +200,12 @@ async def chat_stream(req: ChatRequest):
             yield _sse({"error": str(e), "provider": provider, "model": model})
             yield _sse({"done": True, "provider": provider, "model": model})
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

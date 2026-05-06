@@ -21,7 +21,7 @@ class DocumentIndexingServiceTest {
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
-                () -> service.index("doc-1", "v1", "hello world")
+                () -> service.index("doc-1", "hello world")
         );
 
         assertTrue(ex.getMessage().contains("Embedding dimension mismatch"));
@@ -39,7 +39,7 @@ class DocumentIndexingServiceTest {
         CapturingChunkPort chunkPort = new CapturingChunkPort();
         DocumentIndexingService service = new DocumentIndexingService(embeddings, chunkPort);
 
-        int chunks = service.index("doc-1", "v3", "hello world");
+        int chunks = service.index("doc-1", "hello world");
         assertEquals(1, chunks);
         assertEquals(1, chunkPort.chunks.size());
 
@@ -59,7 +59,7 @@ class DocumentIndexingServiceTest {
         private final List<DocumentChunk> chunks = new ArrayList<>();
 
         @Override
-        public void replaceChunks(String documentId, String versionId, Instant createdAt, List<DocumentChunk> chunks) {
+        public void replaceChunks(String documentId, Instant createdAt, List<DocumentChunk> chunks) {
             this.chunks.clear();
             this.chunks.addAll(chunks);
         }

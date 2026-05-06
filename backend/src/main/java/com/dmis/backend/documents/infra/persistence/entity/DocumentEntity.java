@@ -44,6 +44,24 @@ public class DocumentEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "file_name", nullable = false)
+    private String fileName;
+
+    @Column(name = "content_type", nullable = false)
+    private String contentType;
+
+    @Column(name = "size_bytes", nullable = false)
+    private long sizeBytes;
+
+    @Column(name = "index_status", nullable = false)
+    private String indexStatus;
+
+    @Column(name = "indexed_chunk_count", nullable = false)
+    private int indexedChunkCount;
+
+    @Column(name = "indexed_at")
+    private Instant indexedAt;
+
     protected DocumentEntity() {
     }
 
@@ -58,7 +76,13 @@ public class DocumentEntity {
             String source,
             String category,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            String fileName,
+            String contentType,
+            long sizeBytes,
+            String indexStatus,
+            int indexedChunkCount,
+            Instant indexedAt
     ) {
         this.id = id;
         this.title = title;
@@ -71,6 +95,12 @@ public class DocumentEntity {
         this.category = category;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.fileName = fileName;
+        this.contentType = contentType;
+        this.sizeBytes = sizeBytes;
+        this.indexStatus = indexStatus;
+        this.indexedChunkCount = indexedChunkCount;
+        this.indexedAt = indexedAt;
     }
 
     public String getId() {
@@ -127,5 +157,29 @@ public class DocumentEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public String getContentType() {
+        return contentType;
+    }
+
+    public long getSizeBytes() {
+        return sizeBytes;
+    }
+
+    public String getIndexStatus() {
+        return indexStatus;
+    }
+
+    public int getIndexedChunkCount() {
+        return indexedChunkCount;
+    }
+
+    public Instant getIndexedAt() {
+        return indexedAt;
     }
 }

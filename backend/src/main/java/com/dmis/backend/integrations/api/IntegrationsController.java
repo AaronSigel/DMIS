@@ -53,10 +53,19 @@ public class IntegrationsController {
     @PostMapping("/stt/audio")
     public ResponseEntity<TranscriptResponse> transcribeAudio(
             @RequestParam("audio") MultipartFile audio,
-            @RequestParam(value = "language", defaultValue = "ru") String language
+            @RequestParam(value = "language", defaultValue = "ru") String language,
+            @RequestParam(value = "profile", defaultValue = "fast") String profile
     ) throws IOException {
-        String text = integrationService.transcribeAudio(currentUserProvider.currentUser(), audio.getBytes(), language);
-        return ResponseEntity.ok(new TranscriptResponse(text, "transcribed"));
+        try (var audioStream = audio.getInputStream()) {
+            String text = integrationService.transcribeAudio(
+                    currentUserProvider.currentUser(),
+                    audioStream,
+                    audio.getSize(),
+                    language,
+                    profile
+            );
+            return ResponseEntity.ok(new TranscriptResponse(text, "transcribed"));
+        }
     }
 
     public record MailDraftRequest(@NotBlank @Email String to, @NotBlank String subject, @NotBlank String body) {
