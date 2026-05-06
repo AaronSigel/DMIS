@@ -1,4 +1,4 @@
-.PHONY: up down smoke test build lint
+.PHONY: up down smoke test build lint daily-summary
 
 up:
 	cd infra && docker compose up -d --build
@@ -18,3 +18,6 @@ build:
 
 lint:
 	cd frontend && npm run lint
+
+daily-summary:
+	bash scripts/daily-summary.sh

@@ -19,6 +19,7 @@ infra/.env.*
 /playwright-tests
 /.agent
 /.husky
+/reports
 # Core dumps и аварийные дампы
 core
 core.*
@@ -27,3 +28,4 @@ core.*
 frontend/core.*
 /frontend/playwright-report/*
 /frontend/test-results/*
+/scripts/*
