@@ -42,7 +42,7 @@ import {
   w as At,
   x as Je,
   y as Tn,
-} from "./index-Ce5Iikba.js";
+} from "./index-CK9AaxYQ.js";
 import { p as On, r as Mn } from "./markdown-vendor-BoH24OZ1.js";
 const ut = (e) => {
     let n;
@@ -260,7 +260,7 @@ function Ye({ status: e }) {
         indexed: "border-none bg-muted text-white",
         review: "border border-warning bg-transparent text-warning",
         pending: "border border-muted bg-transparent text-muted",
-        failed: "border-none bg-dangerSoft text-danger",
+        failed: "border-none bg-danger-soft text-danger",
         draft: "border border-text bg-transparent text-text",
       }[n] ?? "border border-border bg-transparent text-text";
   return t.jsx("span", {
@@ -1696,7 +1696,7 @@ function es({ citation: e, onClick: n }) {
     title: Zr(e),
     "aria-label": `Источник ${e.index}: ${e.documentTitle}`,
     className:
-      "inline-flex items-center rounded-md border border-border bg-primarySoft px-1.5 py-[2px] text-[11px] font-medium text-primary hover:bg-primary hover:text-white",
+      "inline-flex items-center rounded-md border border-border bg-primary-soft px-1.5 py-[2px] text-[11px] font-medium text-primary hover:bg-primary hover:text-white",
     children: ["[", e.index, "]"],
   });
 }
@@ -1754,7 +1754,7 @@ function ts({ citation: e, open: n, onClose: r }) {
             }),
             t.jsxs("div", {
               className:
-                "min-h-0 flex-1 overflow-y-auto rounded-lg border border-primary bg-primarySoft p-3",
+                "min-h-0 flex-1 overflow-y-auto rounded-lg border border-primary bg-primary-soft p-3",
               children: [
                 t.jsx("p", {
                   className: "mb-1 mt-0 text-[11px] uppercase tracking-[0.06em] text-primary",
@@ -2121,7 +2121,7 @@ function Nt({
               }),
               t.jsx("span", {
                 className:
-                  "rounded-xl bg-primarySoft px-2 py-[2px] text-[11px] font-medium text-primary",
+                  "rounded-xl bg-primary-soft px-2 py-[2px] text-[11px] font-medium text-primary",
                 children: "с источниками",
               }),
             ],
@@ -2320,7 +2320,7 @@ function Nt({
                   "button",
                   {
                     onClick: () => void lt(l),
-                    className: `rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${((y = h[O]) == null ? void 0 : y.id) === l.id ? "bg-primarySoft" : "bg-transparent"}`,
+                    className: `rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${((y = h[O]) == null ? void 0 : y.id) === l.id ? "bg-primary-soft" : "bg-transparent"}`,
                     children: [
                       t.jsx("span", { className: "mr-1.5 text-primary", children: "@" }),
                       l.title,
@@ -2369,7 +2369,7 @@ function Nt({
                 "aria-label": E
                   ? "Остановить запись голоса и распознать текст"
                   : "Голосовой ввод: записать речь и вставить текст в поле",
-                className: `rounded-lg border border-border px-[10px] py-2 text-sm ${E ? "bg-dangerSoft text-danger" : "bg-white text-text"}`,
+                className: `rounded-lg border border-border px-[10px] py-2 text-sm ${E ? "bg-danger-soft text-danger" : "bg-white text-text"}`,
                 title: E
                   ? "Остановить запись и отправить аудио на распознавание"
                   : "Диктовка: записать с микрофона и вставить текст (нужен доступ к микрофону)",
@@ -2472,7 +2472,7 @@ function Nt({
                           L(!1),
                           f.invalidateQueries({ queryKey: U.assistant.threadDetail(l.id) }));
                       },
-                      className: `rounded-md px-3 py-2.5 text-left text-xs ${m === l.id ? "border border-primary bg-primarySoft text-text" : "border border-border bg-white text-text"}`,
+                      className: `rounded-md px-3 py-2.5 text-left text-xs ${m === l.id ? "border border-primary bg-primary-soft text-text" : "border border-border bg-white text-text"}`,
                       children: l.title,
                     },
                     l.id,
@@ -3413,7 +3413,7 @@ function ls({ token: e, onSessionExpired: n, onTokenRefresh: r }) {
               label: `Извлеченный текст (${v.extractedTextLength} символов${v.extractedTextTruncated ? ", усечено" : ""})`,
               children: [
                 t.jsx("pre", {
-                  className: `m-0 overflow-auto whitespace-pre-wrap break-words rounded-lg p-2.5 text-xs ${x ? "max-h-[360px] bg-successSoft" : "max-h-[180px] bg-surfaceMuted"}`,
+                  className: `m-0 overflow-auto whitespace-pre-wrap break-words rounded-lg p-2.5 text-xs ${x ? "max-h-[360px] bg-success-soft" : "max-h-[180px] bg-surface-muted"}`,
                   children:
                     x ||
                     (v.extractedTextTruncated
@@ -3612,7 +3612,7 @@ function us({
     });
   }
   return t.jsxs("aside", {
-    className: `flex h-screen shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-surfaceAlt px-[10px] py-[14px] ${m ? `fixed left-0 top-0 z-40 transition-transform duration-150 ease-out ${g ? "translate-x-0" : "-translate-x-[105%]"}` : "relative"}`,
+    className: `flex h-screen shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-surface-alt px-[10px] py-[14px] ${m ? `fixed left-0 top-0 z-40 transition-transform duration-150 ease-out ${g ? "translate-x-0" : "-translate-x-[105%]"}` : "relative"}`,
     style: { width: r },
     children: [
       t.jsxs("div", {
@@ -3627,7 +3627,7 @@ function us({
             children: [
               t.jsx("span", {
                 className:
-                  "whitespace-nowrap rounded-xl bg-dangerSoft px-1.5 py-[2px] text-[10px] font-semibold text-danger",
+                  "whitespace-nowrap rounded-xl bg-danger-soft px-1.5 py-[2px] text-[10px] font-semibold text-danger",
                 children: "● audit on",
               }),
               m &&

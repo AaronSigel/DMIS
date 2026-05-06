@@ -27,7 +27,7 @@ export function CitationChip({ citation, onClick }: CitationChipProps) {
       onClick={() => onClick?.(citation)}
       title={buildTitle(citation)}
       aria-label={`Источник ${citation.index}: ${citation.documentTitle}`}
-      className="inline-flex items-center rounded-md border border-border bg-primarySoft px-1.5 py-[2px] text-[11px] font-medium text-primary hover:bg-primary hover:text-white"
+      className="inline-flex items-center rounded-md border border-border bg-primary-soft px-1.5 py-[2px] text-[11px] font-medium text-primary hover:bg-primary hover:text-white"
     >
       [{citation.index}]
     </button>

@@ -115,7 +115,7 @@ export function StatusBadge({ status }: { status: string }) {
     indexed: "border-none bg-muted text-white",
     review: "border border-warning bg-transparent text-warning",
     pending: "border border-muted bg-transparent text-muted",
-    failed: "border-none bg-dangerSoft text-danger",
+    failed: "border-none bg-danger-soft text-danger",
     draft: "border border-text bg-transparent text-text",
   };
   const pill = map[s] ?? "border border-border bg-transparent text-text";

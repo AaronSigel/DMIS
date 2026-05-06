@@ -3,7 +3,7 @@ const __vite__mapDeps = (
   m = __vite__mapDeps,
   d = m.f ||
     (m.f = [
-      "assets/WorkspacePage-BrN-9rpd.js",
+      "assets/WorkspacePage-BKgHe1-t.js",
       "assets/react-vendor-BYKCA02s.js",
       "assets/query-vendor-C0HI_nld.js",
       "assets/markdown-vendor-BoH24OZ1.js",
@@ -3969,7 +3969,7 @@ function iu({ children: e }) {
 const qt = T.createContext(null);
 function uu(e) {
   return e === "success"
-    ? "border-success/40 bg-successSoft text-text"
+    ? "border-success/40 bg-success-soft text-text"
     : e === "error"
       ? "border-danger/40 bg-danger/10 text-text"
       : "border-border bg-surface text-text";
@@ -4022,7 +4022,7 @@ function Pu() {
   return e;
 }
 const au = T.lazy(() =>
-  sn(() => import("./WorkspacePage-BrN-9rpd.js"), __vite__mapDeps([0, 1, 2, 3])).then((e) => ({
+  sn(() => import("./WorkspacePage-BKgHe1-t.js"), __vite__mapDeps([0, 1, 2, 3])).then((e) => ({
     default: e.WorkspacePage,
   })),
 );

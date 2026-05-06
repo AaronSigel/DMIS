@@ -91,7 +91,7 @@ function Sidebar({
 
   return (
     <aside
-      className={`flex h-screen shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-surfaceAlt px-[10px] py-[14px] ${
+      className={`flex h-screen shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-surface-alt px-[10px] py-[14px] ${
         mobile
           ? `fixed left-0 top-0 z-40 transition-transform duration-150 ease-out ${mobileOpen ? "translate-x-0" : "-translate-x-[105%]"}`
           : "relative"
@@ -101,7 +101,7 @@ function Sidebar({
       <div className="flex shrink-0 items-center justify-between px-1 pb-[10px]">
         <span className="font-mono text-[20px] font-bold text-primary">DMIS</span>
         <div className="flex items-center gap-1.5">
-          <span className="whitespace-nowrap rounded-xl bg-dangerSoft px-1.5 py-[2px] text-[10px] font-semibold text-danger">
+          <span className="whitespace-nowrap rounded-xl bg-danger-soft px-1.5 py-[2px] text-[10px] font-semibold text-danger">
             ● audit on
           </span>
           {mobile && (

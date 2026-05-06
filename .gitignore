@@ -25,3 +25,5 @@ core.*
 *.core
 *.dmp
 frontend/core.*
+/frontend/playwright-report/*
+/frontend/test-results/*

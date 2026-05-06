@@ -30,7 +30,7 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 function toastClassName(tone: ToastTone): string {
   if (tone === "success") {
-    return "border-success/40 bg-successSoft text-text";
+    return "border-success/40 bg-success-soft text-text";
   }
   if (tone === "error") {
     return "border-danger/40 bg-danger/10 text-text";

@@ -511,7 +511,7 @@ export function AiPanel({
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 pb-3 pt-[14px]">
         <div className="flex items-center gap-2">
           <span className="text-base font-semibold text-text">Ассистент</span>
-          <span className="rounded-xl bg-primarySoft px-2 py-[2px] text-[11px] font-medium text-primary">
+          <span className="rounded-xl bg-primary-soft px-2 py-[2px] text-[11px] font-medium text-primary">
             с источниками
           </span>
         </div>
@@ -671,7 +671,7 @@ export function AiPanel({
                 onClick={() => void attachMention(candidate)}
                 className={`rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${
                   mentionCandidates[mentionActiveIndex]?.id === candidate.id
-                    ? "bg-primarySoft"
+                    ? "bg-primary-soft"
                     : "bg-transparent"
                 }`}
               >
@@ -731,7 +731,7 @@ export function AiPanel({
                 : "Голосовой ввод: записать речь и вставить текст в поле"
             }
             className={`rounded-lg border border-border px-[10px] py-2 text-sm ${
-              recording ? "bg-dangerSoft text-danger" : "bg-white text-text"
+              recording ? "bg-danger-soft text-danger" : "bg-white text-text"
             }`}
             title={
               recording
@@ -832,7 +832,7 @@ export function AiPanel({
                   }}
                   className={`rounded-md px-3 py-2.5 text-left text-xs ${
                     activeThreadId === thread.id
-                      ? "border border-primary bg-primarySoft text-text"
+                      ? "border border-primary bg-primary-soft text-text"
                       : "border border-border bg-white text-text"
                   }`}
                 >

@@ -1,6 +1,24 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #f5f0eb;
+  --color-surface-alt: #ede8e2;
+  --color-border: #d8cfc6;
+  --color-text: #2c2519;
+  --color-muted: #8a7f72;
+  --color-primary: #c85a2a;
+  --color-primary-soft: #edddd4;
+  --color-success: #3d9e6b;
+  --color-success-soft: #f0f8f4;
+  --color-surface-muted: #f7f5f2;
+  --color-warning: #c9a720;
+  --color-danger: #c62828;
+  --color-danger-soft: #fee2e2;
+  --color-white: #ffffff;
+  --color-overlay: rgba(44, 37, 25, 0.18);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.12);
+  --shadow-menu: 0 8px 24px rgba(44, 37, 25, 0.12);
+}
 
 :root {
   --color-surface: #f5f0eb;

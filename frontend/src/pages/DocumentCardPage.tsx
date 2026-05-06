@@ -360,7 +360,7 @@ export function DocumentCardPage({
           >
             <pre
               className={`m-0 overflow-auto whitespace-pre-wrap break-words rounded-lg p-2.5 text-xs ${
-                fullText ? "max-h-[360px] bg-successSoft" : "max-h-[180px] bg-surfaceMuted"
+                fullText ? "max-h-[360px] bg-success-soft" : "max-h-[180px] bg-surface-muted"
               }`}
             >
               {fullText

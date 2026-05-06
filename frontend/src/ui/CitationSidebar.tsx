@@ -45,7 +45,7 @@ export function CitationSidebar({ citation, open, onClose }: CitationSidebarProp
           <p className="mb-0 mt-1 text-xs text-text">Скор: {citation.score.toFixed(3)}</p>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-primary bg-primarySoft p-3">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-primary bg-primary-soft p-3">
           <p className="mb-1 mt-0 text-[11px] uppercase tracking-[0.06em] text-primary">
             Подсвеченный фрагмент
           </p>
