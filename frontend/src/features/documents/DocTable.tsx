@@ -80,6 +80,11 @@ const docTableQuerySchema = z.object({
     if (value === "0" || value === "false") return false;
     return undefined;
   }, z.boolean().optional()),
+  archive: z.preprocess((value) => {
+    if (value === "1" || value === "true") return true;
+    if (value === "0" || value === "false") return false;
+    return undefined;
+  }, z.boolean().optional()),
   sort: z.enum(["newest", "oldest"]).optional(),
   page: z.preprocess((value) => {
     if (typeof value !== "string") return undefined;
@@ -92,20 +97,23 @@ const docTableQuerySchema = z.object({
 
 function parseDocTableQuery(search: string): {
   filterActive: boolean;
+  archiveActive: boolean;
   sortOrder: "newest" | "oldest";
   page: number;
 } {
   const params = new URLSearchParams(search);
   const parsed = docTableQuerySchema.safeParse({
     indexed: params.get("indexed") ?? undefined,
+    archive: params.get("archive") ?? undefined,
     sort: params.get("sort") ?? undefined,
     page: params.get("page") ?? undefined,
   });
   if (!parsed.success) {
-    return { filterActive: false, sortOrder: "newest", page: 0 };
+    return { filterActive: false, archiveActive: false, sortOrder: "newest", page: 0 };
   }
   return {
     filterActive: parsed.data.indexed ?? false,
+    archiveActive: parsed.data.archive ?? false,
     sortOrder: parsed.data.sort ?? "newest",
     page: parsed.data.page ?? 0,
   };
@@ -127,6 +135,7 @@ export function DocTable({
   const [page, setPage] = useState(initialQueryState.page);
   const [renameDoc, setRenameDoc] = useState<DocumentView | null>(null);
   const [filterActive, setFilterActive] = useState(initialQueryState.filterActive);
+  const [archiveActive, setArchiveActive] = useState(initialQueryState.archiveActive);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">(initialQueryState.sortOrder);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkTagsInput, setBulkTagsInput] = useState("");
@@ -144,6 +153,7 @@ export function DocTable({
   useEffect(() => {
     const nextState = parseDocTableQuery(location.search);
     setFilterActive((prev) => (prev === nextState.filterActive ? prev : nextState.filterActive));
+    setArchiveActive((prev) => (prev === nextState.archiveActive ? prev : nextState.archiveActive));
     setSortOrder((prev) => (prev === nextState.sortOrder ? prev : nextState.sortOrder));
     setPage((prev) => (prev === nextState.page ? prev : nextState.page));
   }, [location.search]);
@@ -154,6 +164,11 @@ export function DocTable({
       nextParams.set("indexed", "1");
     } else {
       nextParams.delete("indexed");
+    }
+    if (archiveActive) {
+      nextParams.set("archive", "1");
+    } else {
+      nextParams.delete("archive");
     }
     if (sortOrder === "oldest") {
       nextParams.set("sort", "oldest");
@@ -170,13 +185,13 @@ export function DocTable({
     const next = nextParams.toString();
     if (current === next) return;
     navigate({ pathname: location.pathname, search: next ? `?${next}` : "" }, { replace: true });
-  }, [filterActive, sortOrder, page, location.pathname, location.search, navigate]);
+  }, [filterActive, archiveActive, sortOrder, page, location.pathname, location.search, navigate]);
 
   const docQuery = useQuery({
-    queryKey: queryKeys.documents.list({ section, page, size: 20 }),
+    queryKey: queryKeys.documents.list({ section, page, size: 20, archive: archiveActive }),
     queryFn: () =>
       apiListDocuments(
-        { page, size: 20, tag: tagForSection(section) },
+        { page, size: 20, tag: archiveActive ? "archive" : tagForSection(section) },
         onSessionExpired,
         onTokenRefresh,
       ),
@@ -393,6 +408,19 @@ export function DocTable({
           >
             {filterActive ? "Фильтр: проиндексированные" : "Фильтр"}
           </TopBarBtn>
+          <TopBarBtn
+            onClick={() => {
+              setArchiveActive((v) => !v);
+              setPage(0);
+            }}
+            title={
+              archiveActive
+                ? "Показывается только архив (документы с тегом archive)"
+                : "Показать только архив (документы с тегом archive)"
+            }
+          >
+            {archiveActive ? "Архив: вкл" : "Архив"}
+          </TopBarBtn>
           <TopBarBtn onClick={() => setSortOrder((v) => (v === "newest" ? "oldest" : "newest"))}>
             {sortOrder === "newest" ? "Сортировка: новые" : "Сортировка: старые"}
           </TopBarBtn>
@@ -504,6 +532,11 @@ export function DocTable({
             className={`rounded-full px-2 py-1 text-[11px] ${filterActive ? "bg-primary/15 text-text" : "bg-zinc-100 text-text"}`}
           >
             {filterActive ? "Только INDEXED" : "Все статусы"}
+          </span>
+          <span
+            className={`rounded-full px-2 py-1 text-[11px] ${archiveActive ? "bg-primary/15 text-text" : "bg-zinc-100 text-muted"}`}
+          >
+            {archiveActive ? "Только архив" : "Без архива"}
           </span>
           <span className="rounded-full bg-zinc-100 px-2 py-1 text-[11px] text-muted">
             Сортировка: {sortOrder === "newest" ? "новые сверху" : "старые сверху"}

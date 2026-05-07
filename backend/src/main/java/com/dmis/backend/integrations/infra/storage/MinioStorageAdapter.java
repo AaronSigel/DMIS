@@ -2,6 +2,7 @@ package com.dmis.backend.integrations.infra.storage;
 
 import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.dmis.backend.platform.config.StorageProperties;
+import io.minio.errors.ErrorResponseException;
 import io.minio.BucketExistsArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.GetObjectArgs;
@@ -20,12 +21,9 @@ public class MinioStorageAdapter implements ObjectStoragePort {
     private final StorageProperties storageProperties;
     private final MinioClient minioClient;
 
-    public MinioStorageAdapter(StorageProperties storageProperties) {
+    public MinioStorageAdapter(StorageProperties storageProperties, MinioClient minioClient) {
         this.storageProperties = storageProperties;
-        this.minioClient = MinioClient.builder()
-                .endpoint(storageProperties.endpoint())
-                .credentials(storageProperties.accessKey(), storageProperties.secretKey())
-                .build();
+        this.minioClient = minioClient;
     }
 
     @Override
@@ -79,9 +77,20 @@ public class MinioStorageAdapter implements ObjectStoragePort {
     public void delete(String storageRef) {
         try {
             minioClient.removeObject(toRemoveObjectArgs(storageRef));
+        } catch (ErrorResponseException e) {
+            if (isNoSuchKey(e)) {
+                return;
+            }
+            throw new IllegalStateException("MinIO delete failed", e);
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("MinIO delete failed", e);
         }
+    }
+
+    private static boolean isNoSuchKey(ErrorResponseException e) {
+        return e.errorResponse() != null && "NoSuchKey".equals(e.errorResponse().code());
     }
 
     private GetObjectArgs toGetObjectArgs(String storageRef) {

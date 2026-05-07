@@ -6,12 +6,14 @@ import { queryKeys } from "../shared/api/queryClient";
 import { useUiStore } from "../shared/store/uiStore";
 import { AiPanel } from "../features/assistant/AiPanel";
 import { DocTable } from "../features/documents/DocTable";
+import { MailPage } from "../features/mail/MailPage";
+import { CalendarPage } from "../features/calendar/CalendarPage";
+import { AuditPage } from "../features/audit/AuditPage";
 import { Avatar } from "../shared/ui/Avatar";
 import { SectionLabel } from "../shared/ui/SectionLabel";
 import { DashboardPage } from "./DashboardPage";
 import { DocumentCardPage } from "./DocumentCardPage";
 import { SettingsPage } from "./SettingsPage";
-import { StaticPage } from "./StaticPage";
 
 type User = { id: string; fullName: string; email: string; roles?: string[] };
 
@@ -195,7 +197,7 @@ function Sidebar({
       <NavItem label="Почта" k="mail" icon="✉" />
       <NavItem label="Календарь" k="calendar" icon="📅" />
       <SectionLabel>контроль</SectionLabel>
-      {isAdmin(user) && <NavItem label="Журнал аудита" k="audit" icon="○" />}
+      <NavItem label={isAdmin(user) ? "Журнал аудита" : "Мои AI-действия"} k="audit" icon="○" />
       <NavItem label="Настройки" k="settings" icon="☰" />
       {isAdmin(user) && <NavItem label="ACL (скоро)" k="acl" icon="🔒" />}
     </aside>
@@ -390,29 +392,27 @@ export function WorkspacePage({
           closeMobileSidebar();
         },
       },
+      {
+        id: "sec-audit",
+        label: isAdmin(user) ? "Журнал аудита" : "Мои AI-действия",
+        hint: "раздел",
+        onActivate: () => {
+          handleSection("audit");
+          closeMobileSidebar();
+        },
+      },
     ];
 
     if (isAdmin(user)) {
-      core.push(
-        {
-          id: "sec-audit",
-          label: "Журнал аудита",
-          hint: "раздел",
-          onActivate: () => {
-            handleSection("audit");
-            closeMobileSidebar();
-          },
+      core.push({
+        id: "sec-acl",
+        label: "ACL",
+        hint: "скоро",
+        onActivate: () => {
+          handleSection("acl");
+          closeMobileSidebar();
         },
-        {
-          id: "sec-acl",
-          label: "ACL",
-          hint: "скоро",
-          onActivate: () => {
-            handleSection("acl");
-            closeMobileSidebar();
-          },
-        },
-      );
+      });
     }
 
     const matches = (item: NavSearchResultItem) => {
@@ -525,38 +525,32 @@ export function WorkspacePage({
           <Route
             path="/mail"
             element={
-              <StaticPage
-                title="Почта"
-                description="Почтовый модуль находится в активной разработке."
-                hint="Здесь будет полноценный интерфейс писем, черновиков и папок."
-                actionLabel="Открыть входящие"
+              <MailPage
+                token={token}
+                onSessionExpired={onSessionExpired}
+                onTokenRefresh={onTokenRefresh}
               />
             }
           />
           <Route
             path="/calendar"
             element={
-              <StaticPage
-                title="Календарь"
-                description="Календарный модуль находится в активной разработке."
-                hint="Здесь будет полноценный интерфейс встреч, расписания и занятости."
-                actionLabel="Открыть календарь"
+              <CalendarPage
+                token={token}
+                onSessionExpired={onSessionExpired}
+                onTokenRefresh={onTokenRefresh}
               />
             }
           />
           <Route
             path="/audit"
             element={
-              isAdmin(user) ? (
-                <StaticPage
-                  title="Журнал аудита"
-                  description="Аудит действий и операций доступен в backend."
-                  hint="После включения потока аудита в backend здесь появится лента операций и фильтры."
-                  actionLabel="Запросить выгрузку аудита"
-                />
-              ) : (
-                <Navigate to="/settings" replace />
-              )
+              <AuditPage
+                token={token}
+                user={user}
+                onSessionExpired={onSessionExpired}
+                onTokenRefresh={onTokenRefresh}
+              />
             }
           />
           <Route path="/settings" element={<SettingsPage user={user} />} />

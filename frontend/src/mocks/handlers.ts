@@ -61,12 +61,48 @@ function buildDocumentPage(page: number, size: number) {
   };
 }
 
+type CalendarEventMock = {
+  id: string;
+  title: string;
+  attendees: string[];
+  startIso: string;
+  endIso: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+let calendarEvents: CalendarEventMock[] = [
+  {
+    id: "event-1",
+    title: "Планерка проекта",
+    attendees: ["alice@dmis.local", "admin@dmis.local"],
+    startIso: "2026-05-01T09:00:00Z",
+    endIso: "2026-05-01T10:00:00Z",
+    createdBy: "u-admin",
+    createdAt: "2026-05-01T08:00:00Z",
+    updatedAt: "2026-05-01T08:00:00Z",
+  },
+];
+
+type AiActionMock = {
+  id: string;
+  intent: string;
+  entities: Record<string, unknown>;
+  actorId: string;
+  status: "DRAFT" | "CONFIRMED" | "EXECUTED";
+  confirmedBy: string | null;
+};
+
+let aiActions: AiActionMock[] = [];
+
 export const handlers = [
   http.get("*/health", () => HttpResponse.text("ok")),
 
   http.post("*/auth/login", async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as { email?: string };
     const user = buildUserByEmail(body.email ?? "admin@dmis.local");
+    aiActions = [];
     return HttpResponse.json({
       token: "token-1",
       user,
@@ -79,8 +115,66 @@ export const handlers = [
     }),
   ),
 
-  http.get("*/assistant/threads", () => HttpResponse.json([])),
-  http.get("*/actions", () => HttpResponse.json([])),
+  http.get("*/assistant/threads", () =>
+    HttpResponse.json([
+      {
+        id: "thread-1",
+        title: "Demo thread",
+        ideologyProfileId: "balanced",
+        knowledgeSourceIds: ["documents"],
+      },
+    ]),
+  ),
+  http.get("*/assistant/threads/:threadId", () =>
+    HttpResponse.json({
+      thread: {
+        id: "thread-1",
+        title: "Demo thread",
+        ideologyProfileId: "balanced",
+        knowledgeSourceIds: ["documents"],
+      },
+      messages: [
+        {
+          id: "msg-ai-1",
+          role: "ASSISTANT",
+          content: "Краткий ответ AI для подготовки письма.",
+          documentIds: [],
+        },
+      ],
+      linkedDocumentIds: [],
+    }),
+  ),
+  http.get("*/actions", () => HttpResponse.json(aiActions)),
+  http.post("*/actions/draft", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      intent?: string;
+      entities?: Record<string, unknown>;
+    };
+    const created: AiActionMock = {
+      id: `act-${Math.random().toString(36).slice(2, 9)}`,
+      intent: body.intent ?? "send_email",
+      entities: body.entities ?? {},
+      actorId: "u-admin",
+      status: "DRAFT",
+      confirmedBy: null,
+    };
+    aiActions = [...aiActions, created];
+    return HttpResponse.json(created);
+  }),
+  http.post("*/actions/:actionId/confirm", ({ params }) => {
+    const action = aiActions.find((item) => item.id === params.actionId);
+    if (!action) return HttpResponse.json({ message: "Action not found" }, { status: 404 });
+    const confirmed: AiActionMock = { ...action, status: "CONFIRMED", confirmedBy: "u-admin" };
+    aiActions = aiActions.map((item) => (item.id === action.id ? confirmed : item));
+    return HttpResponse.json(confirmed);
+  }),
+  http.post("*/actions/:actionId/execute", ({ params }) => {
+    const action = aiActions.find((item) => item.id === params.actionId);
+    if (!action) return HttpResponse.json({ message: "Action not found" }, { status: 404 });
+    const executed: AiActionMock = { ...action, status: "EXECUTED" };
+    aiActions = aiActions.map((item) => (item.id === action.id ? executed : item));
+    return HttpResponse.json(executed);
+  }),
   http.get("*/audit", () => HttpResponse.json([])),
 
   http.get("*/documents", ({ request }) => {
@@ -110,5 +204,100 @@ export const handlers = [
       },
       { status: 404 },
     );
+  }),
+
+  http.get("*/mail/messages", () =>
+    HttpResponse.json([
+      {
+        id: "mail-1",
+        from: "alice@dmis.local",
+        to: "admin@dmis.local",
+        subject: "Hello from Alice",
+        preview: "Привет, нужно обсудить контракт",
+        sentAtIso: "2026-05-01T10:00:00Z",
+      },
+    ]),
+  ),
+
+  http.get("*/mail/messages/:messageId", ({ params }) => {
+    if (params.messageId === "mail-1") {
+      return HttpResponse.json({
+        id: "mail-1",
+        from: "alice@dmis.local",
+        to: "admin@dmis.local",
+        subject: "Hello from Alice",
+        body: "Привет!\nНужно обсудить контракт на следующей неделе.",
+        sentAtIso: "2026-05-01T10:00:00Z",
+      });
+    }
+    return HttpResponse.json({ message: "Mail not found" }, { status: 404 });
+  }),
+
+  http.post("*/mail/messages/search", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { query?: string };
+    return HttpResponse.json({
+      query: body.query ?? "",
+      messages: [],
+    });
+  }),
+
+  http.get("*/calendar/events", () => HttpResponse.json(calendarEvents)),
+
+  http.post("*/calendar/events", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      title?: string;
+      attendees?: string[];
+      startIso?: string;
+      endIso?: string;
+    };
+    const nowIso = new Date().toISOString();
+    const created: CalendarEventMock = {
+      id: `event-${Math.random().toString(36).slice(2, 9)}`,
+      title: body.title ?? "",
+      attendees: body.attendees ?? [],
+      startIso: body.startIso ?? nowIso,
+      endIso: body.endIso ?? nowIso,
+      createdBy: "u-admin",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    calendarEvents = [...calendarEvents, created];
+    return HttpResponse.json(created, { status: 200 });
+  }),
+
+  http.put("*/calendar/events/:eventId", async ({ params, request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      title?: string;
+      attendees?: string[];
+      startIso?: string;
+      endIso?: string;
+    };
+    const index = calendarEvents.findIndex((event) => event.id === params.eventId);
+    if (index < 0) {
+      return HttpResponse.json({ message: "Event not found" }, { status: 404 });
+    }
+    const previous = calendarEvents[index];
+    if (!previous) {
+      return HttpResponse.json({ message: "Event not found" }, { status: 404 });
+    }
+    const updated: CalendarEventMock = {
+      ...previous,
+      title: body.title ?? previous.title,
+      attendees: body.attendees ?? previous.attendees,
+      startIso: body.startIso ?? previous.startIso,
+      endIso: body.endIso ?? previous.endIso,
+      updatedAt: new Date().toISOString(),
+    };
+    calendarEvents = calendarEvents.map((event) => (event.id === params.eventId ? updated : event));
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete("*/calendar/events/:eventId", ({ params }) => {
+    const exists = calendarEvents.some((event) => event.id === params.eventId);
+    if (!exists) {
+      return HttpResponse.json({ message: "Event not found" }, { status: 404 });
+    }
+    calendarEvents = calendarEvents.filter((event) => event.id !== params.eventId);
+    return new HttpResponse(null, { status: 204 });
   }),
 ];

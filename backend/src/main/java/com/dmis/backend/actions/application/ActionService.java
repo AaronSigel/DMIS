@@ -36,6 +36,7 @@ public class ActionService {
     private final AuditService auditService;
     private final IntegrationService integrationService;
     private final DocumentUseCases documentUseCases;
+    private final UserMentionResolver userMentionResolver;
     private final int mailAttachmentsMaxCount;
     private final long mailAttachmentsMaxTotalBytes;
 
@@ -45,6 +46,7 @@ public class ActionService {
             AuditService auditService,
             IntegrationService integrationService,
             DocumentUseCases documentUseCases,
+            UserMentionResolver userMentionResolver,
             @Value("${mail.attachments.max-count:10}") int mailAttachmentsMaxCount,
             @Value("${mail.attachments.max-total-bytes:26214400}") long mailAttachmentsMaxTotalBytes
     ) {
@@ -53,6 +55,7 @@ public class ActionService {
         this.auditService = auditService;
         this.integrationService = integrationService;
         this.documentUseCases = documentUseCases;
+        this.userMentionResolver = userMentionResolver;
         this.mailAttachmentsMaxCount = mailAttachmentsMaxCount;
         this.mailAttachmentsMaxTotalBytes = mailAttachmentsMaxTotalBytes;
     }
@@ -60,10 +63,11 @@ public class ActionService {
     public ActionDtos.AiActionView draft(UserView actor, String intent, ActionEntities entities) {
         validateIntent(intent);
         validateEntitiesMatchIntent(intent, entities);
+        ActionEntities resolvedEntities = resolveUserMentionsInEntities(entities);
         ActionDtos.AiActionView action = new ActionDtos.AiActionView(
                 "act-" + UUID.randomUUID(),
                 intent,
-                entities,
+                resolvedEntities,
                 actor.id(),
                 ActionStatus.DRAFT,
                 null
@@ -211,6 +215,24 @@ public class ActionService {
             attachments.add(new IntegrationDtos.MailAttachment(binary.fileName(), binary.contentType(), binary.content()));
         }
         return attachments;
+    }
+
+    private ActionEntities resolveUserMentionsInEntities(ActionEntities entities) {
+        return switch (entities) {
+            case SendEmailEntities e -> new SendEmailEntities(
+                    userMentionResolver.resolve(e.to()),
+                    e.subject(),
+                    e.body(),
+                    e.attachmentDocumentIds()
+            );
+            case CreateCalendarEventEntities e -> new CreateCalendarEventEntities(
+                    e.title(),
+                    e.attendees().stream().map(userMentionResolver::resolve).toList(),
+                    e.startIso(),
+                    e.endIso()
+            );
+            case UpdateDocumentTagsEntities e -> e;
+        };
     }
 
     private static void validateIntent(String intent) {

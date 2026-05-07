@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   apiBaseUrl,
+  apiCreateActionDraft,
   apiDeleteDocument,
   apiUpdateDocument,
   fetchWithAuth,
@@ -17,6 +18,7 @@ import { useToast } from "../shared/ui/ToastProvider";
 import type { DocumentView } from "../entities/document";
 import { StatusBadge } from "../shared/ui/StatusBadge";
 import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
+import { localDateTimeInputToIso } from "../shared/lib/datetimeLocal";
 import { RenameDocumentModal } from "../features/documents/documentUi";
 
 type DocumentCardPageProps = {
@@ -45,6 +47,20 @@ function MetaCard({ label, value }: { label: string; value: string }) {
       <p className="m-0 truncate text-[13px] text-text">{value}</p>
     </div>
   );
+}
+
+function toDateTimeLocal(value: Date): string {
+  const offsetMs = value.getTimezoneOffset() * 60_000;
+  return new Date(value.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function defaultMeetingRange() {
+  const start = new Date();
+  start.setDate(start.getDate() + 1);
+  start.setHours(10, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(11, 0, 0, 0);
+  return { start: toDateTimeLocal(start), end: toDateTimeLocal(end) };
 }
 
 function DocumentPreview({
@@ -145,6 +161,11 @@ export function DocumentCardPage({
   const [fullTextLoading, setFullTextLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [meetingDraftOpen, setMeetingDraftOpen] = useState(false);
+  const [meetingTitle, setMeetingTitle] = useState("");
+  const [meetingAttendees, setMeetingAttendees] = useState("");
+  const [meetingStart, setMeetingStart] = useState("");
+  const [meetingEnd, setMeetingEnd] = useState("");
   const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
   const toast = useToast();
 
@@ -215,6 +236,15 @@ export function DocumentCardPage({
       await queryClient.invalidateQueries({ queryKey: queryKeys.documents.all });
       toast.success("Документ удален.");
       navigate("/documents");
+    },
+  });
+
+  const createActionDraftMutation = useMutation({
+    mutationFn: async (payload: { intent: string; entities: Record<string, unknown> }) =>
+      apiCreateActionDraft(payload, onSessionExpired, onTokenRefresh),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["assistant-actions"] });
+      toast.success("Черновик встречи создан.");
     },
   });
 
@@ -290,6 +320,52 @@ export function DocumentCardPage({
     openAiWithQuery(q);
   }
 
+  function openMeetingDraftForm() {
+    if (!doc) return;
+    const range = defaultMeetingRange();
+    setMeetingTitle(`Встреча по документу: ${doc.title}`.slice(0, 120));
+    setMeetingAttendees("");
+    setMeetingStart(range.start);
+    setMeetingEnd(range.end);
+    setMeetingDraftOpen(true);
+  }
+
+  async function createMeetingDraftFromDocument() {
+    const attendees = meetingAttendees
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!meetingTitle.trim() || attendees.length === 0 || !meetingStart || !meetingEnd) {
+      toast.error("Заполните название, участников, начало и окончание встречи.");
+      return;
+    }
+    const startIso = localDateTimeInputToIso(meetingStart);
+    const endIso = localDateTimeInputToIso(meetingEnd);
+    if (!startIso || !endIso) {
+      toast.error("Укажите корректные дату и время начала и окончания.");
+      return;
+    }
+    try {
+      await createActionDraftMutation.mutateAsync({
+        intent: "create_calendar_event",
+        entities: {
+          type: "create_calendar_event",
+          title: meetingTitle.trim(),
+          attendees,
+          startIso,
+          endIso,
+        },
+      });
+      setMeetingDraftOpen(false);
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? mapApiErrorToMessage(e.message)
+          : "Не удалось создать черновик встречи",
+      );
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 pb-[14px] pt-4">
@@ -311,6 +387,14 @@ export function DocumentCardPage({
           </button>
           <button
             type="button"
+            onClick={openMeetingDraftForm}
+            className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
+            title="Создать draft встречи по этому документу"
+          >
+            Создать встречу
+          </button>
+          <button
+            type="button"
             onClick={() => setRenameOpen(true)}
             className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
           >
@@ -328,6 +412,72 @@ export function DocumentCardPage({
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        {meetingDraftOpen && (
+          <div className="mb-4 rounded-lg border border-border bg-white px-4 py-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <p className="m-0 text-sm font-semibold text-text">Создать встречу из документа</p>
+                <p className="m-0 text-[12px] text-muted">
+                  Draft пройдет существующий confirm/execute flow.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-border bg-white px-2 py-1 text-xs text-text"
+                onClick={() => setMeetingDraftOpen(false)}
+              >
+                Закрыть
+              </button>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <label className="grid gap-1 text-[12px] text-muted md:col-span-2">
+                Название
+                <input
+                  value={meetingTitle}
+                  onChange={(e) => setMeetingTitle(e.target.value)}
+                  className="rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-text outline-none"
+                />
+              </label>
+              <label className="grid gap-1 text-[12px] text-muted md:col-span-2">
+                Участники
+                <input
+                  value={meetingAttendees}
+                  onChange={(e) => setMeetingAttendees(e.target.value)}
+                  placeholder="email или @username через запятую"
+                  className="rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-text outline-none"
+                />
+              </label>
+              <label className="grid gap-1 text-[12px] text-muted">
+                Начало
+                <input
+                  type="datetime-local"
+                  value={meetingStart}
+                  onChange={(e) => setMeetingStart(e.target.value)}
+                  className="rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-text outline-none"
+                />
+              </label>
+              <label className="grid gap-1 text-[12px] text-muted">
+                Окончание
+                <input
+                  type="datetime-local"
+                  value={meetingEnd}
+                  onChange={(e) => setMeetingEnd(e.target.value)}
+                  className="rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-text outline-none"
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void createMeetingDraftFromDocument()}
+                disabled={createActionDraftMutation.isPending}
+                className="rounded-md border-0 bg-primary px-3 py-1.5 text-xs text-white disabled:opacity-50"
+              >
+                Создать draft
+              </button>
+            </div>
+          </div>
+        )}
         <div className="mb-4 grid grid-cols-[minmax(240px,1fr)] gap-2.5">
           <MetaCard label="Владелец" value={doc.ownerId} />
         </div>

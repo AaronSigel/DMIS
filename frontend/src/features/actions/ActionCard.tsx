@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiConfirmAction, apiGetDocumentTags } from "../../apiClient";
+import { apiConfirmAction, apiExecuteAction, apiGetDocumentTags } from "../../apiClient";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { StatusBadge } from "../../shared/ui/StatusBadge";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
@@ -75,6 +75,7 @@ export function ActionCard({
   const [localStatus, setLocalStatus] = useState(status);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmPending, setConfirmPending] = useState(false);
+  const [executePending, setExecutePending] = useState(false);
   const [actionError, setActionError] = useState("");
   const [currentTags, setCurrentTags] = useState<string[] | null>(null);
   const [tagsLoading, setTagsLoading] = useState(false);
@@ -136,6 +137,22 @@ export function ActionCard({
     }
   }
 
+  async function handleExecuteAction() {
+    setExecutePending(true);
+    setActionError("");
+    try {
+      const executed = await apiExecuteAction(id, onSessionExpired ?? (() => {}), onTokenRefresh);
+      setLocalStatus(executed.status);
+      toast.success("Действие выполнено.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось выполнить действие";
+      setActionError(message);
+      toast.error(message);
+    } finally {
+      setExecutePending(false);
+    }
+  }
+
   const fields = renderKnownIntentFields(intent, entities);
 
   return (
@@ -179,6 +196,18 @@ export function ActionCard({
             className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white"
           >
             Подтвердить
+          </button>
+        </div>
+      )}
+      {localStatus === "CONFIRMED" && (
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => void handleExecuteAction()}
+            disabled={executePending}
+            className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white disabled:opacity-50"
+          >
+            {executePending ? "Выполнение…" : "Выполнить"}
           </button>
         </div>
       )}

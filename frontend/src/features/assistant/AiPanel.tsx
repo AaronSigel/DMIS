@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import {
   apiBaseUrl,
+  apiCreateActionDraft,
   apiCreateAssistantThread,
   apiGetDocumentTitle,
   apiGetAssistantThreadDetail,
@@ -40,6 +41,7 @@ const SUGGESTIONS = [
   "суммируй 3 последних контракта",
   'найди документы с упоминанием "продление Acme"',
 ];
+const ASSISTANT_ACTIONS_QUERY_KEY = ["assistant-actions"] as const;
 
 function renderMessageMarkdown(content: string) {
   const hasRawHtmlTag = /<\/?[a-z][\s\S]*>/i.test(content);
@@ -102,6 +104,10 @@ export function AiPanel({
   const [liveTranscript, setLiveTranscript] = useState("");
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [awaitingPersistedAssistantMessage, setAwaitingPersistedAssistantMessage] = useState(false);
+  const [emailDraftMessageId, setEmailDraftMessageId] = useState("");
+  const [emailDraftTo, setEmailDraftTo] = useState("");
+  const [emailDraftSubject, setEmailDraftSubject] = useState("");
+  const [emailDraftBody, setEmailDraftBody] = useState("");
   const toast = useToast();
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -131,7 +137,7 @@ export function AiPanel({
   });
 
   const actionsQuery = useQuery({
-    queryKey: ["assistant-actions"],
+    queryKey: ASSISTANT_ACTIONS_QUERY_KEY,
     queryFn: async () => {
       const response = await fetchWithAuth(
         `${apiBaseUrl}/actions`,
@@ -288,6 +294,15 @@ export function AiPanel({
     },
   });
 
+  const createActionDraftMutation = useMutation({
+    mutationFn: async (payload: { intent: string; entities: Record<string, unknown> }) =>
+      apiCreateActionDraft(payload, onSessionExpired, onTokenRefresh),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ASSISTANT_ACTIONS_QUERY_KEY });
+      toast.success("Черновик действия создан.");
+    },
+  });
+
   const assistantStream = useAssistantStream({
     onUnauthorized: onSessionExpired,
     onTokenRefresh,
@@ -331,6 +346,7 @@ export function AiPanel({
     assistantStream.isStreaming ||
     linkDocumentMutation.isPending ||
     uploadAttachmentMutation.isPending ||
+    createActionDraftMutation.isPending ||
     generateThreadTitleMutation.isPending;
 
   async function createThread() {
@@ -447,6 +463,44 @@ export function AiPanel({
     } catch (e) {
       toast.error(
         e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось прикрепить файл",
+      );
+    }
+  }
+
+  function openEmailDraftForm(messageId: string, content: string) {
+    const threadTitle = threadDetailQuery.data?.thread.title?.trim();
+    setEmailDraftMessageId(messageId);
+    setEmailDraftTo("");
+    setEmailDraftSubject(
+      threadTitle && threadTitle !== "Новый диалог"
+        ? `По ответу AI: ${threadTitle}`.slice(0, 120)
+        : "Письмо по ответу AI",
+    );
+    setEmailDraftBody(content.trim());
+  }
+
+  async function createEmailDraftFromAnswer() {
+    if (!emailDraftTo.trim() || !emailDraftSubject.trim() || !emailDraftBody.trim()) {
+      toast.error("Заполните получателя, тему и текст письма.");
+      return;
+    }
+    try {
+      await createActionDraftMutation.mutateAsync({
+        intent: "send_email",
+        entities: {
+          type: "send_email",
+          to: emailDraftTo.trim(),
+          subject: emailDraftSubject.trim(),
+          body: emailDraftBody.trim(),
+        },
+      });
+      setEmailDraftMessageId("");
+      setEmailDraftTo("");
+      setEmailDraftSubject("");
+      setEmailDraftBody("");
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось создать черновик письма",
       );
     }
   }
@@ -666,6 +720,62 @@ export function AiPanel({
                             onClick={handleCitationClick}
                           />
                         ))}
+                      </div>
+                    )}
+                    {m.role === "ASSISTANT" && m.content.trim() && (
+                      <div className="mt-2 rounded-md border border-border bg-surface px-2 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="m-0 text-[11px] text-muted">AI-хук</p>
+                          <button
+                            type="button"
+                            className="rounded-md border border-border bg-white px-2 py-1 text-[11px] text-text"
+                            onClick={() => openEmailDraftForm(m.id, m.content)}
+                          >
+                            Создать письмо из ответа AI
+                          </button>
+                        </div>
+                        {emailDraftMessageId === m.id && (
+                          <div className="mt-2 grid gap-1.5">
+                            <input
+                              value={emailDraftTo}
+                              onChange={(e) => setEmailDraftTo(e.target.value)}
+                              placeholder="Кому: email или @username"
+                              aria-label="Получатель письма из ответа AI"
+                              className="rounded-md border border-border bg-white px-2 py-1.5 text-[12px] outline-none"
+                            />
+                            <input
+                              value={emailDraftSubject}
+                              onChange={(e) => setEmailDraftSubject(e.target.value)}
+                              placeholder="Тема"
+                              aria-label="Тема письма из ответа AI"
+                              className="rounded-md border border-border bg-white px-2 py-1.5 text-[12px] outline-none"
+                            />
+                            <textarea
+                              value={emailDraftBody}
+                              onChange={(e) => setEmailDraftBody(e.target.value)}
+                              rows={4}
+                              aria-label="Текст письма из ответа AI"
+                              className="resize-y rounded-md border border-border bg-white px-2 py-1.5 text-[12px] outline-none"
+                            />
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                type="button"
+                                className="rounded-md border border-border bg-white px-2 py-1 text-[11px] text-text"
+                                onClick={() => setEmailDraftMessageId("")}
+                              >
+                                Отмена
+                              </button>
+                              <button
+                                type="button"
+                                disabled={createActionDraftMutation.isPending}
+                                className="rounded-md border border-primary/40 bg-primary px-2 py-1 text-[11px] text-white disabled:opacity-50"
+                                onClick={() => void createEmailDraftFromAnswer()}
+                              >
+                                Создать draft
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

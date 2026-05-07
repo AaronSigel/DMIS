@@ -61,6 +61,26 @@ class AssistantActionParseIntegrationTest {
     }
 
     @Test
+    void parseActionResolvesUserMentionToEmail() throws Exception {
+        when(intentParserPort.parse("Отправь письмо @analyst"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of("to", "@analyst", "subject", "Отчет", "body", "Отчет готов")
+                ));
+        String token = loginAndGetToken();
+
+        mockMvc.perform(post("/api/assistant/actions/parse")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"text\":\"Отправь письмо @analyst\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.intent").value("send_email"))
+                .andExpect(jsonPath("$.entities.type").value("send_email"))
+                .andExpect(jsonPath("$.entities.to").value("analyst@dmis.local"));
+    }
+
+    @Test
     void parseActionRejectsBlankText() throws Exception {
         String token = loginAndGetToken();
 

@@ -156,6 +156,29 @@ class ActionExecutionIntegrationTest {
     }
 
     @Test
+    void draftResolvesUserMentionsToEmails() throws Exception {
+        String token = loginAndGetToken();
+
+        mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"send_email","entities":{"type":"send_email","to":"@admin","subject":"Test","body":"Hello"}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entities.to").value("admin@dmis.local"));
+
+        mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"create_calendar_event","entities":{"type":"create_calendar_event","title":"Meet","attendees":["@admin"],"startIso":"2026-05-10T09:00:00Z","endIso":"2026-05-10T09:30:00Z"}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entities.attendees[0]").value("admin@dmis.local"));
+    }
+
+    @Test
     void draftRejectsInvalidEntitiesOnValidation() throws Exception {
         String token = loginAndGetToken();
 

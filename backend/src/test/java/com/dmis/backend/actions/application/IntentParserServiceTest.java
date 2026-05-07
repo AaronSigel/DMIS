@@ -1,6 +1,8 @@
 package com.dmis.backend.actions.application;
 
 import com.dmis.backend.actions.application.port.IntentParserPort;
+import com.dmis.backend.users.application.dto.UserSummaryView;
+import com.dmis.backend.users.application.port.UserAccessPort;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,13 +20,16 @@ import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
 class IntentParserServiceTest {
     private IntentParserPort intentParserPort;
+    private UserAccessPort userAccessPort;
     private IntentParserService intentParserService;
 
     @BeforeEach
     void setUp() {
         intentParserPort = mock(IntentParserPort.class);
+        userAccessPort = mock(UserAccessPort.class);
         intentParserService = new IntentParserService(
                 intentParserPort,
+                new UserMentionResolver(userAccessPort),
                 Validation.buildDefaultValidatorFactory().getValidator()
         );
     }
@@ -78,6 +83,80 @@ class IntentParserServiceTest {
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("create meeting");
 
         assertEquals("create_calendar_event", parsed.intent());
+    }
+
+    @Test
+    void parseDraftResolvesUserMentionInEmailRecipient() {
+        when(intentParserPort.parse("send to analyst"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of("to", "@analyst", "subject", "Тема", "body", "Текст")
+                ));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(
+                new UserSummaryView("u-analyst", "analyst@dmis.local", "Data Analyst")
+        ));
+
+        IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("send to analyst");
+
+        var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
+        assertEquals("analyst@dmis.local", entities.to());
+    }
+
+    @Test
+    void parseDraftResolvesUserMentionsInCalendarAttendees() {
+        when(intentParserPort.parse("create meeting with analyst"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "create_calendar_event",
+                        Map.of(
+                                "title", "Standup",
+                                "attendees", List.of("@analyst", "external@example.com"),
+                                "startIso", "2026-05-10T09:00:00Z",
+                                "endIso", "2026-05-10T09:30:00Z"
+                        )
+                ));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(
+                new UserSummaryView("u-analyst", "analyst@dmis.local", "Data Analyst")
+        ));
+
+        IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("create meeting with analyst");
+
+        var entities = (com.dmis.backend.actions.application.dto.ActionDtos.CreateCalendarEventEntities) parsed.entities();
+        assertEquals(List.of("analyst@dmis.local", "external@example.com"), entities.attendees());
+    }
+
+    @Test
+    void parseDraftRejectsUnknownUserMention() {
+        when(intentParserPort.parse("send to unknown"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of("to", "@unknown", "subject", "Тема", "body", "Текст")
+                ));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(
+                new UserSummaryView("u-analyst", "analyst@dmis.local", "Data Analyst")
+        ));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> intentParserService.parseDraft("send to unknown"));
+
+        assertEquals(BAD_REQUEST, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("Unknown user mention: @unknown"));
+    }
+
+    @Test
+    void parseDraftRejectsAmbiguousUserMention() {
+        when(intentParserPort.parse("send to analyst"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of("to", "@Data_Analyst", "subject", "Тема", "body", "Текст")
+                ));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(
+                new UserSummaryView("u-analyst-1", "analyst1@dmis.local", "Data Analyst"),
+                new UserSummaryView("u-analyst-2", "analyst2@dmis.local", "Data Analyst")
+        ));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> intentParserService.parseDraft("send to analyst"));
+
+        assertEquals(BAD_REQUEST, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("Ambiguous user mention: @Data_Analyst"));
     }
 
     @Test

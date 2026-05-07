@@ -2,6 +2,7 @@ package com.dmis.backend.integrations.infra.http;
 
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.integrations.application.port.MailCalendarPort;
+import com.dmis.backend.integrations.application.port.MailReadPort;
 import com.dmis.backend.integrations.infra.persistence.MailCalendarPersistenceAdapter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,7 +42,7 @@ import java.util.Base64;
 
 @Primary
 @Component
-public class MailCalendarHttpAdapter implements MailCalendarPort {
+public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
 
     private final MailCalendarPersistenceAdapter persistenceAdapter;
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
@@ -181,6 +182,93 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
         }
     }
 
+    @Override
+    public List<IntegrationDtos.MailMessageSummaryView> listMailMessages(String mailbox) {
+        if (isBlank(sogoBaseUrl)) {
+            return List.of();
+        }
+        try {
+            RestClient client = RestClient.builder().baseUrl(sogoBaseUrl).build();
+            MailMessagesResponse response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/mail/messages")
+                            .queryParam("mailbox", mailbox)
+                            .build())
+                    .retrieve()
+                    .body(MailMessagesResponse.class);
+            if (response == null || response.messages() == null) {
+                return List.of();
+            }
+            return response.messages().stream().map(this::toSummaryView).toList();
+        } catch (RestClientException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Mail list service request failed: " + ex.getMessage(),
+                    ex
+            );
+        }
+    }
+
+    @Override
+    public IntegrationDtos.MailMessageDetailView getMailMessage(String mailbox, String messageId) {
+        if (isBlank(sogoBaseUrl)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Mail message not found");
+        }
+        try {
+            RestClient client = RestClient.builder().baseUrl(sogoBaseUrl).build();
+            MailMessageResponse response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/mail/messages/{id}")
+                            .queryParam("mailbox", mailbox)
+                            .build(messageId))
+                    .retrieve()
+                    .body(MailMessageResponse.class);
+            if (response == null || response.message() == null) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Mail message not found");
+            }
+            return toDetailView(response.message());
+        } catch (ResponseStatusException ex) {
+            throw ex;
+        } catch (RestClientException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Mail message service request failed: " + ex.getMessage(),
+                    ex
+            );
+        }
+    }
+
+    @Override
+    public IntegrationDtos.MailMessageSearchView searchMailMessages(
+            String mailbox,
+            IntegrationDtos.MailMessageSearchRequest request
+    ) {
+        if (isBlank(sogoBaseUrl)) {
+            return new IntegrationDtos.MailMessageSearchView(request.query(), List.of());
+        }
+        try {
+            RestClient client = RestClient.builder().baseUrl(sogoBaseUrl).build();
+            MailMessagesResponse response = client.post()
+                    .uri(uriBuilder -> uriBuilder.path("/api/mail/messages/search").build())
+                    .body(new MailSearchRequestBody(mailbox, request.query(), request.limit()))
+                    .retrieve()
+                    .body(MailMessagesResponse.class);
+            if (response == null || response.messages() == null) {
+                return new IntegrationDtos.MailMessageSearchView(request.query(), List.of());
+            }
+            List<IntegrationDtos.MailMessageSummaryView> mapped = response.messages().stream()
+                    .map(this::toSummaryView)
+                    .toList();
+            return new IntegrationDtos.MailMessageSearchView(request.query(), mapped);
+        } catch (RestClientException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Mail search service request failed: " + ex.getMessage(),
+                    ex
+            );
+        }
+    }
+
     private static String extractDomain(String mailFrom) {
         if (mailFrom == null) {
             return "dmis.local";
@@ -263,6 +351,48 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
                 .collect(Collectors.toList());
     }
 
+    private IntegrationDtos.MailMessageSummaryView toSummaryView(MailMessagePayload payload) {
+        return new IntegrationDtos.MailMessageSummaryView(
+                payload.id(),
+                payload.from(),
+                payload.to(),
+                payload.subject(),
+                payload.preview(),
+                payload.sentAtIso()
+        );
+    }
+
+    private IntegrationDtos.MailMessageDetailView toDetailView(MailMessagePayload payload) {
+        return new IntegrationDtos.MailMessageDetailView(
+                payload.id(),
+                payload.from(),
+                payload.to(),
+                payload.subject(),
+                payload.body(),
+                payload.sentAtIso()
+        );
+    }
+
     private record FreeBusyResponse(List<IntegrationDtos.BusySlot> busySlots) {
+    }
+
+    private record MailSearchRequestBody(String mailbox, String query, int limit) {
+    }
+
+    private record MailMessagesResponse(List<MailMessagePayload> messages) {
+    }
+
+    private record MailMessageResponse(MailMessagePayload message) {
+    }
+
+    private record MailMessagePayload(
+            String id,
+            String from,
+            String to,
+            String subject,
+            String preview,
+            String body,
+            String sentAtIso
+    ) {
     }
 }

@@ -4,6 +4,7 @@ import com.dmis.backend.actions.application.dto.ActionDtos;
 import com.dmis.backend.actions.application.dto.ActionDtos.CreateCalendarEventEntities;
 import com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities;
 import com.dmis.backend.actions.application.dto.ActionDtos.UpdateDocumentTagsEntities;
+import com.dmis.backend.actions.application.UserMentionResolver;
 import com.dmis.backend.actions.application.port.AiActionPort;
 import com.dmis.backend.actions.domain.ActionStatus;
 import com.dmis.backend.audit.application.AuditService;
@@ -31,6 +32,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -42,6 +44,7 @@ class ActionServiceTest {
     private UserView outsider;
     private IntegrationService integrationService;
     private DocumentUseCases documentUseCases;
+    private UserMentionResolver userMentionResolver;
     private InMemoryAiActionPort aiActionPort;
 
     @BeforeEach
@@ -50,12 +53,15 @@ class ActionServiceTest {
         AuditService auditService = new AuditService(new InMemoryAuditPort());
         integrationService = Mockito.mock(IntegrationService.class);
         documentUseCases = Mockito.mock(DocumentUseCases.class);
+        userMentionResolver = Mockito.mock(UserMentionResolver.class);
+        when(userMentionResolver.resolve(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
         actionService = new ActionService(
                 aiActionPort,
                 new AclService(),
                 auditService,
                 integrationService,
                 documentUseCases,
+                userMentionResolver,
                 10,
                 26_214_400L
         );

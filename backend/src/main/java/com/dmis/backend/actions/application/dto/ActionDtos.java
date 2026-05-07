@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
-import jakarta.validation.constraints.Email;
+import com.dmis.backend.actions.application.validation.EmailOrUserMention;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
@@ -54,7 +54,7 @@ public final class ActionDtos {
     }
 
     public record SendEmailEntities(
-            @NotBlank @Email String to,
+            @NotBlank @EmailOrUserMention String to,
             @NotBlank String subject,
             @NotBlank String body,
             @Size(max = 10) List<@NotBlank String> attachmentDocumentIds
@@ -71,7 +71,7 @@ public final class ActionDtos {
 
     public record CreateCalendarEventEntities(
             @NotBlank String title,
-            @NotEmpty List<@NotBlank @Email String> attendees,
+            @NotEmpty List<@NotBlank @EmailOrUserMention String> attendees,
             @NotBlank String startIso,
             @NotBlank String endIso
     ) implements ActionEntities {

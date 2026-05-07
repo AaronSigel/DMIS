@@ -16,10 +16,16 @@ import java.util.stream.Collectors;
 @Service
 public class IntentParserService {
     private final IntentParserPort intentParserPort;
+    private final UserMentionResolver userMentionResolver;
     private final Validator validator;
 
-    public IntentParserService(IntentParserPort intentParserPort, Validator validator) {
+    public IntentParserService(
+            IntentParserPort intentParserPort,
+            UserMentionResolver userMentionResolver,
+            Validator validator
+    ) {
         this.intentParserPort = intentParserPort;
+        this.userMentionResolver = userMentionResolver;
         this.validator = validator;
     }
 
@@ -51,14 +57,16 @@ public class IntentParserService {
         try {
             return switch (intent) {
                 case ActionDtos.SEND_EMAIL_INTENT -> new ActionDtos.SendEmailEntities(
-                        requiredString(entities, "to"),
+                        userMentionResolver.resolve(requiredString(entities, "to")),
                         requiredString(entities, "subject"),
                         requiredString(entities, "body"),
                         optionalDocumentIdList(entities, "attachmentDocumentIds")
                 );
                 case ActionDtos.CREATE_CALENDAR_EVENT_INTENT -> new ActionDtos.CreateCalendarEventEntities(
                         requiredString(entities, "title"),
-                        requiredStringList(entities, "attendees"),
+                        requiredStringList(entities, "attendees").stream()
+                                .map(userMentionResolver::resolve)
+                                .toList(),
                         requiredString(entities, "startIso"),
                         requiredString(entities, "endIso")
                 );

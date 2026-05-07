@@ -24,6 +24,7 @@ import java.util.Properties;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -237,6 +238,154 @@ class MailCalendarHttpAdapterTest {
         assertEquals(HttpStatus.BAD_GATEWAY, ex.getStatusCode());
     }
 
+    @Test
+    void listMailMessages_returnsEmptyWhenSogoBaseUrlMissing() {
+        MailCalendarHttpAdapter adapter = createAdapter(new EmptyObjectProvider<>(), "", "", "", "");
+
+        List<IntegrationDtos.MailMessageSummaryView> result = adapter.listMailMessages("user@example.com");
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void getMailMessage_throwsNotFoundWhenSogoBaseUrlMissing() {
+        MailCalendarHttpAdapter adapter = createAdapter(new EmptyObjectProvider<>(), "", "", "", "");
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> adapter.getMailMessage("user@example.com", "msg-1")
+        );
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+    }
+
+    @Test
+    void searchMailMessages_returnsEmptyWhenSogoBaseUrlMissing() {
+        MailCalendarHttpAdapter adapter = createAdapter(new EmptyObjectProvider<>(), "", "", "", "");
+
+        IntegrationDtos.MailMessageSearchView result = adapter.searchMailMessages(
+                "user@example.com",
+                new IntegrationDtos.MailMessageSearchRequest("invoice", 20)
+        );
+
+        assertEquals("invoice", result.query());
+        assertTrue(result.messages().isEmpty());
+    }
+
+    @Test
+    void listMailMessages_readsMessagesFromRemoteApi() throws Exception {
+        AtomicReference<String> mailboxQuery = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/mail/messages", exchange -> {
+            mailboxQuery.set(exchange.getRequestURI().getQuery());
+            byte[] body = """
+                    {"messages":[{"id":"m1","from":"from@example.com","to":"to@example.com","subject":"S1","preview":"P1","sentAtIso":"2026-05-01T10:00:00Z"}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        MailCalendarHttpAdapter adapter = createAdapterWithSogoBaseUrl(baseUrl);
+
+        List<IntegrationDtos.MailMessageSummaryView> result = adapter.listMailMessages("alex@example.com");
+
+        assertEquals(1, result.size());
+        assertEquals("m1", result.get(0).id());
+        assertTrue(mailboxQuery.get().contains("mailbox=alex@example.com"));
+    }
+
+    @Test
+    void getMailMessage_readsDetailFromRemoteApi() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/mail/messages/msg-7", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            byte[] body = """
+                    {"message":{"id":"msg-7","from":"from@example.com","to":"to@example.com","subject":"Subject","preview":"Preview","body":"Body text","sentAtIso":"2026-05-01T10:00:00Z"}}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        MailCalendarHttpAdapter adapter = createAdapterWithSogoBaseUrl(baseUrl);
+
+        IntegrationDtos.MailMessageDetailView result = adapter.getMailMessage("alex@example.com", "msg-7");
+
+        assertEquals("msg-7", result.id());
+        assertEquals("Body text", result.body());
+        assertEquals("/api/mail/messages/msg-7", requestPath.get());
+    }
+
+    @Test
+    void searchMailMessages_postsSearchRequestAndMapsResponse() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/mail/messages/search", exchange -> {
+            method.set(exchange.getRequestMethod());
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] body = """
+                    {"messages":[{"id":"m2","from":"from2@example.com","to":"to2@example.com","subject":"Invoice","preview":"Preview","sentAtIso":"2026-05-01T11:00:00Z"}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        MailCalendarHttpAdapter adapter = createAdapterWithSogoBaseUrl(baseUrl);
+
+        IntegrationDtos.MailMessageSearchView result = adapter.searchMailMessages(
+                "alex@example.com",
+                new IntegrationDtos.MailMessageSearchRequest("invoice", 5)
+        );
+
+        assertEquals("POST", method.get());
+        assertTrue(requestBody.get().contains("\"mailbox\":\"alex@example.com\""));
+        assertTrue(requestBody.get().contains("\"query\":\"invoice\""));
+        assertTrue(requestBody.get().contains("\"limit\":5"));
+        assertEquals(1, result.messages().size());
+        assertEquals("invoice", result.query());
+        assertEquals("m2", result.messages().get(0).id());
+    }
+
+    @Test
+    void listMailMessages_mapsRemoteErrorToBadGateway() throws Exception {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/mail/messages", exchange -> {
+            byte[] body = "failed".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(500, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        MailCalendarHttpAdapter adapter = createAdapterWithSogoBaseUrl(baseUrl);
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> adapter.listMailMessages("alex@example.com")
+        );
+
+        assertEquals(HttpStatus.BAD_GATEWAY, ex.getStatusCode());
+        assertFalse(ex.getReason() == null || ex.getReason().isBlank());
+    }
+
     private static MailCalendarHttpAdapter createAdapter(
             ObjectProvider<JavaMailSender> mailSenderProvider,
             String caldavBaseUrl,
@@ -253,6 +402,19 @@ class MailCalendarHttpAdapterTest {
                 username,
                 password,
                 calendarPath
+        );
+    }
+
+    private static MailCalendarHttpAdapter createAdapterWithSogoBaseUrl(String sogoBaseUrl) {
+        return new MailCalendarHttpAdapter(
+                mock(MailCalendarPersistenceAdapter.class),
+                new EmptyObjectProvider<>(),
+                "no-reply@dmis.test.local",
+                sogoBaseUrl,
+                "",
+                "",
+                "",
+                ""
         );
     }
 

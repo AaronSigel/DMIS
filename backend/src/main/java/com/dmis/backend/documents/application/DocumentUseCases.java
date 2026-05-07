@@ -15,6 +15,8 @@ import com.dmis.backend.platform.config.StorageProperties;
 import com.dmis.backend.platform.error.ApiException;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -29,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
@@ -36,6 +39,8 @@ import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
 @Service
 public class DocumentUseCases {
+    private static final Logger log = LoggerFactory.getLogger(DocumentUseCases.class);
+
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
     private static final int MAX_DOCUMENT_NAME_LENGTH = 255;
@@ -300,9 +305,26 @@ public class DocumentUseCases {
     }
 
     private void deleteFile(String storageRef, String documentId) {
+        if (storageRef == null || storageRef.isBlank()) {
+            log.warn("Skipping object storage delete: empty storage_ref (documentId={})", documentId);
+            return;
+        }
+        if (!storageRef.startsWith("minio://")) {
+            log.warn("Skipping object storage delete: not a MinIO ref (documentId={}, ref={})", documentId, storageRef);
+            return;
+        }
         try {
             objectStoragePort.delete(storageRef);
+        } catch (IllegalArgumentException exception) {
+            log.warn("Invalid storage reference for document {}: {}", documentId, exception.getMessage());
+            throw new ApiException(
+                    BAD_REQUEST,
+                    "INVALID_STORAGE_REF",
+                    "Invalid storage reference",
+                    Map.of("documentId", documentId)
+            );
         } catch (RuntimeException exception) {
+            log.warn("Object storage delete failed (documentId={})", documentId, exception);
             throw new ApiException(
                     INTERNAL_SERVER_ERROR,
                     "STORAGE_FAILED",

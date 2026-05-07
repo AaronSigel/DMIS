@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiBaseUrl, apiListDocuments, fetchWithAuth, parseAuthenticatedJson } from "../apiClient";
+import {
+  apiBaseUrl,
+  apiListCalendarEvents,
+  apiListDocuments,
+  fetchWithAuth,
+  parseAuthenticatedJson,
+} from "../apiClient";
 import { queryKeys } from "../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
 
@@ -26,11 +32,12 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
     queryKey: queryKeys.dashboard.metrics,
     enabled: !!token,
     queryFn: async () => {
-      const [docs, actionsRes, auditRes, healthRes] = await Promise.all([
+      const [docs, actionsRes, auditRes, healthRes, calendarEvents] = await Promise.all([
         apiListDocuments({ page: 0, size: 1 }, onSessionExpired, onTokenRefresh),
         fetchWithAuth(`${apiBaseUrl}/actions`, {}, onTokenRefresh),
         fetchWithAuth(`${apiBaseUrl}/audit`, {}, onTokenRefresh),
         fetch(`${apiBaseUrl}/health`),
+        apiListCalendarEvents(onSessionExpired, onTokenRefresh),
       ]);
       let actions: AiAction[] = [];
       if (actionsRes.ok) {
@@ -46,6 +53,7 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
         actionCount: actions.length,
         executedCount: actions.filter((a) => a.status === "EXECUTED").length,
         auditCount,
+        calendarCount: calendarEvents.length,
         systemHealth: healthRes.ok ? "ok" : "degraded",
       };
     },
@@ -54,6 +62,7 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
   const actionCount = metricsQuery.data?.actionCount ?? 0;
   const executedCount = metricsQuery.data?.executedCount ?? 0;
   const auditCount = metricsQuery.data?.auditCount ?? 0;
+  const calendarCount = metricsQuery.data?.calendarCount ?? 0;
   const systemHealth = metricsQuery.data?.systemHealth ?? "unknown";
   const error = metricsQuery.error
     ? mapApiErrorToMessage(
@@ -78,6 +87,11 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
           title="Аудит-события"
           value={String(auditCount)}
           subtitle="Записи журнала аудита (доступные текущей роли)"
+        />
+        <Card
+          title="События календаря"
+          value={String(calendarCount)}
+          subtitle="Всего событий в персональном календаре"
         />
         <Card
           title="Состояние системы"

@@ -1,5 +1,8 @@
 import { z } from "zod";
 import type { DocumentPage, DocumentView } from "./entities/document";
+import type { CalendarEvent, CalendarEventUpsertPayload } from "./entities/calendar";
+import type { MailMessageDetail, MailMessageSearch, MailMessageSummary } from "./entities/mail";
+import type { AuditRecord } from "./entities/audit";
 import {
   AssistantThreadDetailViewSchema,
   AssistantThreadViewSchema,
@@ -10,7 +13,14 @@ import {
   DocumentPageSchema,
   DocumentViewSchema,
 } from "./shared/api/schemas/document";
-import { ActionViewSchema } from "./shared/api/schemas/action";
+import { ActionViewSchema, type ActionView } from "./shared/api/schemas/action";
+import { CalendarEventListSchema, CalendarEventSchema } from "./shared/api/schemas/calendar";
+import {
+  MailMessageDetailSchema,
+  MailMessageListSchema,
+  MailMessageSearchSchema,
+} from "./shared/api/schemas/mail";
+import { AuditRecordListSchema } from "./shared/api/schemas/audit";
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
@@ -614,6 +624,43 @@ export async function apiConfirmAction(
   return parseAuthenticatedSchema(response, ActionViewSchema, onUnauthorized);
 }
 
+export type ActionDraftPayload = {
+  intent: string;
+  entities: Record<string, unknown>;
+};
+
+/** Создает draft-действие, которое дальше проходит confirm/execute flow. */
+export async function apiCreateActionDraft(
+  payload: ActionDraftPayload,
+  onUnauthorized: () => void = () => {},
+  onNewToken?: (token: string) => void,
+): Promise<ActionView> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/actions/draft`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, ActionViewSchema, onUnauthorized);
+}
+
+/** Выполняет уже подтвержденное AI-действие. */
+export async function apiExecuteAction(
+  actionId: string,
+  onUnauthorized: () => void = () => {},
+  onNewToken?: (token: string) => void,
+): Promise<ActionView> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/actions/${actionId}/execute`,
+    { method: "POST" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, ActionViewSchema, onUnauthorized);
+}
+
 export async function apiUpdateDocument(
   id: string,
   patch: DocumentPatch,
@@ -650,4 +697,139 @@ export async function apiDeleteDocument(
     const err = await readApiError(response);
     throw new Error(err.message ?? err.errorCode ?? "Request failed");
   }
+}
+
+/** Список событий календаря (`GET /calendar/events`). */
+export async function apiListCalendarEvents(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent[]> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events`,
+    { method: "GET" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventListSchema, onUnauthorized);
+}
+
+/** Список аудита (`GET /audit`). */
+export async function apiListAudit(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<AuditRecord[]> {
+  const response = await fetchWithAuth(`${apiBaseUrl}/audit`, { method: "GET" }, onNewToken);
+  return parseAuthenticatedSchema(response, AuditRecordListSchema, onUnauthorized);
+}
+
+/** Создание события календаря (`POST /calendar/events`). */
+export async function apiCreateCalendarEvent(
+  payload: CalendarEventUpsertPayload,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
+
+/** Обновление события календаря (`PUT /calendar/events/{id}`). */
+export async function apiUpdateCalendarEvent(
+  id: string,
+  payload: CalendarEventUpsertPayload,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
+
+/** Удаление события календаря (`DELETE /calendar/events/{id}`). */
+export async function apiDeleteCalendarEvent(
+  id: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+    onNewToken,
+  );
+  if (response.status === 401 || response.status === 403) {
+    onUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (!response.ok) {
+    const err = await readApiError(response);
+    throw new Error(err.message ?? err.errorCode ?? "Request failed");
+  }
+}
+
+/**
+ * Список писем для текущего пользователя.
+ *
+ * Mailbox по умолчанию — email текущего пользователя (определяется на backend);
+ * фронтенду не требуется передавать его явно.
+ */
+export async function apiListMailMessages(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailMessageSummary[]> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/messages`,
+    { method: "GET" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailMessageListSchema, onUnauthorized);
+}
+
+/** Чтение письма по идентификатору. */
+export async function apiGetMailMessage(
+  id: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailMessageDetail> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/messages/${encodeURIComponent(id)}`,
+    { method: "GET" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailMessageDetailSchema, onUnauthorized);
+}
+
+export type ApiSearchMailMessagesParams = {
+  query: string;
+  limit: number;
+};
+
+/** Поиск писем (`POST /mail/messages/search`). Mailbox опускаем — backend подставит email пользователя. */
+export async function apiSearchMailMessages(
+  params: ApiSearchMailMessagesParams,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailMessageSearch> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/messages/search`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: params.query, limit: params.limit }),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailMessageSearchSchema, onUnauthorized);
 }

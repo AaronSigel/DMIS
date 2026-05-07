@@ -31,8 +31,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpHeaders.CONTENT_DISPOSITION;
@@ -277,6 +279,50 @@ class DocumentProcessingIntegrationTest {
         mockMvc.perform(get("/api/documents/{documentId}", documentId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deleteDocumentSkipsMinIOWhenStorageRefIsNotMinioScheme() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "demo-ref-doc.txt", "text");
+
+        jdbcTemplate.update(
+                "UPDATE documents SET storage_ref = ? WHERE id = ?",
+                "demo://placeholder",
+                documentId
+        );
+
+        mockMvc.perform(delete("/api/documents/{documentId}", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        verify(objectStoragePort, never()).delete(anyString());
+
+        mockMvc.perform(get("/api/documents/{documentId}", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deleteDocumentReturnsBadRequestWhenStorageLayerRejectsRef() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "bad-ref-doc.txt", "text");
+
+        doThrow(new IllegalArgumentException("Invalid storage reference"))
+                .when(objectStoragePort).delete(eq("minio://test-bucket/path"));
+
+        mockMvc.perform(delete("/api/documents/{documentId}", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_STORAGE_REF"));
     }
 
     @Test
