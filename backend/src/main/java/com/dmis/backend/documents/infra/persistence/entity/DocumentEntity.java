@@ -2,10 +2,18 @@ package com.dmis.backend.documents.infra.persistence.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.CascadeType;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @Entity
 @Table(name = "documents")
@@ -29,8 +37,8 @@ public class DocumentEntity {
     @Column(name = "description", nullable = false, columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "tags", nullable = false, columnDefinition = "TEXT")
-    private String tags;
+    @OneToMany(mappedBy = "document", fetch = FetchType.EAGER, cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<DocumentTagEntity> tagEntities = new ArrayList<>();
 
     @Column(name = "source", nullable = false)
     private String source;
@@ -72,7 +80,7 @@ public class DocumentEntity {
             String storageRef,
             String extractedText,
             String description,
-            String tags,
+            List<String> tags,
             String source,
             String category,
             Instant createdAt,
@@ -90,7 +98,7 @@ public class DocumentEntity {
         this.storageRef = storageRef;
         this.extractedText = extractedText;
         this.description = description;
-        this.tags = tags;
+        setTags(tags);
         this.source = source;
         this.category = category;
         this.createdAt = createdAt;
@@ -127,8 +135,8 @@ public class DocumentEntity {
         return description;
     }
 
-    public String getTags() {
-        return tags;
+    public List<String> getTags() {
+        return tagEntities.stream().map(DocumentTagEntity::getTag).toList();
     }
 
     public String getSource() {
@@ -181,5 +189,29 @@ public class DocumentEntity {
 
     public Instant getIndexedAt() {
         return indexedAt;
+    }
+
+    public List<DocumentTagEntity> getTagEntities() {
+        return tagEntities;
+    }
+
+    public void setTags(List<String> tags) {
+        Map<String, String> normalizedToOriginal = new LinkedHashMap<>();
+        if (tags != null) {
+            for (String tag : tags) {
+                if (tag == null) {
+                    continue;
+                }
+                String trimmed = tag.trim();
+                if (trimmed.isBlank()) {
+                    continue;
+                }
+                normalizedToOriginal.putIfAbsent(trimmed.toLowerCase(Locale.ROOT), trimmed);
+            }
+        }
+        tagEntities.clear();
+        for (Map.Entry<String, String> entry : normalizedToOriginal.entrySet()) {
+            tagEntities.add(new DocumentTagEntity(this, entry.getValue(), entry.getKey()));
+        }
     }
 }

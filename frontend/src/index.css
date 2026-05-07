@@ -1,11 +1,15 @@
 @import "tailwindcss";
 
+/* Приглушённый текст (--color-muted): проверка на фонах surface (#f5f0eb) и white (#ffffff).
+   До: #8a7f72 — ~3.48:1 на surface, ~4.07:1 на white (ниже WCAG 2.1 AA 4.5:1 для обычного текста).
+   После: #6d6359 — ~4.86:1 на surface, ~5.67:1 на white (≥4.5:1, AA). */
+
 @theme {
   --color-surface: #f5f0eb;
   --color-surface-alt: #ede8e2;
   --color-border: #d8cfc6;
   --color-text: #2c2519;
-  --color-muted: #8a7f72;
+  --color-muted: #6d6359;
   --color-primary: #c85a2a;
   --color-primary-soft: #edddd4;
   --color-success: #3d9e6b;
@@ -25,7 +29,7 @@
   --color-surface-alt: #ede8e2;
   --color-border: #d8cfc6;
   --color-text: #2c2519;
-  --color-muted: #8a7f72;
+  --color-muted: #6d6359;
   --color-primary: #c85a2a;
   --color-primary-soft: #edddd4;
   --color-success: #3d9e6b;

@@ -14,6 +14,29 @@ Monorepo MVP for a controlled AI-driven document workflow system.
 
 Canonical service contour is documented in `docs/architecture/service-contour.md`.
 
+## Frontend layout
+
+`frontend/src/` follows the target layered layout (see also `App.tsx` header
+comment):
+
+- `pages/` — top-level screens (`LoginPage`, `WorkspacePage`, `DashboardPage`,
+  `DocumentCardPage`, `SettingsPage`, `StaticPage`).
+- `features/` — feature-scoped business logic and UI:
+  - `auth/` — `useSession` hook and related auth helpers.
+  - `assistant/` — AI side panel, citations.
+  - `documents/` — document list/table and operations.
+  - `actions/` — AI action cards and confirmation flow.
+- `shared/` — reusable infrastructure:
+  - `api/` — `apiClient` wrappers, React Query client, Zod schemas.
+  - `ui/` — UI primitives (`Avatar`, `StatusBadge`, toast, etc.).
+  - `sse/` — SSE hooks for assistant streaming.
+  - `store/` — Zustand stores (UI state only).
+- `entities/` — domain types (`DocumentView`, `Citation`, etc.).
+
+`App.tsx` is intentionally thin: it only wires providers and toggles
+`LoginPage` / `WorkspacePage` based on `useSession` state. All screen-level
+business logic lives in `features/` or the corresponding `pages/` entry.
+
 ## Core Flow
 
 All write actions follow:
@@ -69,3 +92,34 @@ Profile can be switched with `SPRING_PROFILES_ACTIVE`.
 - STT service: `http://localhost:8000`
 
 Per-service `.env.example` stubs (for running containers or Python services outside compose) live next to each service; the full stack list remains in `infra/.env.example`.
+
+## CI (GitHub Actions)
+
+Workflow: `.github/workflows/ci.yml`
+
+Jobs:
+- `backend` - `cd backend && ./mvnw -B test` (blocking).
+- `frontend` - `cd frontend && npm ci && npm run typecheck && npm run build` (blocking).
+- `infra-validate` - `docker compose -f infra/docker-compose.yml config` (blocking).
+- `db-migrations` - applies Flyway migrations on a clean Postgres (blocking).
+- `lint` - runs frontend eslint and backend checkstyle as informational checks (`continue-on-error: true`).
+
+Merge is blocked by failing `backend`, `frontend`, `infra-validate`, and `db-migrations` jobs.
+`lint` is visible in logs but does not block merge.
+
+### Frontend bundle report (informational)
+
+- In `frontend` job CI runs `npm run build:report` after build and writes table to GitHub Actions Summary.
+- The report shows chunk sizes (`raw` and `gzip`) and total gzip to detect abnormal growth.
+- There is no hard budget gate: bundle size itself does not fail the pipeline.
+- Local run: `cd frontend && npm run build:report`.
+- Detailed visualizer output is created locally at `frontend/dist/stats.html`.
+
+Local reproduction:
+- Backend tests: `cd backend && ./mvnw -B test`
+- Frontend build: `cd frontend && npm ci && npm run typecheck && npm run build`
+- Frontend bundle report: `cd frontend && npm ci && npm run build:report`
+- Frontend lint: `cd frontend && npm ci && npm run lint`
+- Backend checkstyle: `cd backend && ./mvnw -B checkstyle:check`
+- Compose validation: `docker compose -f infra/docker-compose.yml config`
+- Migrations: `cd backend && ./mvnw -B flyway:migrate -Dflyway.url=jdbc:postgresql://localhost:5432/dmis_ci -Dflyway.user=dmis -Dflyway.password=dmis -Dflyway.locations=classpath:db/migration/common,classpath:db/migration/postgresql`

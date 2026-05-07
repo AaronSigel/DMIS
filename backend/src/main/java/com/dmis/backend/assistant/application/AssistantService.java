@@ -1,5 +1,8 @@
 package com.dmis.backend.assistant.application;
 
+import com.dmis.backend.actions.application.ActionService;
+import com.dmis.backend.actions.application.IntentParserService;
+import com.dmis.backend.actions.application.dto.ActionDtos;
 import com.dmis.backend.assistant.application.dto.AssistantDtos;
 import com.dmis.backend.assistant.application.port.AssistantPort;
 import com.dmis.backend.assistant.application.port.ThreadTitleGeneratorPort;
@@ -30,6 +33,8 @@ public class AssistantService {
     private final AclService aclService;
     private final AuditService auditService;
     private final ThreadTitleGeneratorPort threadTitleGeneratorPort;
+    private final IntentParserService intentParserService;
+    private final ActionService actionService;
 
     public AssistantService(
             AssistantPort assistantPort,
@@ -37,7 +42,9 @@ public class AssistantService {
             SearchService searchService,
             AclService aclService,
             AuditService auditService,
-            ThreadTitleGeneratorPort threadTitleGeneratorPort
+            ThreadTitleGeneratorPort threadTitleGeneratorPort,
+            IntentParserService intentParserService,
+            ActionService actionService
     ) {
         this.assistantPort = assistantPort;
         this.documentUseCases = documentUseCases;
@@ -45,6 +52,8 @@ public class AssistantService {
         this.aclService = aclService;
         this.auditService = auditService;
         this.threadTitleGeneratorPort = threadTitleGeneratorPort;
+        this.intentParserService = intentParserService;
+        this.actionService = actionService;
     }
 
     public AssistantDtos.ThreadView createThread(UserView actor, String title) {
@@ -152,6 +161,11 @@ public class AssistantService {
         ));
         auditService.append(actor.id(), "assistant.message.send", "assistant_thread", thread.id(), "Message sent");
         return new AssistantDtos.SendMessageResult(userMessage, assistantMessage, rag);
+    }
+
+    public ActionDtos.AiActionView parseActionDraft(UserView actor, String userText) {
+        IntentParserService.ParsedDraft parsedDraft = intentParserService.parseDraft(userText);
+        return actionService.draft(actor, parsedDraft.intent(), parsedDraft.entities());
     }
 
     public void appendStreamMessages(

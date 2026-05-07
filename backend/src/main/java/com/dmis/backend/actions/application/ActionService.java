@@ -11,15 +11,17 @@ import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.documents.application.DocumentUseCases;
 import com.dmis.backend.documents.application.dto.DocumentDtos;
 import com.dmis.backend.integrations.application.IntegrationService;
+import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
@@ -29,25 +31,30 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
 public class ActionService {
-    private static final Set<String> SUPPORTED_INTENTS = Set.of(
-            "send_email",
-            "create_calendar_event",
-            "update_document_tags"
-    );
-
     private final AiActionPort aiActionPort;
     private final AclService aclService;
     private final AuditService auditService;
     private final IntegrationService integrationService;
     private final DocumentUseCases documentUseCases;
+    private final int mailAttachmentsMaxCount;
+    private final long mailAttachmentsMaxTotalBytes;
 
-    public ActionService(AiActionPort aiActionPort, AclService aclService, AuditService auditService,
-                         IntegrationService integrationService, DocumentUseCases documentUseCases) {
+    public ActionService(
+            AiActionPort aiActionPort,
+            AclService aclService,
+            AuditService auditService,
+            IntegrationService integrationService,
+            DocumentUseCases documentUseCases,
+            @Value("${mail.attachments.max-count:10}") int mailAttachmentsMaxCount,
+            @Value("${mail.attachments.max-total-bytes:26214400}") long mailAttachmentsMaxTotalBytes
+    ) {
         this.aiActionPort = aiActionPort;
         this.aclService = aclService;
         this.auditService = auditService;
         this.integrationService = integrationService;
         this.documentUseCases = documentUseCases;
+        this.mailAttachmentsMaxCount = mailAttachmentsMaxCount;
+        this.mailAttachmentsMaxTotalBytes = mailAttachmentsMaxTotalBytes;
     }
 
     public ActionDtos.AiActionView draft(UserView actor, String intent, ActionEntities entities) {
@@ -101,6 +108,9 @@ public class ActionService {
     public ActionDtos.AiActionView execute(UserView actor, String actionId) {
         ActionDtos.AiActionView action = aiActionPort.findById(actionId)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Action not found"));
+        if (action.status() == ActionStatus.EXECUTED) {
+            return action;
+        }
         if (action.status() != ActionStatus.CONFIRMED) {
             throw new ResponseStatusException(BAD_REQUEST, "Action must be confirmed before execution");
         }
@@ -139,7 +149,15 @@ public class ActionService {
             switch (action.intent()) {
                 case "send_email" -> {
                     SendEmailEntities entities = (SendEmailEntities) action.entities();
-                    integrationService.sendMail(actor, entities.to(), entities.subject(), entities.body());
+                    List<IntegrationDtos.MailAttachment> attachments = resolveMailAttachments(actor, entities);
+                    integrationService.sendMail(
+                            actor,
+                            entities.to(),
+                            entities.subject(),
+                            entities.body(),
+                            integrationIdempotencyKey(action.id()),
+                            attachments
+                    );
                 }
                 case "create_calendar_event" -> {
                     CreateCalendarEventEntities entities = (CreateCalendarEventEntities) action.entities();
@@ -148,7 +166,8 @@ public class ActionService {
                             entities.title(),
                             entities.attendees(),
                             entities.startIso(),
-                            entities.endIso()
+                            entities.endIso(),
+                            integrationIdempotencyKey(action.id())
                     );
                 }
                 case "update_document_tags" -> {
@@ -173,14 +192,39 @@ public class ActionService {
         }
     }
 
+    private List<IntegrationDtos.MailAttachment> resolveMailAttachments(UserView actor, SendEmailEntities entities) {
+        List<String> ids = entities.attachmentDocumentIds();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        if (ids.size() > mailAttachmentsMaxCount) {
+            throw new ResponseStatusException(BAD_REQUEST, "Too many mail attachments");
+        }
+        long totalBytes = 0;
+        List<IntegrationDtos.MailAttachment> attachments = new ArrayList<>(ids.size());
+        for (String documentId : ids) {
+            DocumentDtos.DocumentBinary binary = documentUseCases.downloadLatest(actor, documentId);
+            totalBytes += binary.content().length;
+            if (totalBytes > mailAttachmentsMaxTotalBytes) {
+                throw new ResponseStatusException(BAD_REQUEST, "Mail attachments exceed total size limit");
+            }
+            attachments.add(new IntegrationDtos.MailAttachment(binary.fileName(), binary.contentType(), binary.content()));
+        }
+        return attachments;
+    }
+
     private static void validateIntent(String intent) {
-        if (SUPPORTED_INTENTS.contains(intent)) {
+        if (ActionDtos.supportedIntents().contains(intent)) {
             return;
         }
         throw new ResponseStatusException(
                 BAD_REQUEST,
-                "Unsupported intent: " + intent + ". Supported intents: " + String.join(", ", new LinkedHashSet<>(SUPPORTED_INTENTS))
+                "Unsupported intent: " + intent + ". Supported intents: " + String.join(", ", new LinkedHashSet<>(ActionDtos.supportedIntents()))
         );
+    }
+
+    private static String integrationIdempotencyKey(String actionId) {
+        return "action:" + actionId;
     }
 
     private static void validateEntitiesMatchIntent(String intent, ActionEntities entities) {
@@ -188,9 +232,9 @@ public class ActionService {
             throw new ResponseStatusException(BAD_REQUEST, "Entities are required");
         }
         boolean matches = switch (intent) {
-            case "send_email" -> entities instanceof SendEmailEntities;
-            case "create_calendar_event" -> entities instanceof CreateCalendarEventEntities;
-            case "update_document_tags" -> entities instanceof UpdateDocumentTagsEntities;
+            case ActionDtos.SEND_EMAIL_INTENT -> entities instanceof SendEmailEntities;
+            case ActionDtos.CREATE_CALENDAR_EVENT_INTENT -> entities instanceof CreateCalendarEventEntities;
+            case ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT -> entities instanceof UpdateDocumentTagsEntities;
             default -> false;
         };
         if (!matches) {

@@ -5,5 +5,7 @@ public interface ObjectStoragePort {
 
     byte[] load(String storageRef);
 
+    String presignDownload(String storageRef, int ttlSeconds);
+
     void delete(String storageRef);
 }

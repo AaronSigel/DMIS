@@ -15,11 +15,6 @@ docker build \
 
 docker build \
   --target base \
-  -t "${REGISTRY_PREFIX}/mcp-base:${TAG}" \
-  "${ROOT_DIR}/mcp"
-
-docker build \
-  --target base \
   -t "${REGISTRY_PREFIX}/frontend-base:${TAG}" \
   "${ROOT_DIR}/frontend"
 

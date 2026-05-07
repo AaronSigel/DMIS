@@ -22,10 +22,13 @@ export function ConfirmDialog({
   pending = false,
 }: ConfirmDialogProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={onOpenChange} modal>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/45" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-white p-5 shadow-menu">
+        <Dialog.Content
+          tabIndex={-1}
+          className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-white p-5 shadow-menu"
+        >
           <Dialog.Title className="m-0 text-base font-semibold text-text">{title}</Dialog.Title>
           {description ? (
             <Dialog.Description className="mt-2 text-sm text-muted">

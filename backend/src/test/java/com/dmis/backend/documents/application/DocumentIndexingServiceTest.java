@@ -49,6 +49,19 @@ class DocumentIndexingServiceTest {
         assertTrue(row.embeddingNormalized());
     }
 
+    @Test
+    void indexDoesNotReplaceChunksWhenEmbeddingsFail() {
+        EmbeddingsPort embeddings = texts -> {
+            throw new IllegalStateException("Embeddings service returned 503");
+        };
+        CapturingChunkPort chunkPort = new CapturingChunkPort();
+        DocumentIndexingService service = new DocumentIndexingService(embeddings, chunkPort);
+
+        assertThrows(IllegalStateException.class, () -> service.index("doc-1", "hello world"));
+        assertEquals(0, chunkPort.replaceCalls);
+        assertEquals(0, chunkPort.chunks.size());
+    }
+
     private static float[] dummyEmbedding1024() {
         float[] v = new float[1024];
         v[0] = 1.0f;
@@ -57,9 +70,11 @@ class DocumentIndexingServiceTest {
 
     private static final class CapturingChunkPort implements DocumentChunkPort {
         private final List<DocumentChunk> chunks = new ArrayList<>();
+        private int replaceCalls;
 
         @Override
         public void replaceChunks(String documentId, Instant createdAt, List<DocumentChunk> chunks) {
+            replaceCalls++;
             this.chunks.clear();
             this.chunks.addAll(chunks);
         }

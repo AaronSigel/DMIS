@@ -3,11 +3,13 @@ package com.dmis.backend.integrations.infra.storage;
 import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.dmis.backend.platform.config.StorageProperties;
 import io.minio.BucketExistsArgs;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.http.Method;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
@@ -53,6 +55,23 @@ public class MinioStorageAdapter implements ObjectStoragePort {
             throw new IllegalStateException("MinIO download failed", e);
         } catch (Exception e) {
             throw new IllegalStateException("MinIO download failed", e);
+        }
+    }
+
+    @Override
+    public String presignDownload(String storageRef, int ttlSeconds) {
+        try {
+            StorageRef parsed = parseStorageRef(storageRef);
+            return minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.GET)
+                            .bucket(parsed.bucket())
+                            .object(parsed.objectPath())
+                            .expiry(ttlSeconds)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new IllegalStateException("MinIO presign failed", e);
         }
     }
 

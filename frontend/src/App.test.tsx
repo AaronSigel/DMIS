@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { BrowserRouter, MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 
@@ -68,5 +68,66 @@ describe("auth smoke", () => {
     for (const btn of screen.getAllByRole("button", { name: "Скоро" })) {
       expect(btn).toBeDisabled();
     }
+  });
+});
+
+describe("doc table url filters", () => {
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/");
+  });
+
+  async function loginAsAdmin() {
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+  }
+
+  it("restores filter and sort state from query string", async () => {
+    window.history.pushState({}, "", "/documents?indexed=1&sort=oldest&page=2");
+
+    render(
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>,
+    );
+
+    await loginAsAdmin();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /фильтр: проиндексированные/i }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /сортировка: старые/i })).toBeInTheDocument();
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("indexed")).toBe("1");
+    expect(params.get("sort")).toBe("oldest");
+    expect(params.get("page")).toBe("2");
+  });
+
+  it("updates query string when filter and sort are toggled", async () => {
+    window.history.pushState({}, "", "/documents");
+
+    render(
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>,
+    );
+
+    await loginAsAdmin();
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: /^фильтр$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /сортировка: новые/i }));
+
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("indexed")).toBe("1");
+      expect(params.get("sort")).toBe("oldest");
+      expect(params.get("page")).toBeNull();
+    });
   });
 });

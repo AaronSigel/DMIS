@@ -4,9 +4,10 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { apiListDocuments } from "../apiClient";
 import { queryKeys } from "../shared/api/queryClient";
 import { useUiStore } from "../shared/store/uiStore";
-import { AiPanel } from "../ui/AiPanel";
-import { DocTable } from "../ui/DocTable";
-import { Avatar, SectionLabel } from "../ui/appShared";
+import { AiPanel } from "../features/assistant/AiPanel";
+import { DocTable } from "../features/documents/DocTable";
+import { Avatar } from "../shared/ui/Avatar";
+import { SectionLabel } from "../shared/ui/SectionLabel";
 import { DashboardPage } from "./DashboardPage";
 import { DocumentCardPage } from "./DocumentCardPage";
 import { SettingsPage } from "./SettingsPage";

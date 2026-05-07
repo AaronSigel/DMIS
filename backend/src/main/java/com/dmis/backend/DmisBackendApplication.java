@@ -5,8 +5,10 @@ import com.dmis.backend.platform.config.StorageProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.retry.annotation.EnableRetry;
 
 @SpringBootApplication
+@EnableRetry
 @EnableConfigurationProperties({JwtProperties.class, StorageProperties.class})
 public class DmisBackendApplication {
 

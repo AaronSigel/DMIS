@@ -14,11 +14,6 @@ docker build \
   "${ROOT_DIR}/backend"
 
 docker build \
-  --build-arg RUNTIME_BASE_IMAGE="${REGISTRY_PREFIX}/mcp-base:${TAG}" \
-  -t "${REGISTRY_PREFIX}/mcp:${TAG}" \
-  "${ROOT_DIR}/mcp"
-
-docker build \
   --build-arg BUILD_BASE_IMAGE="${REGISTRY_PREFIX}/frontend-base:${TAG}" \
   -t "${REGISTRY_PREFIX}/frontend:${TAG}" \
   "${ROOT_DIR}/frontend"

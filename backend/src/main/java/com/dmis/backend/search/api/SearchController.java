@@ -10,19 +10,26 @@ import com.dmis.backend.search.application.port.LlmChatPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @RestController
 @RequestMapping("/api")
@@ -34,6 +41,10 @@ public class SearchController {
     private final AssistantService assistantService;
     private final RagStreamEventParser ragStreamEventParser;
     private final ObjectMapper objectMapper;
+    private final TaskExecutor ragStreamExecutor;
+    private final TaskScheduler ragHeartbeatScheduler;
+    private final long ragSseTimeoutMs;
+    private final long ragHeartbeatIntervalMs;
 
     public SearchController(
             SearchService searchService,
@@ -42,7 +53,11 @@ public class SearchController {
             AuditService auditService,
             AssistantService assistantService,
             RagStreamEventParser ragStreamEventParser,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            @Qualifier("ragStreamExecutor") TaskExecutor ragStreamExecutor,
+            @Qualifier("ragHeartbeatScheduler") TaskScheduler ragHeartbeatScheduler,
+            @Value("${search.rag.stream.timeout-ms:0}") long ragSseTimeoutMs,
+            @Value("${search.rag.stream.heartbeat-interval-ms:15000}") long ragHeartbeatIntervalMs
     ) {
         this.searchService = searchService;
         this.currentUserProvider = currentUserProvider;
@@ -51,6 +66,10 @@ public class SearchController {
         this.assistantService = assistantService;
         this.ragStreamEventParser = ragStreamEventParser;
         this.objectMapper = objectMapper;
+        this.ragStreamExecutor = ragStreamExecutor;
+        this.ragHeartbeatScheduler = ragHeartbeatScheduler;
+        this.ragSseTimeoutMs = ragSseTimeoutMs;
+        this.ragHeartbeatIntervalMs = ragHeartbeatIntervalMs;
     }
 
     @PostMapping("/search")
@@ -116,8 +135,8 @@ public class SearchController {
             return emitter;
         }
 
-        SseEmitter emitter = new SseEmitter(0L);
-        new Thread(() -> {
+        SseEmitter emitter = new SseEmitter(ragSseTimeoutMs <= 0 ? 0L : ragSseTimeoutMs);
+        ragStreamExecutor.execute(() -> {
             StringBuilder fullAnswer = new StringBuilder();
             String provider = null;
             String model = null;
@@ -125,18 +144,29 @@ public class SearchController {
             boolean messagesPersisted = false;
             long llmStartedAtMs = System.currentTimeMillis();
             AtomicBoolean streamClosed = new AtomicBoolean(false);
-            ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor();
-            emitter.onCompletion(() -> streamClosed.set(true));
-            emitter.onTimeout(() -> streamClosed.set(true));
-            emitter.onError((error) -> streamClosed.set(true));
-            heartbeat.scheduleAtFixedRate(() -> {
-                if (streamClosed.get()) return;
+            AtomicReference<ScheduledFuture<?>> heartbeatTaskRef = new AtomicReference<>();
+            Runnable closeStream = () -> {
+                if (streamClosed.compareAndSet(false, true)) {
+                    ScheduledFuture<?> heartbeatTask = heartbeatTaskRef.getAndSet(null);
+                    if (heartbeatTask != null) {
+                        heartbeatTask.cancel(true);
+                    }
+                }
+            };
+            emitter.onCompletion(closeStream);
+            emitter.onTimeout(closeStream);
+            emitter.onError((error) -> closeStream.run());
+            ScheduledFuture<?> heartbeatTask = ragHeartbeatScheduler.scheduleAtFixedRate(() -> {
+                if (streamClosed.get()) {
+                    return;
+                }
                 try {
                     emitter.send(SseEmitter.event().comment("ping"));
                 } catch (Exception e) {
-                    streamClosed.set(true);
+                    closeStream.run();
                 }
-            }, 15, 15, TimeUnit.SECONDS);
+            }, Duration.ofMillis(Math.max(ragHeartbeatIntervalMs, 1_000L)));
+            heartbeatTaskRef.set(heartbeatTask);
             try (InputStream stream = llmChatPort.chatStream(new LlmChatPort.ChatRequest(
                     question,
                     prepared.contextChunks(),
@@ -212,8 +242,7 @@ public class SearchController {
                     emitter.completeWithError(e);
                 }
             } finally {
-                streamClosed.set(true);
-                heartbeat.shutdownNow();
+                closeStream.run();
                 auditService.append(
                         actor.id(),
                         "rag.answer.stream.response",
@@ -222,7 +251,7 @@ public class SearchController {
                         "status=" + finalStatus + ", provider=" + provider + ", model=" + model + ", answerChars=" + fullAnswer.length()
                 );
             }
-        }, "rag-answer-stream").start();
+        });
         return emitter;
     }
 

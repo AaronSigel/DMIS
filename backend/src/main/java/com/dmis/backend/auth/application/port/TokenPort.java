@@ -9,10 +9,13 @@ public interface TokenPort {
 
     Optional<TokenSubject> parse(String token);
 
-    String issueRefresh(UserView userView);
+    String issueRefresh(UserView userView, RefreshTokenClaims claims);
 
-    Optional<TokenSubject> parseRefresh(String refreshToken);
+    Optional<RefreshTokenClaims> parseRefresh(String refreshToken);
 
     record TokenSubject(String userId) {
+    }
+
+    record RefreshTokenClaims(String userId, String tokenId, String familyId) {
     }
 }

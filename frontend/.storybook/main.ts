@@ -3,7 +3,7 @@ import { mergeConfig } from "vite";
 import { appAlias } from "../vite.config";
 
 const config: StorybookConfig = {
-  stories: ["../src/stories/**/*.stories.@(ts|tsx)"],
+  stories: ["../src/shared/ui/stories/**/*.stories.@(ts|tsx)"],
   addons: ["@storybook/addon-essentials"],
   framework: {
     name: "@storybook/react-vite",

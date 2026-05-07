@@ -1,5 +1,5 @@
+import io
 import os
-import tempfile
 import time
 from collections import deque
 from functools import lru_cache
@@ -9,17 +9,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 try:
-    import torch
-    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-except Exception:  # pragma: no cover
-    torch = None  # type: ignore[assignment]
-    AutoModelForSpeechSeq2Seq = None  # type: ignore[assignment]
-    AutoProcessor = None  # type: ignore[assignment]
-    pipeline = None  # type: ignore[assignment]
+    from faster_whisper import WhisperModel
+except ImportError:  # pragma: no cover
+    WhisperModel = None  # type: ignore[assignment,misc]
 
 
 app = FastAPI(title="DMIS STT Service")
-TRANSCRIBE_LATENCIES_MS = deque(maxlen=200)
+TRANSCRIBE_LATENCIES_MS: deque[float] = deque(maxlen=200)
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -79,44 +75,25 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "stt-service"}
 
 
-def _build_asr(model_path: str):
-    if torch is None or AutoModelForSpeechSeq2Seq is None or AutoProcessor is None or pipeline is None:
-        raise RuntimeError("transformers/torch are not installed")
-
-    if not os.path.exists(model_path):
-        raise RuntimeError(f"Model path not found: {model_path}")
-
-    device = os.environ.get("DEVICE", "cpu")
-    torch_device = "cuda" if device.startswith("cuda") and torch.cuda.is_available() else "cpu"
-    torch_dtype = torch.float16 if torch_device == "cuda" else torch.float32
-
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(
-        model_path,
-        torch_dtype=torch_dtype,
-        low_cpu_mem_usage=True,
-        use_safetensors=True,
-    )
-    processor = AutoProcessor.from_pretrained(model_path)
-
-    asr = pipeline(
-        "automatic-speech-recognition",
-        model=model,
-        tokenizer=processor.tokenizer,
-        feature_extractor=processor.feature_extractor,
-        device=0 if torch_device == "cuda" else -1,
-    )
-    return asr, processor, torch_device
-
-
-@lru_cache(maxsize=2)
-def get_asr(model_path: str):
-    return _build_asr(model_path)
-
-
 def _resolve_model_path(profile: str) -> str:
     if profile == "accurate":
         return os.environ.get("MODEL_PATH_ACCURATE", os.environ.get("MODEL_PATH", "/models/whisper-medium"))
     return os.environ.get("MODEL_PATH_FAST", "/models/whisper-small")
+
+
+def _build_model(model_path: str) -> "WhisperModel":
+    if WhisperModel is None:
+        raise RuntimeError("faster-whisper is not installed")
+    if not os.path.exists(model_path):
+        raise RuntimeError(f"Model path not found: {model_path}")
+    device = os.environ.get("DEVICE", "cpu")
+    compute_type = os.environ.get("COMPUTE_TYPE", "int8")
+    return WhisperModel(model_path, device=device, compute_type=compute_type)
+
+
+@lru_cache(maxsize=2)
+def get_model(model_path: str) -> "WhisperModel":
+    return _build_model(model_path)
 
 
 @app.get("/info", response_model=InfoResponse)
@@ -125,8 +102,8 @@ def info() -> InfoResponse:
     model_path_accurate = _resolve_model_path("accurate")
     device = os.environ.get("DEVICE", "cpu")
     compute_type = os.environ.get("COMPUTE_TYPE", "int8")
-    _ = get_asr(model_path_fast)
-    _ = get_asr(model_path_accurate)
+    get_model(model_path_fast)
+    get_model(model_path_accurate)
     latency_values = list(TRANSCRIBE_LATENCIES_MS)
     return InfoResponse(
         model_path_fast=model_path_fast,
@@ -155,58 +132,38 @@ async def transcribe(
     try:
         resolved_profile = _resolve_profile(profile)
         model_path = _resolve_model_path(resolved_profile)
-        asr, processor, _torch_device = get_asr(model_path)
+        model = get_model(model_path)
         resolved_beam_size = _resolve_beam_size(resolved_profile, beam_size)
 
-        suffix = ""
-        if file.filename:
-            _, ext = os.path.splitext(file.filename)
-            suffix = ext
-
         io_started = time.perf_counter()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp_path = tmp.name
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                tmp.write(chunk)
+        audio_bytes = await file.read()
         io_elapsed_ms = (time.perf_counter() - io_started) * 1000
 
-        try:
-            forced_decoder_ids = None
-            if language:
-                forced_decoder_ids = processor.get_decoder_prompt_ids(language=language, task=task)
+        inference_started = time.perf_counter()
+        segments, info_result = model.transcribe(
+            io.BytesIO(audio_bytes),
+            language=language,
+            task=task,
+            beam_size=resolved_beam_size,
+            vad_filter=True,
+        )
+        text = "".join(segment.text for segment in segments).strip()
+        inference_elapsed_ms = (time.perf_counter() - inference_started) * 1000
 
-            inference_started = time.perf_counter()
-            result = asr(
-                tmp_path,
-                generate_kwargs={
-                    **({"forced_decoder_ids": forced_decoder_ids} if forced_decoder_ids is not None else {}),
-                    "num_beams": resolved_beam_size,
-                },
-            )
-            inference_elapsed_ms = (time.perf_counter() - inference_started) * 1000
-            text = (result.get("text") or "").strip()
-            if not text:
-                raise RuntimeError("Empty transcript")
+        if not text:
+            raise RuntimeError("Empty transcript")
 
-            total_elapsed_ms = (time.perf_counter() - request_started) * 1000
-            TRANSCRIBE_LATENCIES_MS.append(total_elapsed_ms)
-            print(
-                f"stt_transcribe profile={resolved_profile} model_path={model_path} num_beams={resolved_beam_size} "
-                f"io_ms={io_elapsed_ms:.2f} asr_ms={inference_elapsed_ms:.2f} total_ms={total_elapsed_ms:.2f}"
-            )
-            return TranscriptResponse(
-                text=text,
-                provider="transformers-whisper",
-                language_detected=None,
-            )
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        total_elapsed_ms = (time.perf_counter() - request_started) * 1000
+        TRANSCRIBE_LATENCIES_MS.append(total_elapsed_ms)
+        print(
+            f"stt_transcribe profile={resolved_profile} model_path={model_path} num_beams={resolved_beam_size} "
+            f"io_ms={io_elapsed_ms:.2f} asr_ms={inference_elapsed_ms:.2f} total_ms={total_elapsed_ms:.2f}"
+        )
+        return TranscriptResponse(
+            text=text,
+            provider="faster-whisper",
+            language_detected=info_result.language if info_result else None,
+        )
     except Exception as e:
         total_elapsed_ms = (time.perf_counter() - request_started) * 1000
         TRANSCRIBE_LATENCIES_MS.append(total_elapsed_ms)

@@ -2,22 +2,28 @@ package com.dmis.backend.documents.application;
 
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.documents.application.dto.DocumentDtos;
+import com.dmis.backend.documents.application.port.DocumentMalwareScanPort;
 import com.dmis.backend.documents.application.port.DocumentPort;
+import com.dmis.backend.documents.application.port.IndexingJobPort;
 import com.dmis.backend.documents.application.port.TextExtractionPort;
 import com.dmis.backend.documents.domain.model.Document;
 import com.dmis.backend.documents.domain.model.DocumentId;
 import com.dmis.backend.documents.domain.model.IndexStatus;
+import com.dmis.backend.documents.domain.model.IndexingJob;
 import com.dmis.backend.integrations.application.port.ObjectStoragePort;
+import com.dmis.backend.platform.config.StorageProperties;
 import com.dmis.backend.platform.error.ApiException;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -25,6 +31,7 @@ import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
+import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
 import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
 @Service
@@ -36,31 +43,44 @@ public class DocumentUseCases {
     private final DocumentPort documentPort;
     private final ObjectStoragePort objectStoragePort;
     private final TextExtractionPort textExtractionPort;
-    private final DocumentIndexingService documentIndexingService;
+    private final DocumentMalwareScanPort malwareScanPort;
+    private final IndexingJobPort indexingJobPort;
+    private final IndexingWorker indexingWorker;
     private final AclService aclService;
     private final AuditService auditService;
+    private final StorageProperties storageProperties;
     private final int extractedTextPreviewMaxChars;
+    private final boolean scanEnabled;
 
     public DocumentUseCases(
             DocumentPort documentPort,
             ObjectStoragePort objectStoragePort,
             TextExtractionPort textExtractionPort,
-            DocumentIndexingService documentIndexingService,
+            DocumentMalwareScanPort malwareScanPort,
+            IndexingJobPort indexingJobPort,
+            IndexingWorker indexingWorker,
             AclService aclService,
             AuditService auditService,
-            @Value("${documents.extracted-text.preview-max-chars:2000}") int extractedTextPreviewMaxChars
+            StorageProperties storageProperties,
+            @Value("${documents.extracted-text.preview-max-chars:2000}") int extractedTextPreviewMaxChars,
+            @Value("${document.scan.enabled:false}") boolean scanEnabled
     ) {
         this.documentPort = documentPort;
         this.objectStoragePort = objectStoragePort;
         this.textExtractionPort = textExtractionPort;
-        this.documentIndexingService = documentIndexingService;
+        this.malwareScanPort = malwareScanPort;
+        this.indexingJobPort = indexingJobPort;
+        this.indexingWorker = indexingWorker;
         this.aclService = aclService;
         this.auditService = auditService;
+        this.storageProperties = storageProperties;
         this.extractedTextPreviewMaxChars = Math.max(1, extractedTextPreviewMaxChars);
+        this.scanEnabled = scanEnabled;
     }
 
     public DocumentDtos.DocumentView upload(UserView actor, String fileName, byte[] content, String contentType) {
         Instant now = Instant.now();
+        ensureSafeContent(fileName, content);
         DocumentId documentId = DocumentId.from("doc-" + UUID.randomUUID());
         String storageRef = storeFile(objectPath(documentId, fileName), content, contentType);
         String extractedText = extractText(fileName, content, contentType);
@@ -77,45 +97,35 @@ public class DocumentUseCases {
                 now
         );
         Document saved = documentPort.save(created);
-        saved = indexDocument(saved, extractedText);
-        int chunks = saved.indexedChunkCount();
+        IndexingJob job = indexingJobPort.enqueue(saved.id().value(), now);
         auditService.append(actor.id(), "document.upload", "document", saved.id().value(), "Uploaded document");
-        auditService.append(
-                actor.id(),
-                "document.index",
-                "document",
-                saved.id().value(),
-                "Indexed " + chunks + " chunks"
-        );
+        indexingWorker.dispatch(job.jobId());
         return toView(saved);
     }
 
     public DocumentDtos.PageResponse<DocumentDtos.DocumentView> list(UserView actor, DocumentDtos.DocumentListQuery query) {
-        Comparator<Document> comparator = sortComparator(query.sortBy(), query.order());
-        List<Document> filtered = documentPort.findAll().stream()
-                .filter(doc -> aclService.isAdmin(actor) || doc.ownerId().equals(actor.id()))
-                .filter(doc -> matchesOwnerFilter(actor, doc, query.ownerId()))
-                .filter(doc -> matchesStatus(doc, query.status()))
-                .filter(doc -> matchesType(doc, query.type()))
-                .filter(doc -> matchesDateRange(doc, query.dateFrom(), query.dateTo()))
-                .filter(doc -> matchesTag(doc, query.tag()))
-                .sorted(comparator)
-                .toList();
-
         int page = Math.max(0, query.page());
         int size = query.size() > 0 ? query.size() : DEFAULT_PAGE_SIZE;
         size = Math.min(size, MAX_PAGE_SIZE);
-        long total = filtered.size();
-        int totalPages = total == 0 ? 0 : (int) Math.ceil(total / (double) size);
-        int from = page * size;
-        List<Document> slice = from >= filtered.size()
-                ? List.of()
-                : filtered.subList(from, Math.min(from + size, filtered.size()));
+        DocumentPort.ListQuery listQuery = new DocumentPort.ListQuery(
+                aclService.isAdmin(actor),
+                actor.id(),
+                query.ownerId(),
+                query.status(),
+                query.type(),
+                query.dateFrom(),
+                query.dateTo(),
+                query.tag()
+        );
+        Page<Document> resultPage = documentPort.findPage(
+                listQuery,
+                PageRequest.of(page, size, toSort(query.sortBy(), query.order()))
+        );
 
         return new DocumentDtos.PageResponse<>(
-                slice.stream().map(this::toView).toList(),
-                total,
-                totalPages,
+                resultPage.getContent().stream().map(this::toView).toList(),
+                resultPage.getTotalElements(),
+                resultPage.getTotalPages(),
                 page,
                 size
         );
@@ -240,6 +250,16 @@ public class DocumentUseCases {
         return new DocumentDtos.DocumentBinary(document.fileName(), document.contentType(), bytes);
     }
 
+    public DocumentDtos.PresignedDownloadUrl getDownloadUrl(UserView actor, String documentId) {
+        Document document = documentPort.findById(DocumentId.from(documentId))
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
+        aclService.requireDocumentRead(actor, document.ownerId());
+        int ttlSeconds = storageProperties.presignedDownloadTtlSeconds();
+        String url = presignDownload(document.storageRef(), documentId, ttlSeconds);
+        auditService.append(actor.id(), "document.download_link", "document", document.id().value(), "Issued presigned download URL");
+        return new DocumentDtos.PresignedDownloadUrl(url, ttlSeconds);
+    }
+
     public void delete(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
@@ -292,6 +312,19 @@ public class DocumentUseCases {
         }
     }
 
+    private String presignDownload(String storageRef, String documentId, int ttlSeconds) {
+        try {
+            return objectStoragePort.presignDownload(storageRef, ttlSeconds);
+        } catch (RuntimeException exception) {
+            throw new ApiException(
+                    INTERNAL_SERVER_ERROR,
+                    "STORAGE_FAILED",
+                    "Failed to generate download URL",
+                    Map.of("documentId", documentId)
+            );
+        }
+    }
+
     private String extractText(String fileName, byte[] content, String contentType) {
         try {
             return textExtractionPort.extract(fileName, content, contentType);
@@ -305,73 +338,42 @@ public class DocumentUseCases {
         }
     }
 
-    private Document indexDocument(Document saved, String extractedText) {
+    private void ensureSafeContent(String fileName, byte[] content) {
+        if (!scanEnabled) {
+            return;
+        }
         try {
-            int chunks = documentIndexingService.index(saved.id().value(), extractedText);
-            return documentPort.save(saved.markIndexed(chunks, Instant.now()));
+            DocumentMalwareScanPort.ScanVerdict verdict = malwareScanPort.scan(fileName, content);
+            if (verdict == DocumentMalwareScanPort.ScanVerdict.INFECTED) {
+                throw new ApiException(
+                        UNPROCESSABLE_ENTITY,
+                        "MALWARE_DETECTED",
+                        "File failed malware scan",
+                        Map.of("fileName", fileName)
+                );
+            }
+        } catch (ApiException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
-            documentPort.save(saved.markFailed(Instant.now()));
-            String message = exception.getMessage() == null ? "" : exception.getMessage().toLowerCase(Locale.ROOT);
-            String errorCode = message.contains("embed") ? "EMBEDDING_FAILED" : "INDEXING_FAILED";
             throw new ApiException(
-                    UNPROCESSABLE_ENTITY,
-                    errorCode,
-                    "Failed to index document",
-                    Map.of("documentId", saved.id().value())
+                    SERVICE_UNAVAILABLE,
+                    "MALWARE_SCAN_UNAVAILABLE",
+                    "Malware scanner is unavailable",
+                    Map.of("fileName", fileName)
             );
         }
     }
 
-    private boolean matchesOwnerFilter(UserView actor, Document document, String ownerId) {
-        if (ownerId == null || ownerId.isBlank()) {
-            return true;
-        }
-        if (!aclService.isAdmin(actor)) {
-            return true;
-        }
-        return document.ownerId().equals(ownerId);
-    }
-
-    private boolean matchesStatus(Document document, String requestedStatus) {
-        if (requestedStatus == null || requestedStatus.isBlank()) {
-            return true;
-        }
-        return documentStatus(document).equals(requestedStatus.toUpperCase(Locale.ROOT));
-    }
-
-    private boolean matchesType(Document document, String requestedType) {
-        if (requestedType == null || requestedType.isBlank()) {
-            return true;
-        }
-        return documentType(document).equalsIgnoreCase(requestedType);
-    }
-
-    private boolean matchesDateRange(Document document, Instant dateFrom, Instant dateTo) {
-        Instant updatedAt = document.updatedAt();
-        if (dateFrom != null && updatedAt.isBefore(dateFrom)) {
-            return false;
-        }
-        return dateTo == null || !updatedAt.isAfter(dateTo);
-    }
-
-    private boolean matchesTag(Document document, String tag) {
-        if (tag == null || tag.isBlank()) {
-            return true;
-        }
-        String needle = tag.trim();
-        return document.tags().stream().anyMatch(t -> t.equalsIgnoreCase(needle));
-    }
-
-    private Comparator<Document> sortComparator(String sortBy, String order) {
+    private Sort toSort(String sortBy, String order) {
         String sortField = (sortBy == null || sortBy.isBlank()) ? "updatedAt" : sortBy;
-        Comparator<Document> comparator = switch (sortField) {
-            case "createdAt" -> Comparator.comparing(Document::createdAt);
-            case "name" -> Comparator.comparing(Document::title, String.CASE_INSENSITIVE_ORDER);
-            case "updatedAt" -> Comparator.comparing(Document::updatedAt);
+        String property = switch (sortField) {
+            case "createdAt" -> "createdAt";
+            case "name" -> "title";
+            case "updatedAt" -> "updatedAt";
             default -> throw new ApiException(UNPROCESSABLE_ENTITY, "INVALID_SORT", "Unsupported sort field", Map.of("sortBy", sortBy));
         };
-        boolean ascending = "asc".equalsIgnoreCase(order);
-        return ascending ? comparator : comparator.reversed();
+        Sort.Direction direction = "asc".equalsIgnoreCase(order) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        return Sort.by(direction, property);
     }
 
     private String documentStatus(Document document) {

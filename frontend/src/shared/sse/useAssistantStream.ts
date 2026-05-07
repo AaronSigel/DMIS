@@ -5,7 +5,7 @@ import {
   type AssistantStreamDoneEvent,
   type AssistantStreamPayload,
 } from "../../apiClient";
-import type { Citation } from "../../types/search";
+import type { Citation } from "../../entities/search";
 
 type UseAssistantStreamOptions = {
   onUnauthorized: () => void;

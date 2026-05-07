@@ -12,9 +12,6 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}" \
     PIP_DEFAULT_TIMEOUT=300
 RUN pip install --no-cache-dir --retries 5 -r requirements.txt
-RUN pip install --no-cache-dir --retries 5 \
-    --index-url https://download.pytorch.org/whl/cpu \
-    "torch>=2.3.0,<3"
 
 FROM ${RUNTIME_BASE_IMAGE} AS runtime
 WORKDIR /app

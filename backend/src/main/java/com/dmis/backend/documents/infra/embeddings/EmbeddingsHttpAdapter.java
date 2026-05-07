@@ -1,6 +1,8 @@
 package com.dmis.backend.documents.infra.embeddings;
 
 import com.dmis.backend.documents.application.port.EmbeddingsPort;
+import com.dmis.backend.integrations.infra.http.retry.HttpRetryHelper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -12,20 +14,35 @@ import java.util.List;
 public class EmbeddingsHttpAdapter implements EmbeddingsPort {
     private static final int EXPECTED_DIMENSION = 1024;
     private final RestClient restClient;
+    private final HttpRetryHelper httpRetryHelper;
 
-    public EmbeddingsHttpAdapter(@Value("${EMBEDDINGS_BASE_URL:http://localhost:8001}") String baseUrl) {
-        this.restClient = RestClient.builder()
-                .baseUrl(baseUrl)
-                .build();
+    @Autowired
+    public EmbeddingsHttpAdapter(
+            @Value("${EMBEDDINGS_BASE_URL:http://localhost:8001}") String baseUrl,
+            HttpRetryHelper httpRetryHelper
+    ) {
+        this(httpRetryHelper, RestClient.builder().baseUrl(baseUrl).build());
+    }
+
+    EmbeddingsHttpAdapter(
+            HttpRetryHelper httpRetryHelper,
+            RestClient restClient
+    ) {
+        this.restClient = restClient;
+        this.httpRetryHelper = httpRetryHelper;
     }
 
     @Override
     public List<float[]> embed(List<String> texts) {
-        EmbedResponse response = restClient.post()
-                .uri("/embed")
-                .body(new EmbedRequest(texts, true))
-                .retrieve()
-                .body(EmbedResponse.class);
+        EmbedResponse response = httpRetryHelper.execute(
+                "Embeddings service /embed",
+                () -> restClient.post()
+                        .uri("/embed")
+                        .body(new EmbedRequest(texts, true))
+                        .retrieve()
+                        .body(EmbedResponse.class),
+                HttpRetryHelper::retryOnServerErrorOrTransient
+        );
 
         if (response == null || response.embeddings == null) {
             throw new IllegalStateException("Embeddings service returned empty response");

@@ -41,10 +41,18 @@ public class IntegrationService {
         return draft;
     }
 
-    public IntegrationDtos.MailDraftView sendMail(UserView actor, String to, String subject, String body) {
+    public IntegrationDtos.MailDraftView sendMail(
+            UserView actor,
+            String to,
+            String subject,
+            String body,
+            String idempotencyKey,
+            List<IntegrationDtos.MailAttachment> attachments
+    ) {
         IntegrationDtos.MailDraftView draft = createMailDraft(actor, to, subject, body);
+        List<IntegrationDtos.MailAttachment> safeAttachments = attachments == null ? List.of() : attachments;
         try {
-            IntegrationDtos.MailDraftView sent = mailCalendarPort.sendMailDraft(draft);
+            IntegrationDtos.MailDraftView sent = mailCalendarPort.sendMailDraft(draft, idempotencyKey, safeAttachments);
             auditService.append(actor.id(), "mail.send", "email", sent.id(), "Mail sent successfully");
             return sent;
         } catch (ResponseStatusException ex) {
@@ -58,10 +66,17 @@ public class IntegrationService {
         }
     }
 
-    public IntegrationDtos.CalendarDraftView sendCalendarEvent(UserView actor, String title, List<String> attendees, String startIso, String endIso) {
+    public IntegrationDtos.CalendarDraftView sendCalendarEvent(
+            UserView actor,
+            String title,
+            List<String> attendees,
+            String startIso,
+            String endIso,
+            String idempotencyKey
+    ) {
         IntegrationDtos.CalendarDraftView draft = createCalendarDraft(actor, title, attendees, startIso, endIso);
         try {
-            IntegrationDtos.CalendarDraftView sent = mailCalendarPort.sendCalendarDraft(draft);
+            IntegrationDtos.CalendarDraftView sent = mailCalendarPort.sendCalendarDraft(draft, idempotencyKey);
             auditService.append(actor.id(), "calendar.send", "event", sent.id(), "Calendar event sent successfully");
             return sent;
         } catch (ResponseStatusException ex) {

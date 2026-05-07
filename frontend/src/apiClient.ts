@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DocumentPage, DocumentView } from "./types/document";
+import type { DocumentPage, DocumentView } from "./entities/document";
 import {
   AssistantThreadDetailViewSchema,
   AssistantThreadViewSchema,
@@ -131,7 +131,9 @@ export async function fetchWithAuth(
   const authOptions = withAuthHeader(options, getToken());
   const response = await fetch(url, authOptions);
 
-  if (response.status !== 401) {
+  // Backend security может вернуть 403 (а не 401), когда access token просрочен/невалиден.
+  // Для стабильного UX пробуем refresh и retry на обоих кодах.
+  if (response.status !== 401 && response.status !== 403) {
     return response;
   }
 
@@ -488,6 +490,96 @@ export async function apiUploadDocument(
     onNewToken,
   );
   return parseAuthenticatedSchema(response, DocumentViewSchema, onUnauthorized);
+}
+
+export type UploadDocumentProgress = {
+  loaded: number;
+  total: number;
+  percent: number;
+};
+
+export async function apiUploadDocumentWithProgress(
+  file: File,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+  onProgress?: (progress: UploadDocumentProgress) => void,
+): Promise<DocumentView> {
+  const currentToken = getToken();
+  const refreshedToken = await new Promise<string | null>((resolve) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${apiBaseUrl}/auth/refresh`);
+    request.withCredentials = true;
+
+    request.onreadystatechange = () => {
+      if (request.readyState !== XMLHttpRequest.DONE) return;
+      if (request.status < 200 || request.status >= 300) {
+        resolve(null);
+        return;
+      }
+      try {
+        const payload = JSON.parse(request.responseText) as RefreshPayload;
+        resolve(payload.token ?? null);
+      } catch {
+        resolve(null);
+      }
+    };
+    request.onerror = () => resolve(null);
+    request.send();
+  });
+
+  const effectiveToken = refreshedToken ?? currentToken;
+  if (refreshedToken) {
+    setToken(refreshedToken);
+    onNewToken?.(refreshedToken);
+  }
+
+  return new Promise<DocumentView>((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+
+    const request = new XMLHttpRequest();
+    request.open("POST", `${apiBaseUrl}/documents`);
+    request.withCredentials = true;
+    if (effectiveToken) {
+      request.setRequestHeader("Authorization", `Bearer ${effectiveToken}`);
+    }
+
+    request.upload.onprogress = (event) => {
+      const total = event.total || file.size || 0;
+      const loaded = event.loaded;
+      const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+      onProgress?.({ loaded, total, percent });
+    };
+
+    request.onreadystatechange = () => {
+      if (request.readyState !== XMLHttpRequest.DONE) return;
+      if (request.status === 401 || request.status === 403) {
+        onUnauthorized();
+        reject(new Error("Unauthorized"));
+        return;
+      }
+      if (request.status < 200 || request.status >= 300) {
+        let message = "Request failed";
+        try {
+          const payload = JSON.parse(request.responseText) as ApiErrorPayload;
+          message = payload.message ?? payload.errorCode ?? message;
+        } catch {
+          message = request.responseText?.trim() || message;
+        }
+        reject(new Error(message));
+        return;
+      }
+      try {
+        const payload = DocumentViewSchema.parse(JSON.parse(request.responseText));
+        resolve(payload);
+      } catch {
+        reject(new Error("Invalid upload response"));
+      }
+    };
+
+    request.onerror = () => reject(new Error("Request failed"));
+    request.send(form);
+  });
 }
 
 /** Поля PATCH документа (без расширения контракта backend). */

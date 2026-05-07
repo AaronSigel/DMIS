@@ -14,8 +14,10 @@ import { queryKeys } from "../shared/api/queryClient";
 import { useUiStore } from "../shared/store/uiStore";
 import { ConfirmDialog } from "../shared/ui/ConfirmDialog";
 import { useToast } from "../shared/ui/ToastProvider";
-import type { DocumentView } from "../types/document";
-import { RenameDocumentModal, StatusBadge, mapApiErrorToMessage } from "../ui/appShared";
+import type { DocumentView } from "../entities/document";
+import { StatusBadge } from "../shared/ui/StatusBadge";
+import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
+import { RenameDocumentModal } from "../features/documents/documentUi";
 
 type DocumentCardPageProps = {
   token: string;

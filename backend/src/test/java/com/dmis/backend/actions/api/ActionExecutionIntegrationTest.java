@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -70,6 +71,11 @@ class ActionExecutionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EXECUTED"));
 
+        mockMvc.perform(post("/api/actions/{id}/execute", actionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EXECUTED"));
+
         int mailDrafts = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM mail_drafts WHERE recipient = ?",
                 Integer.class, "recipient@example.com");
@@ -94,6 +100,11 @@ class ActionExecutionIntegrationTest {
         mockMvc.perform(post("/api/actions/{id}/confirm", actionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/actions/{id}/execute", actionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EXECUTED"));
 
         mockMvc.perform(post("/api/actions/{id}/execute", actionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -189,6 +200,37 @@ class ActionExecutionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.text").value("Привет, мир"))
                 .andExpect(jsonPath("$.status").value("transcribed"));
+    }
+
+    @Test
+    void listActionsSkipsMalformedEntitiesJsonAndDoesNotReturn500() throws Exception {
+        String token = loginAndGetToken();
+
+        String draftJson = mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"send_email","entities":{"type":"send_email","to":"recipient@example.com","subject":"Test","body":"Hello"}}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String goodActionId = objectMapper.readTree(draftJson).get("id").asText();
+
+        jdbcTemplate.update(
+                "INSERT INTO ai_actions (id, intent, entities_json, actor_id, status, confirmed_by) VALUES (?, ?, ?, ?, ?, ?)",
+                "act-malformed",
+                "send_email",
+                "{\"type\":\"send_email\",\"to\":",
+                "u-admin",
+                "DRAFT",
+                null
+        );
+
+        mockMvc.perform(get("/api/actions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id=='" + goodActionId + "')]").isNotEmpty())
+                .andExpect(jsonPath("$[?(@.id=='act-malformed')]").isEmpty());
     }
 
     private String loginAndGetToken() throws Exception {

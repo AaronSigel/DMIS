@@ -1,10 +1,13 @@
 package com.dmis.backend.documents.api;
 
+import com.dmis.backend.documents.application.IndexingWorker;
 import com.dmis.backend.documents.application.port.DocumentChunkPort;
+import com.dmis.backend.documents.application.port.DocumentMalwareScanPort;
 import com.dmis.backend.documents.application.port.EmbeddingsPort;
 import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -25,9 +28,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpHeaders.CONTENT_DISPOSITION;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -40,7 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = "document.scan.enabled=true")
 @AutoConfigureMockMvc
 class DocumentProcessingIntegrationTest {
     @Autowired
@@ -51,11 +57,20 @@ class DocumentProcessingIntegrationTest {
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private DocumentChunkPort documentChunkPort;
+    @Autowired
+    private IndexingWorker indexingWorker;
 
     @MockBean
     private ObjectStoragePort objectStoragePort;
     @MockBean
     private EmbeddingsPort embeddingsPort;
+    @MockBean
+    private DocumentMalwareScanPort malwareScanPort;
+
+    @BeforeEach
+    void setUpMalwareScan() {
+        when(malwareScanPort.scan(anyString(), any())).thenReturn(DocumentMalwareScanPort.ScanVerdict.CLEAN);
+    }
 
     @Test
     void uploadIndexesChunksIntoPgvectorTable() throws Exception {
@@ -84,12 +99,15 @@ class DocumentProcessingIntegrationTest {
                         .file(file)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
 
         JsonNode tree = objectMapper.readTree(json);
         String documentId = tree.get("id").asText();
+
+        indexingWorker.flushPending();
 
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
@@ -207,6 +225,7 @@ class DocumentProcessingIntegrationTest {
 
         String token = loginAndGetToken("admin@dmis.local");
         String documentId = upload(token, "policy.txt", "alpha beta policy text");
+        indexingWorker.flushPending();
 
         String searchJson = mockMvc.perform(post("/api/search")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -268,6 +287,7 @@ class DocumentProcessingIntegrationTest {
         String token = loginAndGetToken("admin@dmis.local");
         upload(token, "zzz-policy.txt", "b text");
         upload(token, "aaa-policy.txt", "a text");
+        indexingWorker.flushPending();
 
         String json = mockMvc.perform(get("/api/documents")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -299,7 +319,7 @@ class DocumentProcessingIntegrationTest {
     }
 
     @Test
-    void uploadReturnsStructuredErrorWhenIndexingFails() throws Exception {
+    void uploadReturnsPendingAndWorkerMarksDocumentFailedWhenIndexingFails() throws Exception {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenThrow(new IllegalStateException("Embeddings service unavailable"));
 
@@ -310,12 +330,94 @@ class DocumentProcessingIntegrationTest {
                 MediaType.TEXT_PLAIN_VALUE,
                 "text".getBytes(StandardCharsets.UTF_8)
         );
-        mockMvc.perform(multipart("/api/documents")
+        String json = mockMvc.perform(multipart("/api/documents")
                         .file(file)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.errorCode").value("EMBEDDING_FAILED"))
-                .andExpect(jsonPath("$.message").value("Failed to index document"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String documentId = objectMapper.readTree(json).get("id").asText();
+
+        indexingWorker.flushPending();
+
+        mockMvc.perform(get("/api/documents/{documentId}", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        String jobStatus = jdbcTemplate.queryForObject(
+                "SELECT status FROM indexing_jobs WHERE document_id = ?",
+                String.class,
+                documentId
+        );
+        assertEquals("FAILED", jobStatus);
+    }
+
+    @Test
+    void uploadEnqueuesJobAndWorkerProgressesStatuses() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "queued.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "queued body".getBytes(StandardCharsets.UTF_8)
+        );
+
+        String json = mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String documentId = objectMapper.readTree(json).get("id").asText();
+
+        Integer pendingJobs = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM indexing_jobs WHERE document_id = ? AND status = 'PENDING'",
+                Integer.class,
+                documentId
+        );
+        assertEquals(1, pendingJobs, "expected one PENDING job after upload");
+
+        Integer chunksBefore = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
+                Integer.class,
+                documentId
+        );
+        assertEquals(0, chunksBefore, "expected no chunks before worker runs");
+
+        indexingWorker.flushPending();
+
+        mockMvc.perform(get("/api/documents/{documentId}", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INDEXED"));
+
+        String jobStatus = jdbcTemplate.queryForObject(
+                "SELECT status FROM indexing_jobs WHERE document_id = ?",
+                String.class,
+                documentId
+        );
+        Integer attempts = jdbcTemplate.queryForObject(
+                "SELECT attempts FROM indexing_jobs WHERE document_id = ?",
+                Integer.class,
+                documentId
+        );
+        assertEquals("DONE", jobStatus);
+        assertEquals(1, attempts);
+
+        Integer chunksAfter = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
+                Integer.class,
+                documentId
+        );
+        assertTrue(chunksAfter != null && chunksAfter > 0, "expected chunks to be created by worker");
     }
 
     @Test
@@ -332,6 +434,48 @@ class DocumentProcessingIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("UNSUPPORTED_FILE_TYPE"));
+    }
+
+    @Test
+    void uploadRejectsEicarWhenScannerReportsInfected() throws Exception {
+        when(malwareScanPort.scan(anyString(), any())).thenReturn(DocumentMalwareScanPort.ScanVerdict.INFECTED);
+
+        String token = loginAndGetToken("admin@dmis.local");
+        MockMultipartFile eicarFile = new MockMultipartFile(
+                "file",
+                "eicar.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+                        .getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(eicarFile)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("MALWARE_DETECTED"));
+    }
+
+    @Test
+    void uploadPassesWhenScannerReportsClean() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        MockMultipartFile cleanFile = new MockMultipartFile(
+                "file",
+                "clean.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "clean content".getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(cleanFile)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+
+        verify(malwareScanPort).scan(anyString(), any());
     }
 
     @Test
@@ -357,15 +501,18 @@ class DocumentProcessingIntegrationTest {
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
         String token = loginAndGetToken("admin@dmis.local");
-        upload(token, "page-a.txt", "a");
         upload(token, "page-b.txt", "b");
+        upload(token, "page-a.txt", "a");
 
         mockMvc.perform(get("/api/documents")
                         .param("page", "0")
                         .param("size", "1")
+                        .param("sortBy", "name")
+                        .param("order", "asc")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("page-a.txt"))
                 .andExpect(jsonPath("$.totalElements").value(2))
                 .andExpect(jsonPath("$.totalPages").value(2))
                 .andExpect(jsonPath("$.page").value(0))
@@ -374,9 +521,12 @@ class DocumentProcessingIntegrationTest {
         mockMvc.perform(get("/api/documents")
                         .param("page", "1")
                         .param("size", "1")
+                        .param("sortBy", "name")
+                        .param("order", "asc")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1));
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("page-b.txt"));
     }
 
     @Test
@@ -413,12 +563,45 @@ class DocumentProcessingIntegrationTest {
     }
 
     @Test
+    void downloadUrlReturnsPresignedUrlWhenAclAllows() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(objectStoragePort.presignDownload("minio://test-bucket/path", 300)).thenReturn("http://minio.local/presigned");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String token = loginAndGetToken("admin@dmis.local");
+        String documentId = upload(token, "presigned.txt", "v1 text");
+
+        mockMvc.perform(get("/api/documents/{documentId}/download-url", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value("http://minio.local/presigned"))
+                .andExpect(jsonPath("$.ttlSeconds").value(300));
+    }
+
+    @Test
+    void downloadUrlDeniedWhenActorHasNoReadAccess() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
+        when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
+
+        String adminToken = loginAndGetToken("admin@dmis.local");
+        String analystToken = loginAndGetToken("analyst@dmis.local");
+        String documentId = upload(adminToken, "owner-only.txt", "private");
+
+        mockMvc.perform(get("/api/documents/{documentId}/download-url", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + analystToken))
+                .andExpect(status().isForbidden());
+
+        verify(objectStoragePort, never()).presignDownload(anyString(), anyInt());
+    }
+
+    @Test
     void patchTagsAndFilterByTag() throws Exception {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
         String token = loginAndGetToken("admin@dmis.local");
         String taggedId = upload(token, "tagged.txt", "x");
+        String partialTagId = upload(token, "partial-tagged.txt", "z");
         upload(token, "other.txt", "y");
 
         mockMvc.perform(patch("/api/documents/{documentId}", taggedId)
@@ -428,8 +611,21 @@ class DocumentProcessingIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tags[0]").value("alpha"));
 
+        mockMvc.perform(patch("/api/documents/{documentId}", partialTagId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tags\":[\"alphabet\"]}")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
         mockMvc.perform(get("/api/documents")
                         .param("tag", "alpha")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(taggedId));
+
+        mockMvc.perform(get("/api/documents")
+                        .param("tag", "ALPHA")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))

@@ -72,4 +72,10 @@ public final class DocumentDtos {
             byte[] content
     ) {
     }
+
+    public record PresignedDownloadUrl(
+            String url,
+            int ttlSeconds
+    ) {
+    }
 }

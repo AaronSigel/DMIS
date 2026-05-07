@@ -50,19 +50,21 @@ public class JwtTokenAdapter implements TokenPort {
     }
 
     @Override
-    public String issueRefresh(UserView userView) {
+    public String issueRefresh(UserView userView, RefreshTokenClaims claims) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(userView.id())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(jwtProperties.refreshExpirationSeconds())))
                 .claim("type", "refresh")
+                .claim("jti", claims.tokenId())
+                .claim("familyId", claims.familyId())
                 .signWith(secretKey())
                 .compact();
     }
 
     @Override
-    public Optional<TokenSubject> parseRefresh(String refreshToken) {
+    public Optional<RefreshTokenClaims> parseRefresh(String refreshToken) {
         try {
             var claims = Jwts.parser()
                     .verifyWith(secretKey())
@@ -72,7 +74,12 @@ public class JwtTokenAdapter implements TokenPort {
             if (!"refresh".equals(claims.get("type", String.class))) {
                 return Optional.empty();
             }
-            return Optional.of(new TokenSubject(claims.getSubject()));
+            String tokenId = claims.get("jti", String.class);
+            String familyId = claims.get("familyId", String.class);
+            if (tokenId == null || tokenId.isBlank() || familyId == null || familyId.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(new RefreshTokenClaims(claims.getSubject(), tokenId, familyId));
         } catch (Exception e) {
             return Optional.empty();
         }

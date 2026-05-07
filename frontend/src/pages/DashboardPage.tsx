@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiBaseUrl, apiListDocuments, fetchWithAuth, parseAuthenticatedJson } from "../apiClient";
 import { queryKeys } from "../shared/api/queryClient";
-import { mapApiErrorToMessage } from "../ui/appShared";
+import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
 
 type AiAction = { id: string; intent: string; status: "DRAFT" | "CONFIRMED" | "EXECUTED" };
 

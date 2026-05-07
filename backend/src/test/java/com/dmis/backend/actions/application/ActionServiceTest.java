@@ -10,12 +10,15 @@ import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.audit.application.dto.AuditView;
 import com.dmis.backend.audit.application.port.AuditPort;
 import com.dmis.backend.documents.application.DocumentUseCases;
+import com.dmis.backend.documents.application.dto.DocumentDtos;
 import com.dmis.backend.integrations.application.IntegrationService;
+import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.shared.model.RoleName;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,12 +34,14 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class ActionServiceTest {
     private ActionService actionService;
     private UserView owner;
     private UserView outsider;
     private IntegrationService integrationService;
+    private DocumentUseCases documentUseCases;
     private InMemoryAiActionPort aiActionPort;
 
     @BeforeEach
@@ -44,8 +49,16 @@ class ActionServiceTest {
         aiActionPort = new InMemoryAiActionPort();
         AuditService auditService = new AuditService(new InMemoryAuditPort());
         integrationService = Mockito.mock(IntegrationService.class);
-        DocumentUseCases documentUseCases = Mockito.mock(DocumentUseCases.class);
-        actionService = new ActionService(aiActionPort, new AclService(), auditService, integrationService, documentUseCases);
+        documentUseCases = Mockito.mock(DocumentUseCases.class);
+        actionService = new ActionService(
+                aiActionPort,
+                new AclService(),
+                auditService,
+                integrationService,
+                documentUseCases,
+                10,
+                26_214_400L
+        );
         owner = new UserView("u-owner", "owner@dmis.local", "Owner", Set.of(RoleName.USER));
         outsider = new UserView("u-outsider", "out@dmis.local", "Out", Set.of(RoleName.USER));
     }
@@ -96,7 +109,38 @@ class ActionServiceTest {
         ActionDtos.AiActionView executed = actionService.execute(owner, draft.id());
 
         assertEquals(ActionStatus.EXECUTED, executed.status());
-        verify(integrationService).sendMail(eq(owner), eq("recipient@example.com"), eq("Test"), eq("Hello"));
+        verify(integrationService).sendMail(
+                eq(owner),
+                eq("recipient@example.com"),
+                eq("Test"),
+                eq("Hello"),
+                eq("action:" + draft.id()),
+                eq(List.of())
+        );
+    }
+
+    @Test
+    void repeatedExecuteReturnsExecutedWithoutDuplicateSideEffects() {
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "send_email",
+                new SendEmailEntities("recipient@example.com", "Test", "Hello")
+        );
+        actionService.confirm(owner, draft.id());
+
+        ActionDtos.AiActionView firstExecute = actionService.execute(owner, draft.id());
+        ActionDtos.AiActionView secondExecute = actionService.execute(owner, draft.id());
+
+        assertEquals(ActionStatus.EXECUTED, firstExecute.status());
+        assertEquals(ActionStatus.EXECUTED, secondExecute.status());
+        verify(integrationService).sendMail(
+                eq(owner),
+                eq("recipient@example.com"),
+                eq("Test"),
+                eq("Hello"),
+                eq("action:" + draft.id()),
+                eq(List.of())
+        );
     }
 
     @Test
@@ -114,14 +158,56 @@ class ActionServiceTest {
         actionService.confirm(owner, draft.id());
         doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Calendar service unavailable"))
                 .when(integrationService)
-                .sendCalendarEvent(eq(owner), eq("Standup"), anyList(), eq("2026-05-10T09:00:00Z"), eq("2026-05-10T09:30:00Z"));
+                .sendCalendarEvent(
+                        eq(owner),
+                        eq("Standup"),
+                        anyList(),
+                        eq("2026-05-10T09:00:00Z"),
+                        eq("2026-05-10T09:30:00Z"),
+                        eq("action:" + draft.id())
+                );
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> actionService.execute(owner, draft.id()));
 
         assertEquals(HttpStatus.BAD_GATEWAY, exception.getStatusCode());
         assertTrue(exception.getReason().contains("Calendar service unavailable"));
         assertEquals(ActionStatus.CONFIRMED, aiActionPort.findById(draft.id()).orElseThrow().status());
-        verify(integrationService).sendCalendarEvent(eq(owner), eq("Standup"), anyList(), eq("2026-05-10T09:00:00Z"), eq("2026-05-10T09:30:00Z"));
+        verify(integrationService).sendCalendarEvent(
+                eq(owner),
+                eq("Standup"),
+                anyList(),
+                eq("2026-05-10T09:00:00Z"),
+                eq("2026-05-10T09:30:00Z"),
+                eq("action:" + draft.id())
+        );
+    }
+
+    @Test
+    void executeSendEmailResolvesDocumentAttachments() {
+        when(documentUseCases.downloadLatest(eq(owner), eq("doc-1")))
+                .thenReturn(new DocumentDtos.DocumentBinary("f.pdf", "application/pdf", new byte[]{1, 2, 3}));
+
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "send_email",
+                new SendEmailEntities("recipient@example.com", "Test", "Hello", List.of("doc-1"))
+        );
+        actionService.confirm(owner, draft.id());
+        actionService.execute(owner, draft.id());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<IntegrationDtos.MailAttachment>> captor = ArgumentCaptor.forClass(List.class);
+        verify(integrationService).sendMail(
+                eq(owner),
+                eq("recipient@example.com"),
+                eq("Test"),
+                eq("Hello"),
+                eq("action:" + draft.id()),
+                captor.capture()
+        );
+        assertEquals(1, captor.getValue().size());
+        assertEquals("f.pdf", captor.getValue().getFirst().fileName());
+        assertEquals("application/pdf", captor.getValue().getFirst().contentType());
     }
 
     @Test

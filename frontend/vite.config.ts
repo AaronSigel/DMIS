@@ -1,13 +1,27 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import { visualizer } from "rollup-plugin-visualizer";
 
 export const appAlias = {
   "@": fileURLToPath(new URL("./src", import.meta.url)),
 };
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react()],
+  plugins: [
+    react(),
+    ...(mode === "production"
+      ? [
+          visualizer({
+            filename: "dist/stats.html",
+            template: "treemap",
+            gzipSize: true,
+            brotliSize: false,
+            open: false,
+          }),
+        ]
+      : []),
+  ],
   resolve: {
     alias: appAlias,
   },

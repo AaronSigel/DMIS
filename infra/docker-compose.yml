@@ -15,8 +15,26 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
       MINIO_BUCKET: ${MINIO_BUCKET:-dmis-documents}
+      MINIO_PRESIGNED_DOWNLOAD_TTL_SECONDS: ${MINIO_PRESIGNED_DOWNLOAD_TTL_SECONDS:-300}
       EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-http://embeddings-service:8001}
       AI_BASE_URL: ${AI_BASE_URL:-http://ai-service:8002}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,prometheus}
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: ${MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS:-never}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_CONNECT_TIMEOUT_MS: ${SMTP_CONNECT_TIMEOUT_MS:-5000}
+      SMTP_READ_TIMEOUT_MS: ${SMTP_READ_TIMEOUT_MS:-10000}
+      SMTP_WRITE_TIMEOUT_MS: ${SMTP_WRITE_TIMEOUT_MS:-10000}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@dmis.local}
+      # В compose по умолчанию включаем антивирусную проверку загрузок.
+      DOCUMENT_SCAN_ENABLED: ${DOCUMENT_SCAN_ENABLED:-true}
+      DOCUMENT_SCAN_CLAMAV_HOST: ${DOCUMENT_SCAN_CLAMAV_HOST:-clamav}
+      DOCUMENT_SCAN_CLAMAV_PORT: ${DOCUMENT_SCAN_CLAMAV_PORT:-3310}
+      DOCUMENT_SCAN_CLAMAV_TIMEOUT_MS: ${DOCUMENT_SCAN_CLAMAV_TIMEOUT_MS:-3000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,6 +43,8 @@ services:
       embeddings-service:
         condition: service_healthy
       ai-service:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -106,6 +126,15 @@ services:
       retries: 10
       start_period: 20s
 
+  clamav:
+    image: clamav/clamav:stable
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --version >/dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
   postgres:
     image: pgvector/pgvector:pg16
     environment:
@@ -135,6 +164,38 @@ services:
     volumes:
       - minio_data:/data
 
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      prometheus:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
 volumes:
   postgres_data:
   minio_data:
+  grafana_data:
+  prometheus_data:

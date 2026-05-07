@@ -30,6 +30,23 @@ class ChatResponse(BaseModel):
     provider: Provider
 
 
+class StructuredChatRequest(BaseModel):
+    question: str = Field(min_length=1)
+    systemPrompt: str | None = None
+    temperature: float | None = None
+    maxTokens: int | None = None
+    traceId: str | None = None
+    responseSchema: dict[str, Any] | None = None
+
+
+class StructuredChatResponse(BaseModel):
+    status: Literal["ok", "error"]
+    structured: dict[str, Any] | None = None
+    provider: Provider
+    model: str
+    error: str | None = None
+
+
 def _provider() -> Provider:
     return (os.environ.get("AI_PROVIDER", "openrouter") or "openrouter").strip().lower()  # type: ignore[return-value]
 
@@ -72,6 +89,40 @@ def _build_messages(req: ChatRequest) -> list[dict[str, str]]:
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+
+
+def _extract_json_object(raw: str) -> dict[str, Any]:
+    trimmed = (raw or "").strip()
+    if not trimmed:
+        raise RuntimeError("Empty completion")
+    start = trimmed.find("{")
+    end = trimmed.rfind("}")
+    if start < 0 or end <= start:
+        raise RuntimeError("Completion is not JSON object")
+    return json.loads(trimmed[start : end + 1])
+
+
+def _build_structured_fallback(question: str) -> dict[str, Any]:
+    lower = question.strip().lower()
+    if "пись" in lower or "email" in lower or "mail" in lower:
+        return {
+            "intent": "send_email",
+            "entities": {"to": "", "subject": "", "body": question.strip()},
+        }
+    if "встреч" in lower or "календар" in lower or "meeting" in lower:
+        return {
+            "intent": "create_calendar_event",
+            "entities": {
+                "title": question.strip() or "Встреча",
+                "attendees": [],
+                "startIso": "",
+                "endIso": "",
+            },
+        }
+    return {
+        "intent": "update_document_tags",
+        "entities": {"documentId": "", "tags": []},
+    }
 
 
 @app.get("/health")
@@ -123,6 +174,73 @@ async def chat(req: ChatRequest) -> ChatResponse:
         raise RuntimeError(f"Unknown AI_PROVIDER: {provider}")
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/v2/chat/structured", response_model=StructuredChatResponse)
+async def chat_structured(req: StructuredChatRequest) -> StructuredChatResponse:
+    provider = _provider()
+    model = _model()
+    try:
+        if provider == "openrouter":
+            system = req.systemPrompt or (
+                "Извлеки интент и сущности для корпоративной системы документооборота. "
+                "Верни строго JSON объект без markdown: "
+                '{"intent":"send_email|create_calendar_event|update_document_tags","entities":{...}}.'
+            )
+            payload: dict[str, Any] = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": req.question.strip()},
+                ],
+            }
+            if req.temperature is not None:
+                payload["temperature"] = req.temperature
+            if req.maxTokens is not None:
+                payload["max_tokens"] = req.maxTokens
+            if req.responseSchema is not None:
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": req.responseSchema,
+                }
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=_openrouter_headers(),
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+                content = (
+                    (((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
+                ).strip()
+                structured = _extract_json_object(content)
+                return StructuredChatResponse(
+                    status="ok",
+                    structured=structured,
+                    provider=provider,
+                    model=model,
+                )
+        if provider == "local":
+            return StructuredChatResponse(
+                status="ok",
+                structured=_build_structured_fallback(req.question),
+                provider=provider,
+                model=model,
+            )
+        return StructuredChatResponse(
+            status="error",
+            structured=None,
+            provider=provider,
+            model=model,
+            error=f"Unknown AI_PROVIDER: {provider}",
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON from model: {e}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

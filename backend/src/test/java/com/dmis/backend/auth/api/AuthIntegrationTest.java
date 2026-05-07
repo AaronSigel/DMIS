@@ -13,8 +13,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.blankOrNullString;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -32,6 +35,26 @@ class AuthIntegrationTest {
     void usersMeRequiresAuth() throws Exception {
         mockMvc.perform(get("/api/users/me"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void traceIdHeaderIsEchoedOrGenerated() throws Exception {
+        mockMvc.perform(get("/api/health").header("X-Trace-Id", "trace-from-test"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Trace-Id", "trace-from-test"));
+
+        mockMvc.perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Trace-Id", not(blankOrNullString())));
+    }
+
+    @Test
+    void actuatorHealthAndPrometheusArePublic() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -60,16 +83,18 @@ class AuthIntegrationTest {
     }
 
     @Test
-    void refreshWithValidTokenReturnsNewTokenPair() throws Exception {
-        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@dmis.local\",\"password\":\"demo\"}"))
+    void corsPreflightForLoginAllowsCredentials() throws Exception {
+        mockMvc.perform(options("/api/auth/login")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:5173")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
                 .andExpect(status().isOk())
-                .andReturn();
-        Cookie refreshCookie = loginResult.getResponse().getCookie(AuthController.REFRESH_COOKIE_NAME);
-        if (refreshCookie == null) {
-            throw new AssertionError("Ожидался Set-Cookie dmis_refresh после логина");
-        }
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:5173"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+    }
+
+    @Test
+    void refreshWithValidTokenReturnsNewTokenPair() throws Exception {
+        Cookie refreshCookie = loginAndGetRefreshCookie("admin@dmis.local");
 
         mockMvc.perform(post("/api/auth/refresh").cookie(refreshCookie))
                 .andExpect(status().isOk())
@@ -77,6 +102,27 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andExpect(jsonPath("$.user.email").value("admin@dmis.local"))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("dmis_refresh=")));
+    }
+
+    @Test
+    void refreshTokenReuseRevokesWholeFamily() throws Exception {
+        Cookie initialRefresh = loginAndGetRefreshCookie("admin@dmis.local");
+
+        MvcResult rotateResult = mockMvc.perform(post("/api/auth/refresh").cookie(initialRefresh))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").exists())
+                .andReturn();
+
+        Cookie rotatedRefresh = rotateResult.getResponse().getCookie(AuthController.REFRESH_COOKIE_NAME);
+        if (rotatedRefresh == null) {
+            throw new AssertionError("Ожидался новый refresh cookie после ротации");
+        }
+
+        mockMvc.perform(post("/api/auth/refresh").cookie(initialRefresh))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/auth/refresh").cookie(rotatedRefresh))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -130,5 +176,18 @@ class AuthIntegrationTest {
                 .getResponse()
                 .getContentAsString();
         return objectMapper.readTree(json).get("token").asText();
+    }
+
+    private Cookie loginAndGetRefreshCookie(String email) throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"demo\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie refreshCookie = loginResult.getResponse().getCookie(AuthController.REFRESH_COOKIE_NAME);
+        if (refreshCookie == null) {
+            throw new AssertionError("Ожидался Set-Cookie dmis_refresh после логина");
+        }
+        return refreshCookie;
     }
 }

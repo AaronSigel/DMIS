@@ -8,12 +8,27 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 public final class ActionDtos {
+    public static final String SEND_EMAIL_INTENT = "send_email";
+    public static final String CREATE_CALENDAR_EVENT_INTENT = "create_calendar_event";
+    public static final String UPDATE_DOCUMENT_TAGS_INTENT = "update_document_tags";
+    private static final Set<String> SUPPORTED_INTENTS = Set.of(
+            SEND_EMAIL_INTENT,
+            CREATE_CALENDAR_EVENT_INTENT,
+            UPDATE_DOCUMENT_TAGS_INTENT
+    );
+
     private ActionDtos() {
+    }
+
+    public static Set<String> supportedIntents() {
+        return SUPPORTED_INTENTS;
     }
 
     public record AiActionView(
@@ -28,9 +43,9 @@ public final class ActionDtos {
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
     @JsonSubTypes({
-            @JsonSubTypes.Type(value = SendEmailEntities.class, name = "send_email"),
-            @JsonSubTypes.Type(value = CreateCalendarEventEntities.class, name = "create_calendar_event"),
-            @JsonSubTypes.Type(value = UpdateDocumentTagsEntities.class, name = "update_document_tags")
+            @JsonSubTypes.Type(value = SendEmailEntities.class, name = SEND_EMAIL_INTENT),
+            @JsonSubTypes.Type(value = CreateCalendarEventEntities.class, name = CREATE_CALENDAR_EVENT_INTENT),
+            @JsonSubTypes.Type(value = UpdateDocumentTagsEntities.class, name = UPDATE_DOCUMENT_TAGS_INTENT)
     })
     public sealed interface ActionEntities permits
             SendEmailEntities,
@@ -41,8 +56,17 @@ public final class ActionDtos {
     public record SendEmailEntities(
             @NotBlank @Email String to,
             @NotBlank String subject,
-            @NotBlank String body
+            @NotBlank String body,
+            @Size(max = 10) List<@NotBlank String> attachmentDocumentIds
     ) implements ActionEntities {
+
+        public SendEmailEntities(String to, String subject, String body) {
+            this(to, subject, body, List.of());
+        }
+
+        public SendEmailEntities {
+            attachmentDocumentIds = attachmentDocumentIds == null ? List.of() : List.copyOf(attachmentDocumentIds);
+        }
     }
 
     public record CreateCalendarEventEntities(

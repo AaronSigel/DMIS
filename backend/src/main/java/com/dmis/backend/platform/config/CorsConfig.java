@@ -32,7 +32,8 @@ public class CorsConfig {
         c.setAllowedOriginPatterns(Stream.concat(defaults.stream(), dynamic.stream()).toList());
         c.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         c.setAllowedHeaders(List.of("*"));
-        c.setAllowCredentials(false);
+        // Для auth/login и refresh используем cookie, поэтому браузеру нужен credentialed CORS.
+        c.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", c);
         return source;

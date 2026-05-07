@@ -11,6 +11,7 @@ infra/.env.*
 .github
 /mcp/node_modules
 /frontend/node_modules
+/frontend/dist
 /backend/target
 *.pyc
 /mcp-server
@@ -29,3 +30,4 @@ frontend/core.*
 /frontend/playwright-report/*
 /frontend/test-results/*
 /scripts/*
+/e2e/*

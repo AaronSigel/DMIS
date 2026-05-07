@@ -2,7 +2,10 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const assetsDir = join(process.cwd(), "dist", "assets");
-const minCssSizeBytes = 25 * 1024;
+// Smoke-проверка, что Tailwind отработал и сгенерировал utility-классы.
+// Порог откалиброван по реально нужным классам исходников после очистки
+// устаревших записей из dist/, которые ранее ошибочно попадали в content-scan.
+const minCssSizeBytes = 22 * 1024;
 const markerClasses = [".bg-surface", ".text-muted", ".px-3"];
 
 function fail(message) {
