@@ -7,7 +7,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.Positive;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -176,9 +175,9 @@ public class IntegrationsController {
 
     public record MailAccountUpsertRequest(
             String imapHost,
-            @Positive Integer imapPort,
+            Integer imapPort,
             String imapUsername,
-            @NotBlank String password
+            String password
     ) {
     }
 

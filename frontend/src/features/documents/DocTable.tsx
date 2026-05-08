@@ -13,10 +13,10 @@ import {
 } from "../../apiClient";
 import { queryKeys } from "../../shared/api/queryClient";
 import { useUiStore } from "../../shared/store/uiStore";
-import { AssistantLauncher } from "../../shared/ui/AssistantLauncher";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { Avatar } from "../../shared/ui/Avatar";
+import { PageHeader } from "../../shared/ui/PageHeader";
 import { StatusBadge } from "../../shared/ui/StatusBadge";
 import { TopBarBtn } from "../../shared/ui/TopBarBtn";
 import { smallBtnClass } from "../../shared/ui/smallBtnClass";
@@ -396,41 +396,45 @@ export function DocTable({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-6 pb-[14px] pt-4">
-        <h2 className="m-0 text-xl font-bold text-text">{sectionTitle(section)}</h2>
-        <div className="flex flex-wrap gap-2">
-          <TopBarBtn
-            onClick={() => setFilterActive((v) => !v)}
-            title={
-              filterActive
-                ? "Показываются только проиндексированные документы"
-                : "Показать только проиндексированные документы"
-            }
-          >
-            {filterActive ? "Фильтр: проиндексированные" : "Фильтр"}
-          </TopBarBtn>
-          <TopBarBtn
-            onClick={() => {
-              setArchiveActive((v) => !v);
-              setPage(0);
-            }}
-            title={
-              archiveActive
-                ? "Показывается только архив (документы с тегом archive)"
-                : "Показать только архив (документы с тегом archive)"
-            }
-          >
-            {archiveActive ? "Архив: вкл" : "Архив"}
-          </TopBarBtn>
-          <TopBarBtn onClick={() => setSortOrder((v) => (v === "newest" ? "oldest" : "newest"))}>
-            {sortOrder === "newest" ? "Сортировка: новые" : "Сортировка: старые"}
-          </TopBarBtn>
-          <TopBarBtn onClick={() => fileRef.current?.click()} title="Загрузить документ в систему">
-            Загрузить
-          </TopBarBtn>
-          <AssistantLauncher />
-        </div>
-      </div>
+      <PageHeader
+        title={sectionTitle(section)}
+        actions={
+          <>
+            <TopBarBtn
+              onClick={() => setFilterActive((v) => !v)}
+              title={
+                filterActive
+                  ? "Показываются только проиндексированные документы"
+                  : "Показать только проиндексированные документы"
+              }
+            >
+              {filterActive ? "Фильтр: проиндексированные" : "Фильтр"}
+            </TopBarBtn>
+            <TopBarBtn
+              onClick={() => {
+                setArchiveActive((v) => !v);
+                setPage(0);
+              }}
+              title={
+                archiveActive
+                  ? "Показывается только архив (документы с тегом archive)"
+                  : "Показать только архив (документы с тегом archive)"
+              }
+            >
+              {archiveActive ? "Архив: вкл" : "Архив"}
+            </TopBarBtn>
+            <TopBarBtn onClick={() => setSortOrder((v) => (v === "newest" ? "oldest" : "newest"))}>
+              {sortOrder === "newest" ? "Сортировка: новые" : "Сортировка: старые"}
+            </TopBarBtn>
+            <TopBarBtn
+              onClick={() => fileRef.current?.click()}
+              title="Загрузить документ в систему"
+            >
+              Загрузить
+            </TopBarBtn>
+          </>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto px-6 pb-4">
         <input ref={fileRef} type="file" className="hidden" multiple onChange={handleFileSelect} />

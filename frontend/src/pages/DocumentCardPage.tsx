@@ -20,7 +20,7 @@ import { StatusBadge } from "../shared/ui/StatusBadge";
 import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
 import { localDateTimeInputToIso } from "../shared/lib/datetimeLocal";
 import { RenameDocumentModal } from "../features/documents/documentUi";
-import { AssistantLauncher } from "../shared/ui/AssistantLauncher";
+import { PageHeader } from "../shared/ui/PageHeader";
 
 type DocumentCardPageProps = {
   token: string;
@@ -369,8 +369,9 @@ export function DocumentCardPage({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-col gap-3 border-b border-border px-6 pb-[14px] pt-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+      <PageHeader
+        title={doc.title}
+        navigation={
           <button
             type="button"
             onClick={() => navigate(-1)}
@@ -378,45 +379,43 @@ export function DocumentCardPage({
           >
             ←
           </button>
-          <h2 className="m-0 min-w-0 flex-1 break-words text-[18px] font-bold leading-snug text-text line-clamp-3 sm:line-clamp-2">
-            {doc.title}
-          </h2>
-        </div>
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:max-w-[min(100%,520px)] sm:justify-end">
-          <AssistantLauncher />
-          <button
-            type="button"
-            onClick={askInAi}
-            className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
-            title="Открыть ассистента и вставить вопрос"
-          >
-            Спросить AI
-          </button>
-          <button
-            type="button"
-            onClick={openMeetingDraftForm}
-            className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
-            title="Создать draft встречи по этому документу"
-          >
-            Создать встречу
-          </button>
-          <button
-            type="button"
-            onClick={() => setRenameOpen(true)}
-            className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
-          >
-            Переименовать
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeleteDialogOpen(true)}
-            className="rounded-md border border-danger/40 bg-white px-3 py-1 text-xs text-danger"
-          >
-            Удалить
-          </button>
-          <StatusBadge status={doc.status} />
-        </div>
-      </div>
+        }
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={askInAi}
+              className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
+              title="Открыть ассистента и вставить вопрос"
+            >
+              Спросить AI
+            </button>
+            <button
+              type="button"
+              onClick={openMeetingDraftForm}
+              className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
+              title="Создать draft встречи по этому документу"
+            >
+              Создать встречу
+            </button>
+            <button
+              type="button"
+              onClick={() => setRenameOpen(true)}
+              className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
+            >
+              Переименовать
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeleteDialogOpen(true)}
+              className="rounded-md border border-danger/40 bg-white px-3 py-1 text-xs text-danger"
+            >
+              Удалить
+            </button>
+            <StatusBadge status={doc.status} />
+          </>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {meetingDraftOpen && (

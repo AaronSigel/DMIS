@@ -8,7 +8,7 @@ import {
 } from "../apiClient";
 import { queryKeys } from "../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
-import { AssistantLauncher } from "../shared/ui/AssistantLauncher";
+import { PageHeader } from "../shared/ui/PageHeader";
 
 type AiAction = { id: string; intent: string; status: "DRAFT" | "CONFIRMED" | "EXECUTED" };
 
@@ -74,51 +74,50 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
     : "";
 
   return (
-    <div className="p-6">
-      <div className="mb-[14px] mt-0 flex flex-wrap items-center gap-2">
-        <h2 className="m-0 text-text">Дашборд</h2>
-        <AssistantLauncher />
-      </div>
-      {error && <p className="mb-3 mt-0 text-danger">{error}</p>}
-      <div className="mb-2.5 grid grid-cols-2 gap-2.5">
-        <Card title="Документы" value={String(docCount)} subtitle="Всего документов в системе" />
-        <Card
-          title="AI-действия"
-          value={String(actionCount)}
-          subtitle={`Выполнено: ${executedCount}`}
-        />
-        <Card
-          title="Аудит-события"
-          value={String(auditCount)}
-          subtitle="Записи журнала аудита (доступные текущей роли)"
-        />
-        <Card
-          title="События календаря"
-          value={String(calendarCount)}
-          subtitle="Всего событий в персональном календаре"
-        />
-        <Card
-          title="Состояние системы"
-          value={systemHealth === "ok" ? "OK" : "DEGRADED"}
-          subtitle={`API: ${apiBaseUrl}`}
-        />
-      </div>
-      <div className="rounded-[10px] border border-border bg-white p-[14px]">
-        <p className="mb-2 mt-0 text-[13px] font-semibold text-text">Операционный срез</p>
-        <p className="mb-1.5 mt-0 text-xs text-muted">
-          Исполнение AI-действий:{" "}
-          {actionCount === 0
-            ? "данные отсутствуют"
-            : `${executedCount} из ${actionCount} в статусе EXECUTED`}
-          .
-        </p>
-        <p className="m-0 text-xs text-muted">
-          Аудит:{" "}
-          {auditCount > 0
-            ? "журнал доступен и пополняется"
-            : "нет доступных записей или ограничен доступ по роли"}
-          .
-        </p>
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader title="Дашборд" />
+      <div className="flex-1 overflow-y-auto p-6">
+        {error && <p className="mb-3 mt-0 text-danger">{error}</p>}
+        <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+          <Card title="Документы" value={String(docCount)} subtitle="Всего документов в системе" />
+          <Card
+            title="AI-действия"
+            value={String(actionCount)}
+            subtitle={`Выполнено: ${executedCount}`}
+          />
+          <Card
+            title="Аудит-события"
+            value={String(auditCount)}
+            subtitle="Записи журнала аудита (доступные текущей роли)"
+          />
+          <Card
+            title="События календаря"
+            value={String(calendarCount)}
+            subtitle="Всего событий в персональном календаре"
+          />
+          <Card
+            title="Состояние системы"
+            value={systemHealth === "ok" ? "OK" : "DEGRADED"}
+            subtitle={`API: ${apiBaseUrl}`}
+          />
+        </div>
+        <div className="rounded-[10px] border border-border bg-white p-[14px]">
+          <p className="mb-2 mt-0 text-[13px] font-semibold text-text">Операционный срез</p>
+          <p className="mb-1.5 mt-0 text-xs text-muted">
+            Исполнение AI-действий:{" "}
+            {actionCount === 0
+              ? "данные отсутствуют"
+              : `${executedCount} из ${actionCount} в статусе EXECUTED`}
+            .
+          </p>
+          <p className="m-0 text-xs text-muted">
+            Аудит:{" "}
+            {auditCount > 0
+              ? "журнал доступен и пополняется"
+              : "нет доступных записей или ограничен доступ по роли"}
+            .
+          </p>
+        </div>
       </div>
     </div>
   );

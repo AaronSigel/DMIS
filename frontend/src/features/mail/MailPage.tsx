@@ -1,18 +1,11 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import {
-  apiDeleteMailAccount,
-  apiGetMailAccount,
-  apiGetMailMessage,
-  apiListMailMessages,
-  apiSearchMailMessages,
-  apiUpsertMailAccount,
-} from "../../apiClient";
-import { queryClient, queryKeys } from "../../shared/api/queryClient";
+import { apiGetMailMessage, apiListMailMessages, apiSearchMailMessages } from "../../apiClient";
+import { queryKeys } from "../../shared/api/queryClient";
 import { useUiStore } from "../../shared/store/uiStore";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
-import { AssistantLauncher } from "../../shared/ui/AssistantLauncher";
 import { timeAgo } from "../../shared/lib/timeAgo";
+import { PageHeader } from "../../shared/ui/PageHeader";
 import type { MailMessageSummary } from "../../entities/mail";
 
 type MailPageProps = {
@@ -50,10 +43,6 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [imapHost, setImapHost] = useState("");
-  const [imapPort, setImapPort] = useState("993");
-  const [imapUsername, setImapUsername] = useState("");
-  const [imapPassword, setImapPassword] = useState("");
   const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
 
   useEffect(() => {
@@ -67,12 +56,6 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     queryKey: queryKeys.mail.list,
     queryFn: () => apiListMailMessages(onSessionExpired, onTokenRefresh),
     enabled: !!token && !debouncedQuery,
-  });
-
-  const accountQuery = useQuery({
-    queryKey: queryKeys.mail.account,
-    queryFn: () => apiGetMailAccount(onSessionExpired, onTokenRefresh),
-    enabled: !!token,
   });
 
   const searchQuery = useQuery({
@@ -114,243 +97,128 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
   const detailError = formatErrorMessage(detailQuery.error, "Не удалось загрузить письмо");
   const detail = detailQuery.data;
 
-  const needsMailConnect =
-    listError === "MAIL_ACCOUNT_NOT_CONFIGURED" || accountQuery.data?.connected === false;
-
-  useEffect(() => {
-    const account = accountQuery.data;
-    if (!account) return;
-    setImapHost(account.imapHost ?? "");
-    setImapPort(String(account.imapPort ?? 993));
-    setImapUsername(account.imapUsername ?? "");
-  }, [accountQuery.data]);
-
-  const upsertMutation = useMutation({
-    mutationFn: async () => {
-      const portNumber = Number(imapPort);
-      return apiUpsertMailAccount(
-        {
-          imapHost: imapHost.trim() || undefined,
-          imapPort: Number.isFinite(portNumber) ? portNumber : undefined,
-          imapUsername: imapUsername.trim() || undefined,
-          password: imapPassword,
-        },
-        onSessionExpired,
-        onTokenRefresh,
-      );
-    },
-    onSuccess: async () => {
-      setImapPassword("");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.mail.account });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.mail.list });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.mail.search(debouncedQuery) });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async () => apiDeleteMailAccount(onSessionExpired, onTokenRefresh),
-    onSuccess: async () => {
-      setSelectedId(null);
-      setImapPassword("");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.mail.account });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.mail.list });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.mail.search(debouncedQuery) });
-    },
-  });
-
   function handleReplyWithAi() {
     if (!detail) return;
     openAiWithQuery(buildReplyPrefill(detail));
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4 md:flex-row">
-      <section
-        aria-label="Список писем"
-        className="flex w-full min-h-0 flex-col gap-2 rounded-lg border border-border bg-white p-3 md:w-[360px] md:shrink-0"
-      >
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="m-0 text-base font-semibold text-text">Почта</h2>
-            <AssistantLauncher />
-          </div>
-          {!listLoading && (
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        title="Почта"
+        actions={
+          !listLoading && (
             <span className="text-xs text-muted">
               {isSearching ? `Найдено: ${messages.length}` : `Писем: ${messages.length}`}
             </span>
-          )}
-        </header>
-        <input
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Поиск по письмам…"
-          aria-label="Поиск писем"
-          className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
-        />
-        <div className="flex-1 overflow-y-auto" role="list" aria-label="Письма">
-          {needsMailConnect && (
-            <div className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3">
-              <p className="m-0 text-[13px] text-text">
-                Почта не подключена. Укажите IMAP учётку (лучше апп-пароль), чтобы читать письма.
+          )
+        }
+      />
+      <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:flex-row">
+        <section
+          aria-label="Список писем"
+          className="flex w-full min-h-0 flex-col gap-2 rounded-lg border border-border bg-white p-3 md:w-[360px] md:shrink-0"
+        >
+          <input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Поиск по письмам…"
+            aria-label="Поиск писем"
+            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
+          />
+          <div className="flex-1 overflow-y-auto" role="list" aria-label="Письма">
+            {listLoading && <p className="m-0 px-1 py-2 text-[13px] text-muted">Загрузка писем…</p>}
+            {!listLoading && listError && (
+              <p className="m-0 px-1 py-2 text-[13px] text-danger">{listError}</p>
+            )}
+            {!listLoading && !listError && messages.length === 0 && (
+              <p className="m-0 px-1 py-2 text-[13px] text-muted">
+                {isSearching ? "Письма не найдены." : "Папка пуста."}
               </p>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">IMAP host</span>
-                <input
-                  value={imapHost}
-                  onChange={(e) => setImapHost(e.target.value)}
-                  placeholder="mail.example.com"
-                  className="w-full rounded-md border border-border bg-white px-3 py-2 text-[13px] outline-none"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">IMAP port</span>
-                <input
-                  value={imapPort}
-                  onChange={(e) => setImapPort(e.target.value)}
-                  placeholder="993"
-                  className="w-full rounded-md border border-border bg-white px-3 py-2 text-[13px] outline-none"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">Логин</span>
-                <input
-                  value={imapUsername}
-                  onChange={(e) => setImapUsername(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full rounded-md border border-border bg-white px-3 py-2 text-[13px] outline-none"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">Пароль / апп-пароль</span>
-                <input
-                  value={imapPassword}
-                  onChange={(e) => setImapPassword(e.target.value)}
-                  type="password"
-                  className="w-full rounded-md border border-border bg-white px-3 py-2 text-[13px] outline-none"
-                />
-              </label>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => deleteMutation.mutate()}
-                  disabled={deleteMutation.isPending}
-                  className="rounded-md border border-border bg-white px-3 py-2 text-xs font-semibold text-text"
-                >
-                  Отключить
-                </button>
-                <button
-                  type="button"
-                  onClick={() => upsertMutation.mutate()}
-                  disabled={upsertMutation.isPending || !imapPassword.trim()}
-                  className="rounded-md border-0 bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
-                >
-                  Сохранить
-                </button>
-              </div>
-              {(upsertMutation.error || deleteMutation.error) && (
-                <p className="m-0 text-[12px] text-danger">
-                  {formatErrorMessage(
-                    upsertMutation.error ?? deleteMutation.error,
-                    "Не удалось сохранить настройки",
-                  )}
-                </p>
-              )}
-            </div>
-          )}
+            )}
+            {!listLoading && !listError && messages.length > 0 && (
+              <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                {messages.map((message) => {
+                  const active = message.id === selectedId;
+                  return (
+                    <li key={message.id} role="listitem">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(message.id)}
+                        aria-pressed={active}
+                        className={`flex w-full flex-col items-start gap-1 rounded-md border border-transparent px-2 py-2 text-left text-[13px] ${
+                          active
+                            ? "border-primary bg-primary-soft text-text"
+                            : "bg-transparent text-text hover:bg-surface"
+                        }`}
+                      >
+                        <span className="flex w-full items-center justify-between gap-2">
+                          <span className="truncate font-medium">{message.from}</span>
+                          <span className="shrink-0 text-[11px] text-muted">
+                            {timeAgo(message.sentAtIso)}
+                          </span>
+                        </span>
+                        <span className="line-clamp-1 w-full break-words text-[13px] text-text">
+                          {message.subject}
+                        </span>
+                        <span className="line-clamp-2 w-full break-words text-[12px] text-muted">
+                          {message.preview}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
 
-          {!needsMailConnect && listLoading && (
-            <p className="m-0 px-1 py-2 text-[13px] text-muted">Загрузка писем…</p>
-          )}
-          {!needsMailConnect && !listLoading && listError && (
-            <p className="m-0 px-1 py-2 text-[13px] text-danger">{listError}</p>
-          )}
-          {!needsMailConnect && !listLoading && !listError && messages.length === 0 && (
-            <p className="m-0 px-1 py-2 text-[13px] text-muted">
-              {isSearching ? "Письма не найдены." : "Папка пуста."}
+        <section
+          aria-label="Просмотр письма"
+          className="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-border bg-white p-4"
+        >
+          {!selectedId && (
+            <p className="m-0 text-[13px] text-muted">
+              Выберите письмо слева, чтобы открыть его содержимое.
             </p>
           )}
-          {!needsMailConnect && !listLoading && !listError && messages.length > 0 && (
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-              {messages.map((message) => {
-                const active = message.id === selectedId;
-                return (
-                  <li key={message.id} role="listitem">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(message.id)}
-                      aria-pressed={active}
-                      className={`flex w-full flex-col items-start gap-1 rounded-md border border-transparent px-2 py-2 text-left text-[13px] ${
-                        active
-                          ? "border-primary bg-primary-soft text-text"
-                          : "bg-transparent text-text hover:bg-surface"
-                      }`}
-                    >
-                      <span className="flex w-full items-center justify-between gap-2">
-                        <span className="truncate font-medium">{message.from}</span>
-                        <span className="shrink-0 text-[11px] text-muted">
-                          {timeAgo(message.sentAtIso)}
-                        </span>
-                      </span>
-                      <span className="line-clamp-1 w-full break-words text-[13px] text-text">
-                        {message.subject}
-                      </span>
-                      <span className="line-clamp-2 w-full break-words text-[12px] text-muted">
-                        {message.preview}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+          {selectedId && detailQuery.isPending && (
+            <p className="m-0 text-[13px] text-muted">Загрузка письма…</p>
           )}
-        </div>
-      </section>
-
-      <section
-        aria-label="Просмотр письма"
-        className="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-border bg-white p-4"
-      >
-        {!selectedId && (
-          <p className="m-0 text-[13px] text-muted">
-            Выберите письмо слева, чтобы открыть его содержимое.
-          </p>
-        )}
-        {selectedId && detailQuery.isPending && (
-          <p className="m-0 text-[13px] text-muted">Загрузка письма…</p>
-        )}
-        {selectedId && !detailQuery.isPending && detailError && (
-          <p className="m-0 text-[13px] text-danger">{detailError}</p>
-        )}
-        {selectedId && !detailQuery.isPending && !detailError && detail && (
-          <article className="flex h-full min-h-0 flex-col gap-3">
-            <header className="flex flex-col gap-1">
-              <h3 className="m-0 text-lg font-semibold text-text">
-                {detail.subject || "(без темы)"}
-              </h3>
-              <p className="m-0 text-[12px] text-muted">
-                От: <span className="text-text">{detail.from}</span>
-              </p>
-              <p className="m-0 text-[12px] text-muted">
-                Кому: <span className="text-text">{detail.to}</span>
-              </p>
-              <p className="m-0 text-[11px] text-muted">{timeAgo(detail.sentAtIso)}</p>
-            </header>
-            <div className="flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text">
-              {detail.body || "(пустое тело письма)"}
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleReplyWithAi}
-                aria-label="Ответить на письмо через AI-ассистента"
-                className="rounded-md border-0 bg-primary px-3 py-2 text-xs font-semibold text-white"
-              >
-                Ответить через AI
-              </button>
-            </div>
-          </article>
-        )}
-      </section>
+          {selectedId && !detailQuery.isPending && detailError && (
+            <p className="m-0 text-[13px] text-danger">{detailError}</p>
+          )}
+          {selectedId && !detailQuery.isPending && !detailError && detail && (
+            <article className="flex h-full min-h-0 flex-col gap-3">
+              <header className="flex flex-col gap-1">
+                <h3 className="m-0 text-lg font-semibold text-text">
+                  {detail.subject || "(без темы)"}
+                </h3>
+                <p className="m-0 text-[12px] text-muted">
+                  От: <span className="text-text">{detail.from}</span>
+                </p>
+                <p className="m-0 text-[12px] text-muted">
+                  Кому: <span className="text-text">{detail.to}</span>
+                </p>
+                <p className="m-0 text-[11px] text-muted">{timeAgo(detail.sentAtIso)}</p>
+              </header>
+              <div className="flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text">
+                {detail.body || "(пустое тело письма)"}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleReplyWithAi}
+                  aria-label="Ответить на письмо через AI-ассистента"
+                  className="rounded-md border-0 bg-primary px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Ответить через AI
+                </button>
+              </div>
+            </article>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

@@ -9,8 +9,8 @@ import {
 import type { CalendarEvent, CalendarEventUpsertPayload } from "../../entities/calendar";
 import { queryKeys } from "../../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
-import { AssistantLauncher } from "../../shared/ui/AssistantLauncher";
 import { isoToLocalDateTimeInput, localDateTimeInputToIso } from "../../shared/lib/datetimeLocal";
+import { PageHeader } from "../../shared/ui/PageHeader";
 
 type CalendarPageProps = {
   token: string;
@@ -222,152 +222,151 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
   const formPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4 md:flex-row">
-      <section className="flex w-full min-h-0 flex-col rounded-lg border border-border bg-white p-3 md:w-[390px] md:shrink-0">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="m-0 text-base font-semibold text-text">Календарь</h2>
-          <AssistantLauncher />
-        </div>
-        <form className="grid gap-2" onSubmit={handleSubmit}>
-          <input
-            value={form.title}
-            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-            placeholder="Название события"
-            aria-label="Название события"
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
-          />
-          <input
-            value={form.attendees}
-            onChange={(e) => setForm((prev) => ({ ...prev, attendees: e.target.value }))}
-            placeholder="Участники через запятую"
-            aria-label="Участники события"
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
-          />
-          <label className="grid gap-1 text-xs text-muted">
-            Начало
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader title="Календарь" />
+      <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:flex-row">
+        <section className="flex w-full min-h-0 flex-col rounded-lg border border-border bg-white p-3 md:w-[390px] md:shrink-0">
+          <form className="grid gap-2" onSubmit={handleSubmit}>
             <input
-              type="datetime-local"
-              value={form.startLocal}
-              onChange={(e) => setForm((prev) => ({ ...prev, startLocal: e.target.value }))}
-              aria-label="Начало события"
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
+              value={form.title}
+              onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Название события"
+              aria-label="Название события"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
             />
-          </label>
-          <label className="grid gap-1 text-xs text-muted">
-            Окончание
             <input
-              type="datetime-local"
-              value={form.endLocal}
-              onChange={(e) => setForm((prev) => ({ ...prev, endLocal: e.target.value }))}
-              aria-label="Окончание события"
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
+              value={form.attendees}
+              onChange={(e) => setForm((prev) => ({ ...prev, attendees: e.target.value }))}
+              placeholder="Участники через запятую"
+              aria-label="Участники события"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
             />
-          </label>
-          {formError && <p className="m-0 text-[12px] text-danger">{formError}</p>}
-          <div className="mt-1 flex items-center gap-2">
-            <button
-              type="submit"
-              disabled={formPending}
-              className="rounded-md border-0 bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
-            >
-              {editingId ? "Сохранить" : "Создать"}
-            </button>
-            {editingId && (
+            <label className="grid gap-1 text-xs text-muted">
+              Начало
+              <input
+                type="datetime-local"
+                value={form.startLocal}
+                onChange={(e) => setForm((prev) => ({ ...prev, startLocal: e.target.value }))}
+                aria-label="Начало события"
+                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
+              />
+            </label>
+            <label className="grid gap-1 text-xs text-muted">
+              Окончание
+              <input
+                type="datetime-local"
+                value={form.endLocal}
+                onChange={(e) => setForm((prev) => ({ ...prev, endLocal: e.target.value }))}
+                aria-label="Окончание события"
+                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
+              />
+            </label>
+            {formError && <p className="m-0 text-[12px] text-danger">{formError}</p>}
+            <div className="mt-1 flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={formPending}
+                className="rounded-md border-0 bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                {editingId ? "Сохранить" : "Создать"}
+              </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={cancelEditing}
+                  className="rounded-md border border-border bg-surface px-3 py-2 text-xs text-text"
+                >
+                  Отмена
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+
+        <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-white p-3">
+          <header className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={cancelEditing}
-                className="rounded-md border border-border bg-surface px-3 py-2 text-xs text-text"
+                onClick={() => setViewMode("day")}
+                className={`rounded-md px-3 py-1.5 text-xs ${
+                  viewMode === "day" ? "bg-primary text-white" : "bg-surface text-text"
+                }`}
               >
-                Отмена
+                День
               </button>
-            )}
-          </div>
-        </form>
-      </section>
+              <button
+                type="button"
+                onClick={() => setViewMode("week")}
+                className={`rounded-md px-3 py-1.5 text-xs ${
+                  viewMode === "week" ? "bg-primary text-white" : "bg-surface text-text"
+                }`}
+              >
+                Неделя
+              </button>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-muted">
+              Базовая дата
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                aria-label="Дата просмотра календаря"
+                className="rounded-md border border-border bg-surface px-2 py-1.5 text-[12px] text-text outline-none"
+              />
+            </label>
+          </header>
 
-      <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-white p-3">
-        <header className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setViewMode("day")}
-              className={`rounded-md px-3 py-1.5 text-xs ${
-                viewMode === "day" ? "bg-primary text-white" : "bg-surface text-text"
-              }`}
+          {eventsQuery.isPending && (
+            <p className="m-0 text-[13px] text-muted">Загрузка событий календаря…</p>
+          )}
+          {!eventsQuery.isPending && listError && (
+            <p className="m-0 text-[13px] text-danger">{listError}</p>
+          )}
+          {!eventsQuery.isPending && !listError && visibleEvents.length === 0 && (
+            <p className="m-0 text-[13px] text-muted">События для выбранного периода не найдены.</p>
+          )}
+          {!eventsQuery.isPending && !listError && visibleEvents.length > 0 && (
+            <ul
+              className="m-0 flex list-none flex-col gap-2 overflow-y-auto p-0"
+              aria-label="Список событий"
             >
-              День
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("week")}
-              className={`rounded-md px-3 py-1.5 text-xs ${
-                viewMode === "week" ? "bg-primary text-white" : "bg-surface text-text"
-              }`}
-            >
-              Неделя
-            </button>
-          </div>
-          <label className="flex items-center gap-2 text-xs text-muted">
-            Базовая дата
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              aria-label="Дата просмотра календаря"
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-[12px] text-text outline-none"
-            />
-          </label>
-        </header>
-
-        {eventsQuery.isPending && (
-          <p className="m-0 text-[13px] text-muted">Загрузка событий календаря…</p>
-        )}
-        {!eventsQuery.isPending && listError && (
-          <p className="m-0 text-[13px] text-danger">{listError}</p>
-        )}
-        {!eventsQuery.isPending && !listError && visibleEvents.length === 0 && (
-          <p className="m-0 text-[13px] text-muted">События для выбранного периода не найдены.</p>
-        )}
-        {!eventsQuery.isPending && !listError && visibleEvents.length > 0 && (
-          <ul
-            className="m-0 flex list-none flex-col gap-2 overflow-y-auto p-0"
-            aria-label="Список событий"
-          >
-            {visibleEvents.map((event) => (
-              <li key={event.id} className="rounded-md border border-border bg-surface px-3 py-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="m-0 mb-1 text-[13px] font-semibold text-text">{event.title}</p>
-                    <p className="m-0 text-[12px] text-muted">
-                      {formatDateTime(event.startIso)} - {formatDateTime(event.endIso)}
-                    </p>
-                    <p className="m-0 mt-1 break-words text-[12px] text-muted">
-                      Участники: {event.attendees.join(", ")}
-                    </p>
+              {visibleEvents.map((event) => (
+                <li key={event.id} className="rounded-md border border-border bg-surface px-3 py-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="m-0 mb-1 text-[13px] font-semibold text-text">{event.title}</p>
+                      <p className="m-0 text-[12px] text-muted">
+                        {formatDateTime(event.startIso)} - {formatDateTime(event.endIso)}
+                      </p>
+                      <p className="m-0 mt-1 break-words text-[12px] text-muted">
+                        Участники: {event.attendees.join(", ")}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => startEditing(event)}
+                        className="rounded-md border border-border bg-white px-2 py-1 text-xs text-text"
+                      >
+                        Изменить
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(event.id)}
+                        disabled={deleteMutation.isPending}
+                        className="rounded-md border border-danger/40 bg-danger-soft px-2 py-1 text-xs text-danger disabled:opacity-60"
+                      >
+                        Удалить
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => startEditing(event)}
-                      className="rounded-md border border-border bg-white px-2 py-1 text-xs text-text"
-                    >
-                      Изменить
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(event.id)}
-                      disabled={deleteMutation.isPending}
-                      className="rounded-md border border-danger/40 bg-danger-soft px-2 py-1 text-xs text-danger disabled:opacity-60"
-                    >
-                      Удалить
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

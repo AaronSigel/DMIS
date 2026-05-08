@@ -193,6 +193,8 @@ describe("mail page", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /^почта$/i })).toBeInTheDocument(),
     );
+    expect(screen.queryByText(/Почта пока не готова к чтению/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/IMAP host/i)).not.toBeInTheDocument();
 
     const subject = await screen.findByText(/Hello from Alice/);
     await userEvent.click(subject);

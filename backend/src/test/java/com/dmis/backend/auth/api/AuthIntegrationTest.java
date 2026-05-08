@@ -83,6 +83,17 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void loginAutoSyncsMailAccount() throws Exception {
+        String token = loginAndGetToken("admin@dmis.local");
+
+        mockMvc.perform(get("/api/mail/account")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.connected").value(true))
+                .andExpect(jsonPath("$.imapUsername").value("admin@dmis.local"));
+    }
+
+    @Test
     void corsPreflightForLoginAllowsCredentials() throws Exception {
         mockMvc.perform(options("/api/auth/login")
                         .header(HttpHeaders.ORIGIN, "http://localhost:5173")

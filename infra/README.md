@@ -87,7 +87,6 @@ docker compose down -v
    ```
 5. Проверить lightweight mail/calendar:
    - Mailpit UI: `http://<vm-host>:8025`
-   - GreenMail IMAPS: `<vm-host>:3993`
    - Radicale: `http://<vm-host>:5232`
 6. Проверить observability endpoints:
    - Prometheus: `http://<vm-host>:9090`
@@ -108,7 +107,7 @@ docker compose down -v
 2. Логи зависимостей backend:
    ```bash
    cd infra
-  docker compose logs --tail=200 postgres minio ai-service embeddings-service clamav mailpit greenmail radicale
+  docker compose logs --tail=200 postgres minio ai-service embeddings-service clamav mailpit radicale
    ```
 3. Перезапуск проблемного сервиса:
    ```bash

@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { apiListDocuments } from "../apiClient";
 import { queryKeys } from "../shared/api/queryClient";
 import { useUiStore } from "../shared/store/uiStore";
+import { AppShell } from "../shared/layout/AppShell";
 import { AiPanel } from "../features/assistant/AiPanel";
 import { DocTable } from "../features/documents/DocTable";
 import { MailPage } from "../features/mail/MailPage";
@@ -220,42 +221,15 @@ export function WorkspacePage({
   const location = useLocation();
   const [navSearchQuery, setNavSearchQuery] = useState("");
   const [uploadTrigger, setUploadTrigger] = useState(0);
-  const [sidebarWidth, setSidebarWidth] = useState(220);
-  const [aiPanelWidth, setAiPanelWidth] = useState(288);
-  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 980);
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const mobileAiOpen = useUiStore((state) => state.mobileAiOpen);
   const desktopAiOpen = useUiStore((state) => state.desktopAiOpen);
-  const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
   const closeMobileAi = useUiStore((state) => state.closeMobileAi);
   const closeDesktopAi = useUiStore((state) => state.closeDesktopAi);
-  const resizeMode = useUiStore((state) => state.resizeMode);
-  const stopResize = useUiStore((state) => state.stopResize);
-  const startResize = useUiStore((state) => state.startResize);
   const navigate = useNavigate();
   const section = location.pathname.split("/")[1] || "dashboard";
 
   useEffect(() => {
-    const onResize = () => {
-      setIsNarrow(window.innerWidth < 980);
-      setViewportWidth(window.innerWidth);
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    if (!isNarrow) {
-      setMobileSidebarOpen(false);
-      closeMobileAi();
-      return;
-    }
-    closeDesktopAi();
-  }, [closeDesktopAi, closeMobileAi, isNarrow]);
-
-  useEffect(() => {
-    if (!isNarrow) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || !mobileSidebarOpen) return;
       e.preventDefault();
@@ -263,10 +237,10 @@ export function WorkspacePage({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isNarrow, mobileSidebarOpen]);
+  }, [mobileSidebarOpen]);
 
   useEffect(() => {
-    if (isNarrow || !desktopAiOpen) return;
+    if (!desktopAiOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
@@ -274,34 +248,7 @@ export function WorkspacePage({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeDesktopAi, desktopAiOpen, isNarrow]);
-
-  useEffect(() => {
-    if (isNarrow) return;
-    const onMouseMove = (event: MouseEvent) => {
-      if (!resizeMode) return;
-      if (resizeMode === "sidebar") {
-        const nextWidth = Math.min(Math.max(event.clientX, 180), 420);
-        setSidebarWidth(nextWidth);
-        return;
-      }
-      const nextWidth = Math.min(Math.max(window.innerWidth - event.clientX, 240), 560);
-      setAiPanelWidth(nextWidth);
-    };
-
-    const onMouseUp = () => {
-      stopResize();
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, [isNarrow, resizeMode, stopResize]);
+  }, [closeDesktopAi, desktopAiOpen]);
 
   const documentsCountQuery = useQuery({
     queryKey: queryKeys.documents.count,
@@ -454,177 +401,119 @@ export function WorkspacePage({
     }
   }
 
-  return (
-    <div className="flex h-screen overflow-hidden bg-surface text-text">
-      <Sidebar
-        user={user}
-        docCount={docCount}
-        width={isNarrow ? 220 : sidebarWidth}
-        navSearchQuery={navSearchQuery}
-        onNavSearchChange={setNavSearchQuery}
-        onNavSearchEnter={handleNavSearchEnter}
-        navResults={navResults}
-        onNewDoc={handleNewDoc}
-        section={section}
-        onSection={handleSection}
-        onLogout={onSessionExpired}
-        mobile={isNarrow}
-        mobileOpen={mobileSidebarOpen}
-        onCloseMobile={() => setMobileSidebarOpen(false)}
-      />
-      {isNarrow && mobileSidebarOpen && (
-        <div
-          aria-hidden
-          onClick={() => setMobileSidebarOpen(false)}
-          className="fixed inset-0 z-[34] bg-black/20"
-        />
-      )}
-      {isNarrow && !mobileSidebarOpen && (
-        <button
-          type="button"
-          onClick={() => setMobileSidebarOpen(true)}
-          className="fixed left-2.5 top-2.5 z-[32] rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
-        >
-          Меню
-        </button>
-      )}
-      {isNarrow && !mobileAiOpen && (
-        <button
-          type="button"
-          onClick={() => openAiWithQuery()}
-          className="fixed right-2.5 top-2.5 z-[32] rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
-        >
-          Ассистент
-        </button>
-      )}
-      {!isNarrow && (
-        <div
-          onMouseDown={() => {
-            startResize("sidebar");
-            document.body.style.cursor = "col-resize";
-            document.body.style.userSelect = "none";
-          }}
-          className="w-[6px] shrink-0 cursor-col-resize border-x border-border bg-transparent"
-          title="Изменить ширину левой панели"
-        />
-      )}
-      <div
-        className={`box-border flex min-w-0 flex-1 flex-col overflow-hidden ${isNarrow ? "pt-[52px]" : ""}`}
-      >
-        <Routes>
-          <Route
-            path="/dashboard"
-            element={
-              <DashboardPage
-                token={token}
-                onSessionExpired={onSessionExpired}
-                onTokenRefresh={onTokenRefresh}
-              />
-            }
-          />
-          <Route
-            path="/documents"
-            element={
-              <DocTable
-                token={token}
-                user={user}
-                onSessionExpired={onSessionExpired}
-                onTokenRefresh={onTokenRefresh}
-                section="documents"
-                uploadTrigger={uploadTrigger}
-                searchQuery={navSearchQuery}
-              />
-            }
-          />
-          <Route
-            path="/mail"
-            element={
-              <MailPage
-                token={token}
-                onSessionExpired={onSessionExpired}
-                onTokenRefresh={onTokenRefresh}
-              />
-            }
-          />
-          <Route
-            path="/calendar"
-            element={
-              <CalendarPage
-                token={token}
-                onSessionExpired={onSessionExpired}
-                onTokenRefresh={onTokenRefresh}
-              />
-            }
-          />
-          <Route
-            path="/audit"
-            element={
-              <AuditPage
-                token={token}
-                user={user}
-                onSessionExpired={onSessionExpired}
-                onTokenRefresh={onTokenRefresh}
-              />
-            }
-          />
-          <Route path="/settings" element={<SettingsPage user={user} />} />
-          <Route
-            path="/documents/:documentId"
-            element={
-              <DocumentCardPage
-                token={token}
-                onSessionExpired={onSessionExpired}
-                onTokenRefresh={onTokenRefresh}
-              />
-            }
-          />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </div>
-      {!isNarrow && desktopAiOpen && (
-        <div className="flex h-screen">
-          <div
-            onMouseDown={() => {
-              startResize("ai");
-              document.body.style.cursor = "col-resize";
-              document.body.style.userSelect = "none";
-            }}
-            className="w-[6px] shrink-0 cursor-col-resize border-x border-border bg-transparent"
-            title="Изменить ширину AI-панели"
-          />
-          <AiPanel
+  const sidebar = (
+    <Sidebar
+      user={user}
+      docCount={docCount}
+      width={220}
+      navSearchQuery={navSearchQuery}
+      onNavSearchChange={setNavSearchQuery}
+      onNavSearchEnter={handleNavSearchEnter}
+      navResults={navResults}
+      onNewDoc={handleNewDoc}
+      section={section}
+      onSection={handleSection}
+      onLogout={onSessionExpired}
+      mobileOpen={mobileSidebarOpen}
+      onCloseMobile={() => setMobileSidebarOpen(false)}
+    />
+  );
+
+  const main = (
+    <Routes>
+      <Route
+        path="/dashboard"
+        element={
+          <DashboardPage
             token={token}
-            width={aiPanelWidth}
-            height="100%"
             onSessionExpired={onSessionExpired}
             onTokenRefresh={onTokenRefresh}
-            onClose={closeDesktopAi}
           />
-        </div>
-      )}
-      {isNarrow && mobileAiOpen && (
-        <div
-          role="presentation"
-          onClick={closeMobileAi}
-          className="fixed inset-0 z-[46] flex justify-end bg-black/20"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="h-full border-l border-border bg-surface"
-            style={{ width: viewportWidth, maxWidth: 520 }}
-          >
-            <AiPanel
-              token={token}
-              width={Math.min(viewportWidth, 520)}
-              height="100%"
-              onSessionExpired={onSessionExpired}
-              onTokenRefresh={onTokenRefresh}
-              onClose={closeMobileAi}
-            />
-          </div>
-        </div>
-      )}
-    </div>
+        }
+      />
+      <Route
+        path="/documents"
+        element={
+          <DocTable
+            token={token}
+            user={user}
+            onSessionExpired={onSessionExpired}
+            onTokenRefresh={onTokenRefresh}
+            section="documents"
+            uploadTrigger={uploadTrigger}
+            searchQuery={navSearchQuery}
+          />
+        }
+      />
+      <Route
+        path="/mail"
+        element={
+          <MailPage
+            token={token}
+            onSessionExpired={onSessionExpired}
+            onTokenRefresh={onTokenRefresh}
+          />
+        }
+      />
+      <Route
+        path="/calendar"
+        element={
+          <CalendarPage
+            token={token}
+            onSessionExpired={onSessionExpired}
+            onTokenRefresh={onTokenRefresh}
+          />
+        }
+      />
+      <Route
+        path="/audit"
+        element={
+          <AuditPage
+            token={token}
+            user={user}
+            onSessionExpired={onSessionExpired}
+            onTokenRefresh={onTokenRefresh}
+          />
+        }
+      />
+      <Route path="/settings" element={<SettingsPage user={user} />} />
+      <Route
+        path="/documents/:documentId"
+        element={
+          <DocumentCardPage
+            token={token}
+            onSessionExpired={onSessionExpired}
+            onTokenRefresh={onTokenRefresh}
+          />
+        }
+      />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+
+  const assistant = (
+    <AiPanel
+      token={token}
+      width={320}
+      height="100%"
+      onSessionExpired={onSessionExpired}
+      onTokenRefresh={onTokenRefresh}
+      onClose={mobileAiOpen ? closeMobileAi : closeDesktopAi}
+    />
+  );
+
+  return (
+    <AppShell
+      sidebar={sidebar}
+      main={main}
+      assistant={assistant}
+      assistantOpen={desktopAiOpen}
+      mobileSidebarOpen={mobileSidebarOpen}
+      mobileAssistantOpen={mobileAiOpen}
+      onOpenSidebar={() => setMobileSidebarOpen(true)}
+      onCloseSidebar={() => setMobileSidebarOpen(false)}
+      onCloseAssistant={closeMobileAi}
+    />
   );
 }
