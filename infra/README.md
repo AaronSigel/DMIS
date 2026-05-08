@@ -1,6 +1,6 @@
-# DMIS Stage Smoke Runbook (MVP)
+# DMIS Lightweight Runbook (MVP)
 
-Короткий runbook для smoke-проверки stage-like окружения (одна VM) через `docker compose`.
+Короткий runbook для smoke-проверки lightweight окружения через `docker compose`.
 
 ## 1) Подготовка окружения
 
@@ -29,11 +29,32 @@ cd infra
 docker compose up -d --build
 ```
 
+Единая команда для полного стека (main + lightweight mail/calendar):
+
+```bash
+cd infra
+./scripts/stack.sh up -d --build
+```
+
 Остановка:
 
 ```bash
 cd infra
 docker compose down
+```
+
+Остановка полного стека через единый скрипт:
+
+```bash
+cd infra
+./scripts/stack.sh down
+```
+
+Проверка merged-конфига полного стека:
+
+```bash
+cd infra
+./scripts/stack.sh config
 ```
 
 Полный сброс данных (только при необходимости):
@@ -64,10 +85,14 @@ docker compose down -v
    curl -fsS "http://<vm-host>:8001/health"   # embeddings-service
    curl -fsS "http://<vm-host>:8000/health"   # stt-service
    ```
-5. Проверить observability endpoints:
+5. Проверить lightweight mail/calendar:
+   - Mailpit UI: `http://<vm-host>:8025`
+   - GreenMail IMAPS: `<vm-host>:3993`
+   - Radicale: `http://<vm-host>:5232`
+6. Проверить observability endpoints:
    - Prometheus: `http://<vm-host>:9090`
    - Grafana: `http://<vm-host>:3000`
-6. Проверить, что backend в `healthy`:
+7. Проверить, что backend в `healthy`:
    ```bash
    cd infra
    docker compose ps backend
@@ -83,7 +108,7 @@ docker compose down -v
 2. Логи зависимостей backend:
    ```bash
    cd infra
-   docker compose logs --tail=200 postgres minio ai-service embeddings-service clamav
+  docker compose logs --tail=200 postgres minio ai-service embeddings-service clamav mailpit greenmail radicale
    ```
 3. Перезапуск проблемного сервиса:
    ```bash

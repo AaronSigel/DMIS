@@ -12,6 +12,8 @@ public interface AssistantPort {
 
     Optional<AssistantDtos.ThreadView> findThreadById(String threadId);
 
+    void deleteThread(String threadId);
+
     AssistantDtos.MessageView saveMessage(AssistantDtos.MessageView message);
 
     List<AssistantDtos.MessageView> findMessagesByThreadId(String threadId);

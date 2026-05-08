@@ -20,6 +20,7 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-http://ai-service:8002}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,prometheus}
       MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: ${MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS:-never}
+      # SMTP (Mailpit) для lightweight local-стека.
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
@@ -30,6 +31,16 @@ services:
       SMTP_READ_TIMEOUT_MS: ${SMTP_READ_TIMEOUT_MS:-10000}
       SMTP_WRITE_TIMEOUT_MS: ${SMTP_WRITE_TIMEOUT_MS:-10000}
       MAIL_FROM: ${MAIL_FROM:-no-reply@dmis.local}
+      # IMAP (GreenMail) — используется backend для чтения писем.
+      IMAP_HOST: ${IMAP_HOST:-greenmail}
+      IMAP_PORT: ${IMAP_PORT:-3993}
+      # CalDAV (Radicale) — используется backend для создания событий и free/busy.
+      CALDAV_BASE_URL: ${CALDAV_BASE_URL:-http://radicale:5232}
+      CALDAV_USERNAME: ${CALDAV_USERNAME:-}
+      CALDAV_PASSWORD: ${CALDAV_PASSWORD:-}
+      CALDAV_CALENDAR_PATH: ${CALDAV_CALENDAR_PATH:-/}
+      # Шифрование секретов интеграций (например, IMAP пароль пользователя)
+      INTEGRATIONS_CRYPTO_KEY: ${INTEGRATIONS_CRYPTO_KEY:-}
       # В compose по умолчанию включаем антивирусную проверку загрузок.
       DOCUMENT_SCAN_ENABLED: ${DOCUMENT_SCAN_ENABLED:-true}
       DOCUMENT_SCAN_CLAMAV_HOST: ${DOCUMENT_SCAN_CLAMAV_HOST:-clamav}
@@ -46,6 +57,10 @@ services:
         condition: service_healthy
       clamav:
         condition: service_healthy
+      greenmail:
+        condition: service_started
+      radicale:
+        condition: service_started
     ports:
       - "8080:8080"
     healthcheck:
@@ -140,6 +155,22 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+
+  greenmail:
+    image: greenmail/standalone:2.1.3
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.imaps
+    ports:
+      - "3993:3993"
+
+  radicale:
+    image: tomsquest/docker-radicale:3.3.1.0
+    environment:
+      RADICALE_AUTH_TYPE: none
+      RADICALE_SERVER_HOSTS: 0.0.0.0:5232
+    ports:
+      - "5232:5232"
 
   postgres:
     image: pgvector/pgvector:pg16

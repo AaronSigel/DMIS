@@ -61,6 +61,11 @@ public class AssistantPersistenceAdapter implements AssistantPort {
     }
 
     @Override
+    public void deleteThread(String threadId) {
+        threadRepository.deleteById(threadId);
+    }
+
+    @Override
     public AssistantDtos.MessageView saveMessage(AssistantDtos.MessageView message) {
         AssistantMessageEntity saved = messageRepository.save(new AssistantMessageEntity(
                 message.id(),

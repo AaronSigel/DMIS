@@ -19,6 +19,7 @@ export const queryKeys = {
     list: ["mail", "list"] as const,
     detail: (id: string) => ["mail", "detail", id] as const,
     search: (query: string) => ["mail", "search", query] as const,
+    account: ["mail", "account"] as const,
   },
   calendar: {
     list: ["calendar", "list"] as const,

@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { DocumentPage, DocumentView } from "./entities/document";
 import type { CalendarEvent, CalendarEventUpsertPayload } from "./entities/calendar";
-import type { MailMessageDetail, MailMessageSearch, MailMessageSummary } from "./entities/mail";
+import type {
+  MailAccount,
+  MailMessageDetail,
+  MailMessageSearch,
+  MailMessageSummary,
+} from "./entities/mail";
 import type { AuditRecord } from "./entities/audit";
 import {
   AssistantThreadDetailViewSchema,
@@ -18,6 +23,7 @@ import { CalendarEventListSchema, CalendarEventSchema } from "./shared/api/schem
 import {
   MailMessageDetailSchema,
   MailMessageListSchema,
+  MailAccountSchema,
   MailMessageSearchSchema,
 } from "./shared/api/schemas/mail";
 import { AuditRecordListSchema } from "./shared/api/schemas/audit";
@@ -262,6 +268,25 @@ export async function apiCreateAssistantThread(
   return parseAuthenticatedSchema(response, AssistantThreadViewSchema, onUnauthorized);
 }
 
+export async function apiDeleteAssistantThread(
+  threadId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/assistant/threads/${threadId}`,
+    { method: "DELETE" },
+    onNewToken,
+  );
+  if (response.status === 401 || response.status === 403) {
+    onUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+}
+
 export async function apiSendAssistantMessage(
   threadId: string,
   payload: {
@@ -283,6 +308,50 @@ export async function apiSendAssistantMessage(
     onNewToken,
   );
   await parseAuthenticatedJson<unknown>(response, onUnauthorized);
+}
+
+/**
+ * Ошибка парсинга intent/entities для action-flow ассистента.
+ * Используется для безопасного fallback в обычный RAG-ответ.
+ */
+export class AssistantActionParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AssistantActionParseError";
+  }
+}
+
+/**
+ * Пытается распознать пользовательскую команду как AI-действие.
+ * Для 400/422 возвращает специализированную ошибку, чтобы UI мог
+ * перейти в fallback-сценарий RAG без показа ошибки пользователю.
+ */
+export async function apiParseAssistantAction(
+  text: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<ActionView> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/assistant/actions/parse`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    },
+    onNewToken,
+  );
+  if (response.status === 401 || response.status === 403) {
+    onUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (response.status === 400 || response.status === 422) {
+    throw new AssistantActionParseError(await readErrorMessage(response));
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  const payload = await parseAuthenticatedJson<unknown>(response, onUnauthorized);
+  return ActionViewSchema.parse(payload);
 }
 
 export type AssistantStreamPayload = {
@@ -832,4 +901,52 @@ export async function apiSearchMailMessages(
     onNewToken,
   );
   return parseAuthenticatedSchema(response, MailMessageSearchSchema, onUnauthorized);
+}
+
+export async function apiGetMailAccount(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailAccount> {
+  const response = await fetchWithAuth(`${apiBaseUrl}/mail/account`, { method: "GET" }, onNewToken);
+  return parseAuthenticatedSchema(response, MailAccountSchema, onUnauthorized);
+}
+
+export async function apiUpsertMailAccount(
+  payload: {
+    imapHost?: string;
+    imapPort?: number;
+    imapUsername?: string;
+    password: string;
+  },
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailAccount> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/account`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailAccountSchema, onUnauthorized);
+}
+
+export async function apiDeleteMailAccount(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/account`,
+    { method: "DELETE" },
+    onNewToken,
+  );
+  if (response.status === 401 || response.status === 403) {
+    onUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
 }

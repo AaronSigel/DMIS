@@ -70,4 +70,13 @@ public final class IntegrationDtos {
 
     public record MailMessageSearchView(String query, List<MailMessageSummaryView> messages) {
     }
+
+    /** Настройки IMAP-учётки пользователя (без раскрытия пароля). */
+    public record MailAccountView(
+            boolean connected,
+            String imapHost,
+            int imapPort,
+            String imapUsername
+    ) {
+    }
 }

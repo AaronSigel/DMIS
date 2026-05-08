@@ -29,6 +29,15 @@ export const MailMessageSearchSchema = z.object({
   messages: z.array(MailMessageSummarySchema),
 });
 
+/** Статус подключения IMAP (backend `MailAccountView`). */
+export const MailAccountSchema = z.object({
+  connected: z.boolean(),
+  imapHost: z.string(),
+  imapPort: z.number(),
+  imapUsername: z.string(),
+});
+
 export type MailMessageSummaryParsed = z.infer<typeof MailMessageSummarySchema>;
 export type MailMessageDetailParsed = z.infer<typeof MailMessageDetailSchema>;
 export type MailMessageSearchParsed = z.infer<typeof MailMessageSearchSchema>;
+export type MailAccountParsed = z.infer<typeof MailAccountSchema>;

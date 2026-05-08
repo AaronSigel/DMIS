@@ -27,3 +27,10 @@ export type MailMessageSearch = {
   query: string;
   messages: MailMessageSummary[];
 };
+
+export type MailAccount = {
+  connected: boolean;
+  imapHost: string;
+  imapPort: number;
+  imapUsername: string;
+};

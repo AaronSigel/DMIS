@@ -9,6 +9,7 @@ import {
 import type { CalendarEvent, CalendarEventUpsertPayload } from "../../entities/calendar";
 import { queryKeys } from "../../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
+import { AssistantLauncher } from "../../shared/ui/AssistantLauncher";
 import { isoToLocalDateTimeInput, localDateTimeInputToIso } from "../../shared/lib/datetimeLocal";
 
 type CalendarPageProps = {
@@ -223,7 +224,10 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4 md:flex-row">
       <section className="flex w-full min-h-0 flex-col rounded-lg border border-border bg-white p-3 md:w-[390px] md:shrink-0">
-        <h2 className="m-0 mb-3 text-base font-semibold text-text">Календарь</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="m-0 text-base font-semibold text-text">Календарь</h2>
+          <AssistantLauncher />
+        </div>
         <form className="grid gap-2" onSubmit={handleSubmit}>
           <input
             value={form.title}

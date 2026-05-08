@@ -8,6 +8,7 @@ import {
 } from "../apiClient";
 import { queryKeys } from "../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
+import { AssistantLauncher } from "../shared/ui/AssistantLauncher";
 
 type AiAction = { id: string; intent: string; status: "DRAFT" | "CONFIRMED" | "EXECUTED" };
 
@@ -74,7 +75,10 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
 
   return (
     <div className="p-6">
-      <h2 className="mb-[14px] mt-0 text-text">Дашборд</h2>
+      <div className="mb-[14px] mt-0 flex flex-wrap items-center gap-2">
+        <h2 className="m-0 text-text">Дашборд</h2>
+        <AssistantLauncher />
+      </div>
       {error && <p className="mb-3 mt-0 text-danger">{error}</p>}
       <div className="mb-2.5 grid grid-cols-2 gap-2.5">
         <Card title="Документы" value={String(docCount)} subtitle="Всего документов в системе" />

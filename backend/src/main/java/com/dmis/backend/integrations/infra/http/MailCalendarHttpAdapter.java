@@ -2,7 +2,6 @@ package com.dmis.backend.integrations.infra.http;
 
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.integrations.application.port.MailCalendarPort;
-import com.dmis.backend.integrations.application.port.MailReadPort;
 import com.dmis.backend.integrations.infra.persistence.MailCalendarPersistenceAdapter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,46 +30,51 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.Base64;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Primary
 @Component
-public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
+public class MailCalendarHttpAdapter implements MailCalendarPort {
+    private static final Pattern VEVENT_BLOCK = Pattern.compile("BEGIN:VEVENT\\R(?s)(.*?)\\REND:VEVENT");
+    private static final Pattern DTSTART_LINE = Pattern.compile("(?m)^DTSTART(?:;[^:]+)?:([^\\r\\n]+)$");
+    private static final Pattern DTEND_LINE = Pattern.compile("(?m)^DTEND(?:;[^:]+)?:([^\\r\\n]+)$");
+    private static final Pattern ATTENDEE_LINE = Pattern.compile("(?m)^ATTENDEE(?:;[^:]+)?:mailto:([^\\r\\n]+)$", Pattern.CASE_INSENSITIVE);
 
     private final MailCalendarPersistenceAdapter persistenceAdapter;
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final String mailFrom;
-    private final String sogoBaseUrl;
-    private final String sogoCaldavBaseUrl;
-    private final String sogoCaldavUsername;
-    private final String sogoCaldavPassword;
-    private final String sogoCaldavCalendarPath;
+    private final String caldavBaseUrl;
+    private final String caldavUsername;
+    private final String caldavPassword;
+    private final String caldavCalendarPath;
 
     public MailCalendarHttpAdapter(
             MailCalendarPersistenceAdapter persistenceAdapter,
             ObjectProvider<JavaMailSender> mailSenderProvider,
             @Value("${mail.from:}") String mailFrom,
-            @Value("${sogo.base-url:}") String sogoBaseUrl,
-            @Value("${sogo.caldav.base-url:}") String sogoCaldavBaseUrl,
-            @Value("${sogo.caldav.username:}") String sogoCaldavUsername,
-            @Value("${sogo.caldav.password:}") String sogoCaldavPassword,
-            @Value("${sogo.caldav.calendar-path:}") String sogoCaldavCalendarPath
+            @Value("${caldav.base-url:}") String caldavBaseUrl,
+            @Value("${caldav.username:}") String caldavUsername,
+            @Value("${caldav.password:}") String caldavPassword,
+            @Value("${caldav.calendar-path:}") String caldavCalendarPath
     ) {
         this.persistenceAdapter = persistenceAdapter;
         this.mailSenderProvider = mailSenderProvider;
         this.mailFrom = mailFrom;
-        this.sogoBaseUrl = sogoBaseUrl;
-        this.sogoCaldavBaseUrl = sogoCaldavBaseUrl;
-        this.sogoCaldavUsername = sogoCaldavUsername;
-        this.sogoCaldavPassword = sogoCaldavPassword;
-        this.sogoCaldavCalendarPath = sogoCaldavCalendarPath;
+        this.caldavBaseUrl = caldavBaseUrl;
+        this.caldavUsername = caldavUsername;
+        this.caldavPassword = caldavPassword;
+        this.caldavCalendarPath = caldavCalendarPath;
     }
 
     @Override
@@ -135,17 +139,14 @@ public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
         try {
             String eventUid = toEventUid(idempotencyKey, draft.id());
             String icsPayload = buildIcsPayload(draft, eventUid);
-            String authHeader = basicAuthHeader(sogoCaldavUsername, sogoCaldavPassword);
-            RestClient client = RestClient.builder().baseUrl(sogoCaldavBaseUrl).build();
-            client.put()
+            RestClient client = RestClient.builder().baseUrl(caldavBaseUrl).build();
+            RestClient.RequestBodySpec request = client.put()
                     .uri(buildEventPath(eventUid))
-                    .header("Authorization", authHeader)
                     .header("Idempotency-Key", idempotencyKey)
                     .header("If-None-Match", "*")
-                    .contentType(MediaType.parseMediaType("text/calendar; charset=UTF-8"))
-                    .body(icsPayload)
-                    .retrieve()
-                    .toBodilessEntity();
+                    .contentType(MediaType.parseMediaType("text/calendar; charset=UTF-8"));
+            applyOptionalAuth(request);
+            request.body(icsPayload).retrieve().toBodilessEntity();
         } catch (RestClientException | IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Calendar service request failed: " + ex.getMessage(), ex);
@@ -155,115 +156,28 @@ public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
 
     @Override
     public IntegrationDtos.FreeBusyView getFreeBusy(String attendee, String startIso, String endIso) {
-        if (sogoBaseUrl == null || sogoBaseUrl.isBlank()) {
+        if (isCaldavDisabled()) {
             return new IntegrationDtos.FreeBusyView(attendee, List.of());
         }
         try {
-            RestClient client = RestClient.builder().baseUrl(sogoBaseUrl).build();
-            FreeBusyResponse response = client.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/SOGo/dav/freebusy")
-                            .queryParam("attendee", attendee)
-                            .queryParam("start", startIso)
-                            .queryParam("end", endIso)
-                            .build())
-                    .retrieve()
-                    .body(FreeBusyResponse.class);
-            if (response == null || response.busySlots() == null) {
+            Instant start = Instant.parse(startIso);
+            Instant end = Instant.parse(endIso);
+            if (!end.isAfter(start)) {
                 return new IntegrationDtos.FreeBusyView(attendee, List.of());
             }
-            return new IntegrationDtos.FreeBusyView(attendee, response.busySlots());
-        } catch (RestClientException ex) {
+
+            RestClient client = RestClient.builder().baseUrl(caldavBaseUrl).build();
+            RestClient.RequestHeadersSpec<?> request = client.get().uri(buildCalendarCollectionPath());
+            applyOptionalAuth(request);
+            String calendarPayload = request.accept(MediaType.parseMediaType("text/calendar"))
+                    .retrieve()
+                    .body(String.class);
+            List<IntegrationDtos.BusySlot> busySlots = extractBusySlots(calendarPayload, attendee, start, end);
+            return new IntegrationDtos.FreeBusyView(attendee, busySlots);
+        } catch (RestClientException | IllegalArgumentException ex) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_GATEWAY,
                     "Free/busy service request failed: " + ex.getMessage(),
-                    ex
-            );
-        }
-    }
-
-    @Override
-    public List<IntegrationDtos.MailMessageSummaryView> listMailMessages(String mailbox) {
-        if (isBlank(sogoBaseUrl)) {
-            return List.of();
-        }
-        try {
-            RestClient client = RestClient.builder().baseUrl(sogoBaseUrl).build();
-            MailMessagesResponse response = client.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/api/mail/messages")
-                            .queryParam("mailbox", mailbox)
-                            .build())
-                    .retrieve()
-                    .body(MailMessagesResponse.class);
-            if (response == null || response.messages() == null) {
-                return List.of();
-            }
-            return response.messages().stream().map(this::toSummaryView).toList();
-        } catch (RestClientException ex) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "Mail list service request failed: " + ex.getMessage(),
-                    ex
-            );
-        }
-    }
-
-    @Override
-    public IntegrationDtos.MailMessageDetailView getMailMessage(String mailbox, String messageId) {
-        if (isBlank(sogoBaseUrl)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Mail message not found");
-        }
-        try {
-            RestClient client = RestClient.builder().baseUrl(sogoBaseUrl).build();
-            MailMessageResponse response = client.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/api/mail/messages/{id}")
-                            .queryParam("mailbox", mailbox)
-                            .build(messageId))
-                    .retrieve()
-                    .body(MailMessageResponse.class);
-            if (response == null || response.message() == null) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Mail message not found");
-            }
-            return toDetailView(response.message());
-        } catch (ResponseStatusException ex) {
-            throw ex;
-        } catch (RestClientException ex) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "Mail message service request failed: " + ex.getMessage(),
-                    ex
-            );
-        }
-    }
-
-    @Override
-    public IntegrationDtos.MailMessageSearchView searchMailMessages(
-            String mailbox,
-            IntegrationDtos.MailMessageSearchRequest request
-    ) {
-        if (isBlank(sogoBaseUrl)) {
-            return new IntegrationDtos.MailMessageSearchView(request.query(), List.of());
-        }
-        try {
-            RestClient client = RestClient.builder().baseUrl(sogoBaseUrl).build();
-            MailMessagesResponse response = client.post()
-                    .uri(uriBuilder -> uriBuilder.path("/api/mail/messages/search").build())
-                    .body(new MailSearchRequestBody(mailbox, request.query(), request.limit()))
-                    .retrieve()
-                    .body(MailMessagesResponse.class);
-            if (response == null || response.messages() == null) {
-                return new IntegrationDtos.MailMessageSearchView(request.query(), List.of());
-            }
-            List<IntegrationDtos.MailMessageSummaryView> mapped = response.messages().stream()
-                    .map(this::toSummaryView)
-                    .toList();
-            return new IntegrationDtos.MailMessageSearchView(request.query(), mapped);
-        } catch (RestClientException ex) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "Mail search service request failed: " + ex.getMessage(),
                     ex
             );
         }
@@ -282,10 +196,7 @@ public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
     }
 
     private boolean isCaldavDisabled() {
-        return isBlank(sogoCaldavBaseUrl)
-                || isBlank(sogoCaldavUsername)
-                || isBlank(sogoCaldavPassword)
-                || isBlank(sogoCaldavCalendarPath);
+        return isBlank(caldavBaseUrl) || isBlank(caldavCalendarPath);
     }
 
     private static boolean isBlank(String value) {
@@ -307,15 +218,109 @@ public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
         return "Basic " + encoded;
     }
 
-    private String buildEventPath(String eventUid) {
-        String basePath = sogoCaldavCalendarPath.trim();
+    private void applyOptionalAuth(RestClient.RequestHeadersSpec<?> spec) {
+        if (!isBlank(caldavUsername) && !isBlank(caldavPassword)) {
+            spec.header("Authorization", basicAuthHeader(caldavUsername, caldavPassword));
+        }
+    }
+
+    private String buildCalendarCollectionPath() {
+        String basePath = caldavCalendarPath.trim();
         if (!basePath.startsWith("/")) {
             basePath = "/" + basePath;
         }
         if (!basePath.endsWith("/")) {
             basePath = basePath + "/";
         }
-        return basePath + eventUid + ".ics";
+        return basePath;
+    }
+
+    private String buildEventPath(String eventUid) {
+        return buildCalendarCollectionPath() + eventUid + ".ics";
+    }
+
+    private static List<IntegrationDtos.BusySlot> extractBusySlots(
+            String calendarPayload,
+            String attendee,
+            Instant rangeStart,
+            Instant rangeEnd
+    ) {
+        if (isBlank(calendarPayload)) {
+            return List.of();
+        }
+        List<IntegrationDtos.BusySlot> busySlots = new ArrayList<>();
+        Matcher blockMatcher = VEVENT_BLOCK.matcher(calendarPayload);
+        while (blockMatcher.find()) {
+            String eventBlock = blockMatcher.group(1);
+            if (!matchesAttendee(eventBlock, attendee)) {
+                continue;
+            }
+            Instant eventStart = extractInstant(DTSTART_LINE, eventBlock);
+            if (eventStart == null) {
+                continue;
+            }
+            Instant eventEnd = extractInstant(DTEND_LINE, eventBlock);
+            if (eventEnd == null || !eventEnd.isAfter(eventStart)) {
+                eventEnd = eventStart.plus(Duration.ofHours(1));
+            }
+            if (!eventEnd.isAfter(rangeStart) || !eventStart.isBefore(rangeEnd)) {
+                continue;
+            }
+            Instant clippedStart = eventStart.isBefore(rangeStart) ? rangeStart : eventStart;
+            Instant clippedEnd = eventEnd.isAfter(rangeEnd) ? rangeEnd : eventEnd;
+            if (clippedEnd.isAfter(clippedStart)) {
+                busySlots.add(new IntegrationDtos.BusySlot(clippedStart.toString(), clippedEnd.toString()));
+            }
+        }
+        return busySlots;
+    }
+
+    private static boolean matchesAttendee(String eventBlock, String attendee) {
+        if (isBlank(attendee)) {
+            return true;
+        }
+        String normalizedAttendee = attendee.trim().toLowerCase();
+        Matcher attendeeMatcher = ATTENDEE_LINE.matcher(eventBlock);
+        boolean hasAttendees = false;
+        while (attendeeMatcher.find()) {
+            hasAttendees = true;
+            String value = attendeeMatcher.group(1);
+            if (value != null && value.trim().equalsIgnoreCase(normalizedAttendee)) {
+                return true;
+            }
+        }
+        if (!hasAttendees) {
+            return true;
+        }
+        return false;
+    }
+
+    private static Instant extractInstant(Pattern pattern, String eventBlock) {
+        Matcher matcher = pattern.matcher(eventBlock);
+        if (!matcher.find()) {
+            return null;
+        }
+        String value = matcher.group(1);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (!normalized.endsWith("Z")) {
+            normalized = normalized + "Z";
+        }
+        if (normalized.length() == 16 && normalized.charAt(8) == 'T') {
+            normalized = normalized.substring(0, 8) + "T" + normalized.substring(9, 15) + "Z";
+        }
+        try {
+            if (normalized.matches("^\\d{8}T\\d{6}Z$")) {
+                String iso = normalized.substring(0, 4) + "-" + normalized.substring(4, 6) + "-" + normalized.substring(6, 8)
+                        + "T" + normalized.substring(9, 11) + ":" + normalized.substring(11, 13) + ":" + normalized.substring(13, 15) + "Z";
+                return Instant.parse(iso);
+            }
+            return Instant.parse(normalized);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private static String buildIcsPayload(IntegrationDtos.CalendarDraftView draft, String eventUid) {
@@ -333,7 +338,7 @@ public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
         }
 
         Calendar calendar = new Calendar();
-        calendar.add(new ProdId("-//DMIS//CalDAV SOGo//RU"));
+        calendar.add(new ProdId("-//DMIS//CalDAV Adapter//RU"));
         calendar.add(new Version("2.0", "2.0"));
         calendar.add(new CalScale("GREGORIAN"));
         calendar.add(event);
@@ -351,48 +356,4 @@ public class MailCalendarHttpAdapter implements MailCalendarPort, MailReadPort {
                 .collect(Collectors.toList());
     }
 
-    private IntegrationDtos.MailMessageSummaryView toSummaryView(MailMessagePayload payload) {
-        return new IntegrationDtos.MailMessageSummaryView(
-                payload.id(),
-                payload.from(),
-                payload.to(),
-                payload.subject(),
-                payload.preview(),
-                payload.sentAtIso()
-        );
-    }
-
-    private IntegrationDtos.MailMessageDetailView toDetailView(MailMessagePayload payload) {
-        return new IntegrationDtos.MailMessageDetailView(
-                payload.id(),
-                payload.from(),
-                payload.to(),
-                payload.subject(),
-                payload.body(),
-                payload.sentAtIso()
-        );
-    }
-
-    private record FreeBusyResponse(List<IntegrationDtos.BusySlot> busySlots) {
-    }
-
-    private record MailSearchRequestBody(String mailbox, String query, int limit) {
-    }
-
-    private record MailMessagesResponse(List<MailMessagePayload> messages) {
-    }
-
-    private record MailMessageResponse(MailMessagePayload message) {
-    }
-
-    private record MailMessagePayload(
-            String id,
-            String from,
-            String to,
-            String subject,
-            String preview,
-            String body,
-            String sentAtIso
-    ) {
-    }
 }

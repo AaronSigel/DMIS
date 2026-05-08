@@ -226,8 +226,10 @@ export function WorkspacePage({
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const mobileAiOpen = useUiStore((state) => state.mobileAiOpen);
+  const desktopAiOpen = useUiStore((state) => state.desktopAiOpen);
   const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
   const closeMobileAi = useUiStore((state) => state.closeMobileAi);
+  const closeDesktopAi = useUiStore((state) => state.closeDesktopAi);
   const resizeMode = useUiStore((state) => state.resizeMode);
   const stopResize = useUiStore((state) => state.stopResize);
   const startResize = useUiStore((state) => state.startResize);
@@ -247,8 +249,10 @@ export function WorkspacePage({
     if (!isNarrow) {
       setMobileSidebarOpen(false);
       closeMobileAi();
+      return;
     }
-  }, [closeMobileAi, isNarrow]);
+    closeDesktopAi();
+  }, [closeDesktopAi, closeMobileAi, isNarrow]);
 
   useEffect(() => {
     if (!isNarrow) return;
@@ -260,6 +264,17 @@ export function WorkspacePage({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isNarrow, mobileSidebarOpen]);
+
+  useEffect(() => {
+    if (isNarrow || !desktopAiOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      closeDesktopAi();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closeDesktopAi, desktopAiOpen, isNarrow]);
 
   useEffect(() => {
     if (isNarrow) return;
@@ -482,7 +497,6 @@ export function WorkspacePage({
           Ассистент
         </button>
       )}
-
       {!isNarrow && (
         <div
           onMouseDown={() => {
@@ -568,24 +582,26 @@ export function WorkspacePage({
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </div>
-      {!isNarrow && (
-        <div
-          onMouseDown={() => {
-            startResize("ai");
-            document.body.style.cursor = "col-resize";
-            document.body.style.userSelect = "none";
-          }}
-          className="w-[6px] shrink-0 cursor-col-resize border-x border-border bg-transparent"
-          title="Изменить ширину AI-панели"
-        />
-      )}
-      {!isNarrow && (
-        <AiPanel
-          token={token}
-          width={aiPanelWidth}
-          onSessionExpired={onSessionExpired}
-          onTokenRefresh={onTokenRefresh}
-        />
+      {!isNarrow && desktopAiOpen && (
+        <div className="flex h-screen">
+          <div
+            onMouseDown={() => {
+              startResize("ai");
+              document.body.style.cursor = "col-resize";
+              document.body.style.userSelect = "none";
+            }}
+            className="w-[6px] shrink-0 cursor-col-resize border-x border-border bg-transparent"
+            title="Изменить ширину AI-панели"
+          />
+          <AiPanel
+            token={token}
+            width={aiPanelWidth}
+            height="100%"
+            onSessionExpired={onSessionExpired}
+            onTokenRefresh={onTokenRefresh}
+            onClose={closeDesktopAi}
+          />
+        </div>
       )}
       {isNarrow && mobileAiOpen && (
         <div

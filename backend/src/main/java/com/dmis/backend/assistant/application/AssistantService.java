@@ -112,6 +112,12 @@ public class AssistantService {
         return updated;
     }
 
+    public void deleteThread(UserView actor, String threadId) {
+        AssistantDtos.ThreadView thread = loadAccessibleThread(actor, threadId);
+        assistantPort.deleteThread(thread.id());
+        auditService.append(actor.id(), "assistant.thread.delete", "assistant_thread", thread.id(), "Thread deleted");
+    }
+
     public AssistantDtos.SendMessageResult sendMessage(
             UserView actor,
             String threadId,

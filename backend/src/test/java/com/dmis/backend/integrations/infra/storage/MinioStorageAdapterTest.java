@@ -1,5 +1,6 @@
 package com.dmis.backend.integrations.infra.storage;
 
+import com.dmis.backend.integrations.application.ObjectStorageException;
 import com.dmis.backend.platform.config.StorageProperties;
 import io.minio.MinioClient;
 import io.minio.errors.ErrorResponseException;
@@ -9,6 +10,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
@@ -56,7 +59,21 @@ class MinioStorageAdapterTest {
                 .when(minioClient).removeObject(any());
 
         MinioStorageAdapter adapter = new MinioStorageAdapter(props, minioClient);
-        assertThrows(IllegalStateException.class, () -> adapter.delete("minio://dmis-documents/doc-x/file.bin"));
+        ObjectStorageException ex = assertThrows(ObjectStorageException.class,
+                () -> adapter.delete("minio://dmis-documents/doc-x/file.bin"));
+        assertEquals("AccessDenied", ex.getProviderErrorCode());
+    }
+
+    @Test
+    void deleteWrapsNonS3ExceptionInObjectStorageException() throws Exception {
+        StorageProperties props = new StorageProperties("http://localhost:9000", "k", "s", "dmis-documents", 300);
+        doThrow(new java.io.IOException("connection reset"))
+                .when(minioClient).removeObject(any());
+
+        MinioStorageAdapter adapter = new MinioStorageAdapter(props, minioClient);
+        ObjectStorageException ex = assertThrows(ObjectStorageException.class,
+                () -> adapter.delete("minio://dmis-documents/doc-x/file.bin"));
+        assertNull(ex.getProviderErrorCode());
     }
 
     @Test

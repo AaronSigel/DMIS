@@ -10,6 +10,7 @@ import com.dmis.backend.documents.domain.model.Document;
 import com.dmis.backend.documents.domain.model.DocumentId;
 import com.dmis.backend.documents.domain.model.IndexStatus;
 import com.dmis.backend.documents.domain.model.IndexingJob;
+import com.dmis.backend.integrations.application.ObjectStorageException;
 import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.dmis.backend.platform.config.StorageProperties;
 import com.dmis.backend.platform.error.ApiException;
@@ -24,8 +25,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -250,7 +253,7 @@ public class DocumentUseCases {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentRead(actor, document.ownerId());
-        byte[] bytes = loadFile(document.storageRef(), documentId);
+        byte[] bytes = loadDocumentBinary(document);
         auditService.append(actor.id(), "document.download", "document", document.id().value(), "Downloaded latest");
         return new DocumentDtos.DocumentBinary(document.fileName(), document.contentType(), bytes);
     }
@@ -259,8 +262,17 @@ public class DocumentUseCases {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentRead(actor, document.ownerId());
+        String storageRef = document.storageRef();
+        if (storageRef != null && storageRef.startsWith("demo://")) {
+            throw new ApiException(
+                    BAD_REQUEST,
+                    "DEMO_STORAGE_NOT_AVAILABLE",
+                    "Presigned download is not available for demo placeholder documents",
+                    Map.of("documentId", document.id().value())
+            );
+        }
         int ttlSeconds = storageProperties.presignedDownloadTtlSeconds();
-        String url = presignDownload(document.storageRef(), documentId, ttlSeconds);
+        String url = presignDownload(storageRef, documentId, ttlSeconds);
         auditService.append(actor.id(), "document.download_link", "document", document.id().value(), "Issued presigned download URL");
         return new DocumentDtos.PresignedDownloadUrl(url, ttlSeconds);
     }
@@ -289,6 +301,18 @@ public class DocumentUseCases {
                     Map.of("objectPath", objectPath)
             );
         }
+    }
+
+    /**
+     * Документы с {@code demo://} не имеют объекта в MinIO; для предпросмотра/скачивания
+     * отдаём байты извлечённого текста (как для демо-сидов с {@code text/plain}).
+     */
+    private byte[] loadDocumentBinary(Document document) {
+        String storageRef = document.storageRef();
+        if (storageRef != null && storageRef.startsWith("demo://")) {
+            return document.fullExtractedText().getBytes(StandardCharsets.UTF_8);
+        }
+        return loadFile(storageRef, document.id().value());
     }
 
     private byte[] loadFile(String storageRef, String documentId) {
@@ -322,6 +346,19 @@ public class DocumentUseCases {
                     "INVALID_STORAGE_REF",
                     "Invalid storage reference",
                     Map.of("documentId", documentId)
+            );
+        } catch (ObjectStorageException exception) {
+            log.warn("Object storage delete failed (documentId={})", documentId, exception);
+            HashMap<String, Object> details = new HashMap<>();
+            details.put("documentId", documentId);
+            if (exception.getProviderErrorCode() != null) {
+                details.put("minioCode", exception.getProviderErrorCode());
+            }
+            throw new ApiException(
+                    INTERNAL_SERVER_ERROR,
+                    "STORAGE_FAILED",
+                    "Failed to delete file",
+                    Map.copyOf(details)
             );
         } catch (RuntimeException exception) {
             log.warn("Object storage delete failed (documentId={})", documentId, exception);

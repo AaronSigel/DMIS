@@ -13,6 +13,7 @@ import {
 } from "../../apiClient";
 import { queryKeys } from "../../shared/api/queryClient";
 import { useUiStore } from "../../shared/store/uiStore";
+import { AssistantLauncher } from "../../shared/ui/AssistantLauncher";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { Avatar } from "../../shared/ui/Avatar";
@@ -427,6 +428,7 @@ export function DocTable({
           <TopBarBtn onClick={() => fileRef.current?.click()} title="Загрузить документ в систему">
             Загрузить
           </TopBarBtn>
+          <AssistantLauncher />
         </div>
       </div>
 

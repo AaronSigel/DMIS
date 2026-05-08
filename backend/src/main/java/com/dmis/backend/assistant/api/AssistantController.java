@@ -52,6 +52,11 @@ public class AssistantController {
         return assistantService.getThread(currentUserProvider.currentUser(), threadId);
     }
 
+    @DeleteMapping("/threads/{threadId}")
+    public void deleteThread(@PathVariable("threadId") String threadId) {
+        assistantService.deleteThread(currentUserProvider.currentUser(), threadId);
+    }
+
     @PostMapping("/threads/{threadId}/messages")
     public AssistantDtos.SendMessageResult sendMessage(@PathVariable("threadId") String threadId, @RequestBody SendMessageRequest request) {
         return assistantService.sendMessage(

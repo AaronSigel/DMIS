@@ -1,5 +1,6 @@
 package com.dmis.backend.integrations.infra.storage;
 
+import com.dmis.backend.integrations.application.ObjectStorageException;
 import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.dmis.backend.platform.config.StorageProperties;
 import io.minio.errors.ErrorResponseException;
@@ -11,6 +12,8 @@ import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.http.Method;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
@@ -18,6 +21,8 @@ import java.io.IOException;
 
 @Component
 public class MinioStorageAdapter implements ObjectStoragePort {
+    private static final Logger log = LoggerFactory.getLogger(MinioStorageAdapter.class);
+
     private final StorageProperties storageProperties;
     private final MinioClient minioClient;
 
@@ -81,12 +86,34 @@ public class MinioStorageAdapter implements ObjectStoragePort {
             if (isNoSuchKey(e)) {
                 return;
             }
-            throw new IllegalStateException("MinIO delete failed", e);
+            String code = errorCode(e);
+            log.warn(
+                    "MinIO delete failed: code={}, bucket={}, object={}, message={}",
+                    code,
+                    errorBucket(e),
+                    errorObject(e),
+                    e.getMessage()
+            );
+            throw new ObjectStorageException("MinIO delete failed", e, code);
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
-            throw new IllegalStateException("MinIO delete failed", e);
+            log.warn("MinIO delete failed (non-S3 error): ref={}, type={}, message={}",
+                    storageRef, e.getClass().getSimpleName(), e.getMessage(), e);
+            throw new ObjectStorageException("MinIO delete failed", e, null);
         }
+    }
+
+    private static String errorCode(ErrorResponseException e) {
+        return e.errorResponse() != null ? e.errorResponse().code() : null;
+    }
+
+    private static String errorBucket(ErrorResponseException e) {
+        return e.errorResponse() != null ? e.errorResponse().bucketName() : null;
+    }
+
+    private static String errorObject(ErrorResponseException e) {
+        return e.errorResponse() != null ? e.errorResponse().objectName() : null;
     }
 
     private static boolean isNoSuchKey(ErrorResponseException e) {

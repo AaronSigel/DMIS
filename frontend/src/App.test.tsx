@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BrowserRouter, MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -63,29 +63,76 @@ describe("auth smoke", () => {
     await userEvent.click(screen.getByRole("button", { name: /^создать draft$/i }));
 
     await waitFor(() => expect(screen.getByText(/черновик встречи создан/i)).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /открыть ассистента/i }));
 
     await waitFor(() =>
       expect(screen.getByText("Краткий ответ AI для подготовки письма.")).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("button", { name: /создать письмо из ответа ai/i }));
-    await userEvent.type(screen.getByLabelText(/получатель письма из ответа ai/i), "@analyst");
-    await userEvent.click(screen.getByRole("button", { name: /^создать draft$/i }));
-
-    await waitFor(() => expect(screen.getByText(/черновик действия создан/i)).toBeInTheDocument());
-    expect(screen.getByText(/Действие: send_email/)).toBeInTheDocument();
-
-    const confirmButtons = screen.getAllByRole("button", { name: /подтвердить/i });
-    await userEvent.click(confirmButtons[confirmButtons.length - 1]!);
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: /подтвердить действие/i })).toBeInTheDocument(),
+    const assistantAside = screen
+      .getAllByRole("complementary")
+      .find((el) => within(el).queryByRole("button", { name: /диалоги/i }));
+    expect(assistantAside).toBeTruthy();
+    await userEvent.type(
+      within(assistantAside as HTMLElement).getByPlaceholderText(/спросите по вашим документам/i),
+      "Создай событие календаря на 9 мая 15:00 по обсуждению схемотехники",
     );
-    const dialogConfirmButtons = screen.getAllByRole("button", { name: /подтвердить/i });
-    await userEvent.click(dialogConfirmButtons[dialogConfirmButtons.length - 1]!);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /выполнить/i })).toBeInTheDocument(),
+    await userEvent.click(
+      within(assistantAside as HTMLElement).getByRole("button", {
+        name: /отправить вопрос ассистенту/i,
+      }),
     );
-    await userEvent.click(screen.getByRole("button", { name: /выполнить/i }));
-    await waitFor(() => expect(screen.getByText(/действие выполнено/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        within(assistantAside as HTMLElement).getByText(/Действие: create_calendar_event/i),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      within(assistantAside as HTMLElement).getByRole("button", { name: /^закрыть$/i }),
+    );
+  });
+
+  it("does not create action draft for non-action assistant text", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/documents/doc-1"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /открыть ассистента/i }));
+
+    let assistantAside: HTMLElement | undefined;
+    await waitFor(() => {
+      assistantAside = screen
+        .getAllByRole("complementary")
+        .find((el) => within(el).queryByRole("button", { name: /диалоги/i }));
+      expect(assistantAside).toBeTruthy();
+    });
+
+    await userEvent.type(
+      within(assistantAside as HTMLElement).getByPlaceholderText(/спросите по вашим документам/i),
+      "что есть по новому договору?",
+    );
+    await userEvent.click(
+      within(assistantAside as HTMLElement).getByRole("button", {
+        name: /отправить вопрос ассистенту/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        within(assistantAside as HTMLElement).queryByText(/Действие: create_calendar_event/i),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("uses new navigation layout and hides admin control for non-admin", async () => {

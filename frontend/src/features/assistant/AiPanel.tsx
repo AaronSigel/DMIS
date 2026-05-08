@@ -4,29 +4,28 @@ import DOMPurify from "dompurify";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import {
+  AssistantActionParseError,
   apiBaseUrl,
-  apiCreateActionDraft,
   apiCreateAssistantThread,
+  apiDeleteAssistantThread,
   apiGetDocumentTitle,
   apiGetAssistantThreadDetail,
   apiLinkAssistantThreadDocument,
   apiListAssistantThreads,
   apiMentionDocuments,
+  apiParseAssistantAction,
   apiUploadAssistantThreadAttachment,
   fetchWithAuth,
   parseAuthenticatedJson,
 } from "../../apiClient";
+import { ActionCard } from "../actions/ActionCard";
+import type { ActionView } from "../../shared/api/schemas/action";
 import { queryKeys } from "../../shared/api/queryClient";
-import { ActionListSchema } from "../../shared/api/schemas/action";
 import { useAssistantStream } from "../../shared/sse/useAssistantStream";
 import { useUiStore } from "../../shared/store/uiStore";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { smallBtnClass } from "../../shared/ui/smallBtnClass";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
-import type { Citation } from "../../entities/search";
-import { ActionCard } from "../actions/ActionCard";
-import { CitationChip } from "./CitationChip";
-import { CitationSidebar } from "./CitationSidebar";
 
 type AiPanelProps = {
   token: string;
@@ -41,7 +40,6 @@ const SUGGESTIONS = [
   "суммируй 3 последних контракта",
   'найди документы с упоминанием "продление Acme"',
 ];
-const ASSISTANT_ACTIONS_QUERY_KEY = ["assistant-actions"] as const;
 
 function renderMessageMarkdown(content: string) {
   const hasRawHtmlTag = /<\/?[a-z][\s\S]*>/i.test(content);
@@ -102,12 +100,10 @@ export function AiPanel({
   const [knowledgeSourceIds, setKnowledgeSourceIds] = useState<string[]>(["documents"]);
   const [recording, setRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
-  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [awaitingPersistedAssistantMessage, setAwaitingPersistedAssistantMessage] = useState(false);
-  const [emailDraftMessageId, setEmailDraftMessageId] = useState("");
-  const [emailDraftTo, setEmailDraftTo] = useState("");
-  const [emailDraftSubject, setEmailDraftSubject] = useState("");
-  const [emailDraftBody, setEmailDraftBody] = useState("");
+  const [localActionsByThread, setLocalActionsByThread] = useState<Record<string, ActionView[]>>(
+    {},
+  );
   const toast = useToast();
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -134,20 +130,6 @@ export function AiPanel({
     queryKey: ["assistant-mention-documents", mentionTerm],
     queryFn: () => apiMentionDocuments(mentionTerm, onSessionExpired, onTokenRefresh),
     enabled: !!token && mentionTerm.length > 0,
-  });
-
-  const actionsQuery = useQuery({
-    queryKey: ASSISTANT_ACTIONS_QUERY_KEY,
-    queryFn: async () => {
-      const response = await fetchWithAuth(
-        `${apiBaseUrl}/actions`,
-        { method: "GET" },
-        onTokenRefresh,
-      );
-      const payload = await parseAuthenticatedJson<unknown>(response, onSessionExpired);
-      return ActionListSchema.parse(payload);
-    },
-    enabled: !!token,
   });
 
   const hydrateDocumentTitles = useCallback(
@@ -232,12 +214,6 @@ export function AiPanel({
         setThreadsOpen(false);
         return;
       }
-      if (selectedCitation) {
-        e.preventDefault();
-        e.stopPropagation();
-        setSelectedCitation(null);
-        return;
-      }
       if (onClose) {
         e.preventDefault();
         onClose();
@@ -245,13 +221,31 @@ export function AiPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose, selectedCitation, threadsOpen]);
+  }, [onClose, threadsOpen]);
 
   const createThreadMutation = useMutation({
     mutationFn: () => apiCreateAssistantThread("Новый диалог", onSessionExpired, onTokenRefresh),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.assistant.threads });
       setActiveThreadId(created.id);
+    },
+  });
+
+  const deleteThreadMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      await apiDeleteAssistantThread(threadId, onSessionExpired, onTokenRefresh);
+    },
+    onSuccess: async (_data, deletedThreadId) => {
+      const nextThreads = threads.filter((thread) => thread.id !== deletedThreadId);
+      if (activeThreadId === deletedThreadId) {
+        setActiveThreadId(nextThreads[0]?.id ?? "");
+      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.assistant.threads });
+      if (nextThreads[0]?.id) {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.assistant.threadDetail(nextThreads[0].id),
+        });
+      }
     },
   });
 
@@ -294,15 +288,6 @@ export function AiPanel({
     },
   });
 
-  const createActionDraftMutation = useMutation({
-    mutationFn: async (payload: { intent: string; entities: Record<string, unknown> }) =>
-      apiCreateActionDraft(payload, onSessionExpired, onTokenRefresh),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ASSISTANT_ACTIONS_QUERY_KEY });
-      toast.success("Черновик действия создан.");
-    },
-  });
-
   const assistantStream = useAssistantStream({
     onUnauthorized: onSessionExpired,
     onTokenRefresh,
@@ -341,18 +326,31 @@ export function AiPanel({
     });
   }, [generateThreadTitleMutation, threadDetailQuery.data]);
 
-  const isAssistantBusy =
+  /** Блокирует отправку нового сообщения и показ «Думаю…». Фоновая генерация заголовка диалога сюда не входит. */
+  const blocksUserSend =
     createThreadMutation.isPending ||
+    deleteThreadMutation.isPending ||
     assistantStream.isStreaming ||
     linkDocumentMutation.isPending ||
-    uploadAttachmentMutation.isPending ||
-    createActionDraftMutation.isPending ||
-    generateThreadTitleMutation.isPending;
+    uploadAttachmentMutation.isPending;
 
   async function createThread() {
     const created = await createThreadMutation.mutateAsync();
     toast.info("Создан новый диалог.");
     return created.id;
+  }
+
+  async function deleteThread(threadId: string, threadTitle: string) {
+    const isConfirmed = window.confirm(`Удалить диалог «${threadTitle}»? Это действие необратимо.`);
+    if (!isConfirmed) return;
+    try {
+      await deleteThreadMutation.mutateAsync(threadId);
+      toast.success("Диалог удален.");
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось удалить диалог",
+      );
+    }
   }
 
   async function ensureThreadId(): Promise<string> {
@@ -362,10 +360,10 @@ export function AiPanel({
     return createThread();
   }
 
-  async function sendRag(question: string) {
+  async function sendRag(question: string, existingThreadId?: string) {
     if (!question.trim() || !token) return;
     try {
-      const threadId = await ensureThreadId();
+      const threadId = existingThreadId ?? (await ensureThreadId());
       await assistantStream.startStream({
         payload: {
           question,
@@ -399,6 +397,42 @@ export function AiPanel({
     }
   }
 
+  function appendActionToThread(threadId: string, action: ActionView) {
+    setLocalActionsByThread((prev) => {
+      const prevThreadActions = prev[threadId] ?? [];
+      const deduped = prevThreadActions.filter((item) => item.id !== action.id);
+      return {
+        ...prev,
+        [threadId]: [...deduped, action],
+      };
+    });
+  }
+
+  async function sendAssistantInput(question: string) {
+    if (!question.trim() || !token) return;
+    const threadId = await ensureThreadId();
+    try {
+      const action = await apiParseAssistantAction(question, onSessionExpired, onTokenRefresh);
+      appendActionToThread(threadId, action);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.assistant.threadDetail(threadId),
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.assistant.threads });
+      setInputValue("");
+      setAssistantQuery("");
+      setMentionCandidates([]);
+      setMentionActiveIndex(-1);
+      setMentionTerm("");
+      toast.success("Черновик действия создан.");
+    } catch (error) {
+      if (error instanceof AssistantActionParseError) {
+        await sendRag(question, threadId);
+        return;
+      }
+      throw error;
+    }
+  }
+
   function handleInputChange(nextValue: string) {
     setInputValue(nextValue);
     setAssistantQuery(nextValue);
@@ -416,16 +450,18 @@ export function AiPanel({
   }
 
   function handleSubmit() {
-    if (!inputValue.trim() || isAssistantBusy || !token) return;
-    void sendRag(inputValue);
+    if (!inputValue.trim() || blocksUserSend || !token) return;
+    void sendAssistantInput(inputValue).catch((e) => {
+      toast.error(
+        e instanceof Error
+          ? mapApiErrorToMessage(e.message)
+          : "Не удалось обработать запрос ассистента",
+      );
+    });
   }
 
   function handleStopAssistant() {
     assistantStream.stopStream();
-  }
-
-  function handleCitationClick(citation: Citation) {
-    setSelectedCitation(citation);
   }
 
   async function attachMention(candidate: MentionDoc) {
@@ -463,44 +499,6 @@ export function AiPanel({
     } catch (e) {
       toast.error(
         e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось прикрепить файл",
-      );
-    }
-  }
-
-  function openEmailDraftForm(messageId: string, content: string) {
-    const threadTitle = threadDetailQuery.data?.thread.title?.trim();
-    setEmailDraftMessageId(messageId);
-    setEmailDraftTo("");
-    setEmailDraftSubject(
-      threadTitle && threadTitle !== "Новый диалог"
-        ? `По ответу AI: ${threadTitle}`.slice(0, 120)
-        : "Письмо по ответу AI",
-    );
-    setEmailDraftBody(content.trim());
-  }
-
-  async function createEmailDraftFromAnswer() {
-    if (!emailDraftTo.trim() || !emailDraftSubject.trim() || !emailDraftBody.trim()) {
-      toast.error("Заполните получателя, тему и текст письма.");
-      return;
-    }
-    try {
-      await createActionDraftMutation.mutateAsync({
-        intent: "send_email",
-        entities: {
-          type: "send_email",
-          to: emailDraftTo.trim(),
-          subject: emailDraftSubject.trim(),
-          body: emailDraftBody.trim(),
-        },
-      });
-      setEmailDraftMessageId("");
-      setEmailDraftTo("");
-      setEmailDraftSubject("");
-      setEmailDraftBody("");
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось создать черновик письма",
       );
     }
   }
@@ -597,7 +595,7 @@ export function AiPanel({
 
   const threadDetail = threadDetailQuery.data;
   const threads = threadsQuery.data ?? [];
-  const draftActions = (actionsQuery.data ?? []).filter((action) => action.status === "DRAFT");
+  const localActions = activeThreadId ? (localActionsByThread[activeThreadId] ?? []) : [];
 
   return (
     <aside
@@ -607,9 +605,6 @@ export function AiPanel({
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 pb-3 pt-[14px]">
         <div className="flex items-center gap-2">
           <span className="text-base font-semibold text-text">Ассистент</span>
-          <span className="rounded-xl bg-primary-soft px-2 py-[2px] text-[11px] font-medium text-primary">
-            с источниками
-          </span>
         </div>
         <div className="flex items-center gap-2">
           {onClose && (
@@ -648,7 +643,7 @@ export function AiPanel({
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-2">
-        {isAssistantBusy && <p className="text-[13px] text-muted">Думаю…</p>}
+        {blocksUserSend && <p className="text-[13px] text-muted">Думаю…</p>}
         {threadsQuery.isError && (
           <p className="mb-2 mt-0 text-[13px] text-danger">
             {mapApiErrorToMessage(
@@ -658,22 +653,30 @@ export function AiPanel({
             )}
           </p>
         )}
-        {actionsQuery.isError && (
-          <p className="mb-2 mt-0 text-[13px] text-danger">
-            {mapApiErrorToMessage(
-              actionsQuery.error instanceof Error
-                ? actionsQuery.error.message
-                : "Не удалось загрузить черновики действий",
-            )}
-          </p>
-        )}
-        {!!draftActions.length && (
-          <div className="mb-2">
-            <p className="mb-2 mt-0 text-[11px] text-muted">
-              Черновики действий (требуют подтверждения)
-            </p>
+        {threadDetail && (
+          <div>
+            <p className="mb-2 mt-0 text-[11px] text-muted">Профиль: {ideologyProfileId}</p>
             <div className="grid gap-2">
-              {draftActions.map((action) => (
+              {threadDetail.messages.map((m) => {
+                return (
+                  <div
+                    key={m.id}
+                    className="rounded-lg border border-border bg-white px-[10px] py-2"
+                  >
+                    <p className="mb-1 mt-0 text-[11px] text-muted">
+                      {m.role === "USER" ? "Вы" : "Ассистент"}
+                    </p>
+                    {renderMessageMarkdown(m.content)}
+                  </div>
+                );
+              })}
+              {(assistantStream.isStreaming || assistantStream.streamText) && (
+                <div className="rounded-lg border border-border bg-white px-[10px] py-2">
+                  <p className="mb-1 mt-0 text-[11px] text-muted">Ассистент</p>
+                  {renderMessageMarkdown(assistantStream.streamText || "…")}
+                </div>
+              )}
+              {localActions.map((action) => (
                 <ActionCard
                   key={action.id}
                   id={action.id}
@@ -684,109 +687,6 @@ export function AiPanel({
                   onTokenRefresh={onTokenRefresh}
                 />
               ))}
-            </div>
-          </div>
-        )}
-        {threadDetail && (
-          <div>
-            <p className="mb-2 mt-0 text-[11px] text-muted">
-              Профиль: {ideologyProfileId} · Источники: {knowledgeSourceIds.join(", ")}
-            </p>
-            <div className="grid gap-2">
-              {threadDetail.messages.map((m, idx) => {
-                const isLastAssistant =
-                  idx === threadDetail.messages.length - 1 && m.role === "ASSISTANT";
-                return (
-                  <div
-                    key={m.id}
-                    className="rounded-lg border border-border bg-white px-[10px] py-2"
-                  >
-                    <p className="mb-1 mt-0 text-[11px] text-muted">
-                      {m.role === "USER" ? "Вы" : "Ассистент"}
-                    </p>
-                    {renderMessageMarkdown(m.content)}
-                    {isLastAssistant && assistantStream.streamSources.length > 0 && (
-                      <div
-                        className="mt-1.5 flex flex-wrap items-center gap-1"
-                        aria-label="Источники последнего ответа ассистента"
-                      >
-                        <span className="mr-1 text-[10px] uppercase tracking-[0.06em] text-muted">
-                          Источники
-                        </span>
-                        {assistantStream.streamSources.map((citation) => (
-                          <CitationChip
-                            key={citation.chunkId}
-                            citation={citation}
-                            onClick={handleCitationClick}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {m.role === "ASSISTANT" && m.content.trim() && (
-                      <div className="mt-2 rounded-md border border-border bg-surface px-2 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="m-0 text-[11px] text-muted">AI-хук</p>
-                          <button
-                            type="button"
-                            className="rounded-md border border-border bg-white px-2 py-1 text-[11px] text-text"
-                            onClick={() => openEmailDraftForm(m.id, m.content)}
-                          >
-                            Создать письмо из ответа AI
-                          </button>
-                        </div>
-                        {emailDraftMessageId === m.id && (
-                          <div className="mt-2 grid gap-1.5">
-                            <input
-                              value={emailDraftTo}
-                              onChange={(e) => setEmailDraftTo(e.target.value)}
-                              placeholder="Кому: email или @username"
-                              aria-label="Получатель письма из ответа AI"
-                              className="rounded-md border border-border bg-white px-2 py-1.5 text-[12px] outline-none"
-                            />
-                            <input
-                              value={emailDraftSubject}
-                              onChange={(e) => setEmailDraftSubject(e.target.value)}
-                              placeholder="Тема"
-                              aria-label="Тема письма из ответа AI"
-                              className="rounded-md border border-border bg-white px-2 py-1.5 text-[12px] outline-none"
-                            />
-                            <textarea
-                              value={emailDraftBody}
-                              onChange={(e) => setEmailDraftBody(e.target.value)}
-                              rows={4}
-                              aria-label="Текст письма из ответа AI"
-                              className="resize-y rounded-md border border-border bg-white px-2 py-1.5 text-[12px] outline-none"
-                            />
-                            <div className="flex justify-end gap-1.5">
-                              <button
-                                type="button"
-                                className="rounded-md border border-border bg-white px-2 py-1 text-[11px] text-text"
-                                onClick={() => setEmailDraftMessageId("")}
-                              >
-                                Отмена
-                              </button>
-                              <button
-                                type="button"
-                                disabled={createActionDraftMutation.isPending}
-                                className="rounded-md border border-primary/40 bg-primary px-2 py-1 text-[11px] text-white disabled:opacity-50"
-                                onClick={() => void createEmailDraftFromAnswer()}
-                              >
-                                Создать draft
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {(assistantStream.isStreaming || assistantStream.streamText) && (
-                <div className="rounded-lg border border-border bg-white px-[10px] py-2">
-                  <p className="mb-1 mt-0 text-[11px] text-muted">Ассистент</p>
-                  {renderMessageMarkdown(assistantStream.streamText || "…")}
-                </div>
-              )}
             </div>
             {selectedDocumentIds.length > 0 && (
               <div className="mt-2">
@@ -838,7 +738,7 @@ export function AiPanel({
             ))}
           </div>
         )}
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap items-stretch gap-1.5">
           <input
             value={inputValue}
             onChange={(e) => handleInputChange(e.target.value)}
@@ -877,7 +777,7 @@ export function AiPanel({
               }
             }}
             placeholder="Спросите по вашим документам…"
-            className="flex-1 rounded-lg border border-border bg-surface px-[10px] py-2 text-[13px] outline-none"
+            className="w-full rounded-lg border border-border bg-surface px-[10px] py-2 text-[13px] outline-none"
           />
           <button
             type="button"
@@ -930,16 +830,13 @@ export function AiPanel({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!inputValue.trim() || isAssistantBusy || !token}
+            disabled={!inputValue.trim() || blocksUserSend || !token}
             aria-label="Отправить вопрос ассистенту"
-            className="rounded-lg border-0 bg-primary px-3 py-2 text-base text-white disabled:opacity-50"
+            className="ml-auto rounded-lg border-0 bg-primary px-3 py-2 text-base text-white disabled:opacity-50"
           >
             ↑
           </button>
         </div>
-        <p className="mb-0 mt-1.5 text-center text-[10px] text-muted">
-          AI-ассистент · RAG + действия через сервер
-        </p>
       </div>
       {threadsOpen && (
         <div
@@ -975,36 +872,45 @@ export function AiPanel({
               aria-label="Список диалогов"
             >
               {threads.map((thread) => (
-                <button
+                <div
                   key={thread.id}
-                  type="button"
                   role="option"
                   aria-selected={activeThreadId === thread.id}
-                  onClick={() => {
-                    setActiveThreadId(thread.id);
-                    setThreadsOpen(false);
-                    void queryClient.invalidateQueries({
-                      queryKey: queryKeys.assistant.threadDetail(thread.id),
-                    });
-                  }}
-                  className={`rounded-md px-3 py-2.5 text-left text-xs ${
+                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs ${
                     activeThreadId === thread.id
                       ? "border border-primary bg-primary-soft text-text"
                       : "border border-border bg-white text-text"
                   }`}
                 >
-                  {thread.title}
-                </button>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded-md px-1 py-1 text-left text-xs"
+                    onClick={() => {
+                      setActiveThreadId(thread.id);
+                      setThreadsOpen(false);
+                      void queryClient.invalidateQueries({
+                        queryKey: queryKeys.assistant.threadDetail(thread.id),
+                      });
+                    }}
+                  >
+                    <span className="block truncate">{thread.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteThread(thread.id, thread.title)}
+                    className="rounded-md border border-border bg-white px-2 py-1 text-[11px] text-muted hover:text-danger disabled:opacity-50"
+                    aria-label={`Удалить диалог: ${thread.title}`}
+                    title="Удалить диалог"
+                    disabled={deleteThreadMutation.isPending}
+                  >
+                    Удалить
+                  </button>
+                </div>
               ))}
             </div>
           </div>
         </div>
       )}
-      <CitationSidebar
-        citation={selectedCitation}
-        open={!!selectedCitation}
-        onClose={() => setSelectedCitation(null)}
-      />
     </aside>
   );
 }

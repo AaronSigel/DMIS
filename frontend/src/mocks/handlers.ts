@@ -96,6 +96,13 @@ type AiActionMock = {
 
 let aiActions: AiActionMock[] = [];
 
+let mailAccount = {
+  connected: true,
+  imapHost: "imap.dmis.local",
+  imapPort: 993,
+  imapUsername: "admin@dmis.local",
+};
+
 export const handlers = [
   http.get("*/health", () => HttpResponse.text("ok")),
 
@@ -143,6 +150,40 @@ export const handlers = [
       ],
       linkedDocumentIds: [],
     }),
+  ),
+  http.post("*/assistant/actions/parse", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { text?: string };
+    const text = String(body.text ?? "").toLowerCase();
+    if (text.includes("событ") || text.includes("встреч")) {
+      const created: AiActionMock = {
+        id: `act-${Math.random().toString(36).slice(2, 9)}`,
+        intent: "create_calendar_event",
+        entities: {
+          type: "create_calendar_event",
+          title: "Обсуждение схемотехники",
+          attendees: ["analyst@dmis.local"],
+          startIso: "2026-05-09T12:00:00Z",
+          endIso: "2026-05-09T13:00:00Z",
+        },
+        actorId: "u-admin",
+        status: "DRAFT",
+        confirmedBy: null,
+      };
+      aiActions = [...aiActions, created];
+      return HttpResponse.json(created);
+    }
+    return HttpResponse.json({ message: "Unsupported intent: none" }, { status: 400 });
+  }),
+  http.post(
+    "*/rag/answer-with-sources/stream",
+    () =>
+      new HttpResponse('data: {"delta":"RAG ответ"}\n\n', {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      }),
   ),
   http.get("*/actions", () => HttpResponse.json(aiActions)),
   http.post("*/actions/draft", async ({ request }) => {
@@ -218,6 +259,24 @@ export const handlers = [
       },
     ]),
   ),
+
+  http.get("*/mail/account", () => HttpResponse.json(mailAccount)),
+  http.put("*/mail/account", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as Partial<typeof mailAccount> & {
+      password?: string;
+    };
+    mailAccount = {
+      connected: true,
+      imapHost: String(body.imapHost ?? mailAccount.imapHost),
+      imapPort: Number(body.imapPort ?? mailAccount.imapPort),
+      imapUsername: String(body.imapUsername ?? mailAccount.imapUsername),
+    };
+    return HttpResponse.json(mailAccount);
+  }),
+  http.delete("*/mail/account", () => {
+    mailAccount = { ...mailAccount, connected: false };
+    return new HttpResponse(null, { status: 204 });
+  }),
 
   http.get("*/mail/messages/:messageId", ({ params }) => {
     if (params.messageId === "mail-1") {

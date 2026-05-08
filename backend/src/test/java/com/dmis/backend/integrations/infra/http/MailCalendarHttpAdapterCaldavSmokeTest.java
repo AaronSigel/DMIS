@@ -12,28 +12,27 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 
-class MailCalendarHttpAdapterSogoSmokeTest {
+class MailCalendarHttpAdapterCaldavSmokeTest {
 
     @Test
-    void sendCalendarDraft_realSogo_optInByEnv() {
-        // Локальный запуск: экспортировать SOGO_CALDAV_* и выполнить
-        // ./mvnw -Dtest=MailCalendarHttpAdapterSogoSmokeTest test
-        String baseUrl = env("SOGO_CALDAV_BASE_URL");
-        String username = env("SOGO_CALDAV_USERNAME");
-        String password = env("SOGO_CALDAV_PASSWORD");
-        String calendarPath = env("SOGO_CALDAV_CALENDAR_PATH");
+    void sendCalendarDraft_realCaldav_optInByEnv() {
+        // Локальный запуск: экспортировать CALDAV_* и выполнить
+        // ./mvnw -Dtest=MailCalendarHttpAdapterCaldavSmokeTest test
+        String baseUrl = env("CALDAV_BASE_URL");
+        String username = env("CALDAV_USERNAME");
+        String password = env("CALDAV_PASSWORD");
+        String calendarPath = env("CALDAV_CALENDAR_PATH");
 
         // Smoke-тест опциональный: в CI без env должен быть SKIPPED.
         Assumptions.assumeTrue(
-                isPresent(baseUrl) && isPresent(username) && isPresent(password) && isPresent(calendarPath),
-                "Skip smoke: SOGO_CALDAV_* env не задан"
+                isPresent(baseUrl) && isPresent(calendarPath),
+                "Skip smoke: CALDAV_* env не задан"
         );
 
         MailCalendarHttpAdapter adapter = new MailCalendarHttpAdapter(
                 mock(MailCalendarPersistenceAdapter.class),
                 new EmptyObjectProvider<>(),
                 "no-reply@dmis.test.local",
-                "",
                 baseUrl,
                 username,
                 password,

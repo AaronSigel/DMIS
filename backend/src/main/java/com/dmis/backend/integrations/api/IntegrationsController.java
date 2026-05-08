@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Positive;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,6 +41,28 @@ public class IntegrationsController {
     @PostMapping("/mail/drafts")
     public IntegrationDtos.MailDraftView mailDraft(@Valid @RequestBody MailDraftRequest request) {
         return integrationService.createMailDraft(currentUserProvider.currentUser(), request.to(), request.subject(), request.body());
+    }
+
+    @GetMapping("/mail/account")
+    public IntegrationDtos.MailAccountView getMailAccount() {
+        return integrationService.getMailAccount(currentUserProvider.currentUser());
+    }
+
+    @PutMapping("/mail/account")
+    public IntegrationDtos.MailAccountView upsertMailAccount(@Valid @RequestBody MailAccountUpsertRequest request) {
+        return integrationService.upsertMailAccount(
+                currentUserProvider.currentUser(),
+                request.imapUsername(),
+                request.password(),
+                request.imapHost(),
+                request.imapPort()
+        );
+    }
+
+    @DeleteMapping("/mail/account")
+    public ResponseEntity<Void> deleteMailAccount() {
+        integrationService.deleteMailAccount(currentUserProvider.currentUser());
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/mail/messages")
@@ -149,6 +172,14 @@ public class IntegrationsController {
     }
 
     public record MailDraftRequest(@NotBlank @Email String to, @NotBlank String subject, @NotBlank String body) {
+    }
+
+    public record MailAccountUpsertRequest(
+            String imapHost,
+            @Positive Integer imapPort,
+            String imapUsername,
+            @NotBlank String password
+    ) {
     }
 
     public record CalendarDraftRequest(

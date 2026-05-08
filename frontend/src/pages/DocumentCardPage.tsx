@@ -20,6 +20,7 @@ import { StatusBadge } from "../shared/ui/StatusBadge";
 import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
 import { localDateTimeInputToIso } from "../shared/lib/datetimeLocal";
 import { RenameDocumentModal } from "../features/documents/documentUi";
+import { AssistantLauncher } from "../shared/ui/AssistantLauncher";
 
 type DocumentCardPageProps = {
   token: string;
@@ -368,15 +369,21 @@ export function DocumentCardPage({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 pb-[14px] pt-4">
-        <button
-          onClick={() => navigate(-1)}
-          className="rounded-md border border-border bg-white px-[10px] py-[2px] text-[18px] text-text"
-        >
-          ←
-        </button>
-        <h2 className="m-0 min-w-0 flex-1 text-[18px] font-bold text-text">{doc.title}</h2>
-        <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 flex-col gap-3 border-b border-border px-6 pb-[14px] pt-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="shrink-0 rounded-md border border-border bg-white px-[10px] py-[2px] text-[18px] text-text"
+          >
+            ←
+          </button>
+          <h2 className="m-0 min-w-0 flex-1 break-words text-[18px] font-bold leading-snug text-text line-clamp-3 sm:line-clamp-2">
+            {doc.title}
+          </h2>
+        </div>
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:max-w-[min(100%,520px)] sm:justify-end">
+          <AssistantLauncher />
           <button
             type="button"
             onClick={askInAi}
