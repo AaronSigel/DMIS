@@ -7,13 +7,18 @@ import com.dmis.backend.search.application.dto.SearchDtos;
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -50,6 +55,14 @@ public class SearchService {
     private final int maxContextChunks;
     private final int maxContextChars;
     private final int ragMaxTokens;
+    private final int rerankMinCandidates;
+    private final Timer ragRetrievalTimer;
+    private final Timer ragRerankTimer;
+    private final Timer ragLlmTimer;
+    private final Timer ragTotalTimer;
+    private final Counter rerankSkippedCounter;
+    private final Counter cacheHitsCounter;
+    private final SemanticCacheService semanticCacheService;
 
     public SearchService(
             ChunkSearchPort chunkSearchPort,
@@ -57,11 +70,14 @@ public class SearchService {
             AclService aclService,
             LlmChatPort llmChatPort,
             AuditService auditService,
+            MeterRegistry meterRegistry,
+            SemanticCacheService semanticCacheService,
             @Value("${search.retrieval.top-k:10}") int retrievalTopK,
             @Value("${search.rerank.top-n:5}") int rerankTopN,
             @Value("${search.rag.max-context-chunks:3}") int maxContextChunks,
             @Value("${search.rag.max-context-chars:4000}") int maxContextChars,
-            @Value("${search.rag.max-tokens:0}") int ragMaxTokens
+            @Value("${search.rag.max-tokens:0}") int ragMaxTokens,
+            @Value("${search.rag.rerank.min-candidates:3}") int rerankMinCandidates
     ) {
         this.chunkSearchPort = chunkSearchPort;
         this.chunkRerankPort = chunkRerankPort;
@@ -73,8 +89,20 @@ public class SearchService {
         this.maxContextChunks = maxContextChunks;
         this.maxContextChars = maxContextChars;
         this.ragMaxTokens = ragMaxTokens;
+        this.rerankMinCandidates = rerankMinCandidates;
+        this.ragRetrievalTimer = meterRegistry.timer("rag.retrieval");
+        this.ragRerankTimer = meterRegistry.timer("rag.rerank");
+        this.ragLlmTimer = meterRegistry.timer("rag.llm");
+        this.ragTotalTimer = meterRegistry.timer("rag.total");
+        this.rerankSkippedCounter = meterRegistry.counter("rag.rerank.skipped");
+        this.cacheHitsCounter = meterRegistry.counter("rag.cache.hits");
+        this.semanticCacheService = semanticCacheService;
     }
 
+    @Cacheable(
+            value = "search-results",
+            key = "#query + '-' + #actor.id()"
+    )
     public SearchDtos.SearchOnlyResponse search(UserView actor, String query) {
         return search(actor, query, List.of());
     }
@@ -88,6 +116,7 @@ public class SearchService {
         long retrievalStartedAtMs = System.currentTimeMillis();
         List<ChunkSearchPort.ChunkHit> candidates = chunkSearchPort.search(actor.id(), isAdmin, query, retrievalTopK, documentIds);
         long retrievalLatencyMs = System.currentTimeMillis() - retrievalStartedAtMs;
+        ragRetrievalTimer.record(retrievalLatencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         auditService.append(
                 actor.id(),
                 "search.retrieval",
@@ -120,6 +149,10 @@ public class SearchService {
         long rerankStartedAtMs = System.currentTimeMillis();
         RerankResult rerank = loadRerankScores(query, candidates);
         long rerankLatencyMs = System.currentTimeMillis() - rerankStartedAtMs;
+        ragRerankTimer.record(rerankLatencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        if (rerank.failed()) {
+            rerankSkippedCounter.increment();
+        }
         auditService.append(
                 actor.id(),
                 "search.rerank",
@@ -128,16 +161,30 @@ public class SearchService {
                 "latencyMs=" + rerankLatencyMs + ", rerankFailed=" + rerank.failed() + ", topN=" + rerankTopN
         );
 
-        List<SearchDtos.SearchHitView> hits = candidates.stream()
+        boolean rerankApplied = !rerank.failed() && !rerank.scores().isEmpty();
+        List<ChunkSearchPort.ChunkHit> ranked;
+        if (rerankApplied) {
+            Comparator<ChunkSearchPort.ChunkHit> byRerankThenRetrieval = Comparator
+                    .comparingDouble((ChunkSearchPort.ChunkHit hit) ->
+                            rerank.scores().getOrDefault(hit.chunkId(), Double.NEGATIVE_INFINITY))
+                    .reversed()
+                    .thenComparing(Comparator.comparingDouble(ChunkSearchPort.ChunkHit::score).reversed());
+            ranked = candidates.stream().sorted(byRerankThenRetrieval).toList();
+        } else {
+            ranked = candidates;
+        }
+
+        List<SearchDtos.SearchHitView> hits = ranked.stream()
+                .limit(rerankTopN)
                 .map(hit -> new SearchDtos.SearchHitView(
                         hit.documentId(),
                         hit.title(),
                         hit.chunkId(),
                         hit.chunkText(),
-                        rerank.scores().getOrDefault(hit.chunkId(), hit.score())
+                        rerankApplied && rerank.scores().containsKey(hit.chunkId())
+                                ? rerank.scores().get(hit.chunkId())
+                                : hit.score()
                 ))
-                .sorted(Comparator.comparingDouble(SearchDtos.SearchHitView::score).reversed())
-                .limit(rerankTopN)
                 .toList();
 
         long totalLatencyMs = System.currentTimeMillis() - totalStartedAtMs;
@@ -161,10 +208,18 @@ public class SearchService {
     }
 
     private RerankResult loadRerankScores(String query, List<ChunkSearchPort.ChunkHit> candidates) {
+        // Skip rerank if too few candidates
+        if (candidates.size() < rerankMinCandidates) {
+            return new RerankResult(Map.of(), true);
+        }
+
+        // Rerank all retrieved candidates (список уже ограничен retrievalTopK в search()).
+        List<ChunkSearchPort.ChunkHit> topCandidates = candidates;
+
         try {
             Map<String, Double> scores = chunkRerankPort.rerank(
                             query,
-                            candidates.stream()
+                            topCandidates.stream()
                                     .map(hit -> new ChunkRerankPort.Candidate(hit.chunkId(), hit.chunkText()))
                                     .toList()
                     ).stream()
@@ -251,6 +306,36 @@ public class SearchService {
             );
         }
 
+        // Проверяем semantic cache
+        List<String> contextChunkIds = prepared.sources().stream()
+                .map(SearchDtos.RagSourceView::chunkId)
+                .toList();
+
+        Optional<SemanticCacheService.CachedAnswer> cachedAnswer = semanticCacheService.findSimilarAnswer(question, contextChunkIds);
+        if (cachedAnswer.isPresent()) {
+            cacheHitsCounter.increment();
+            SemanticCacheService.CachedAnswer cached = cachedAnswer.get();
+
+            auditService.append(
+                    actor.id(),
+                    "rag.answer.cache_hit",
+                    "rag",
+                    prepared.ragId(),
+                    "cachedId=" + cached.id() + ", accessCount=" + cached.accessCount()
+            );
+
+            SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), 0L);
+            ragTotalTimer.record(pipeline.totalLatencyMs(), java.util.concurrent.TimeUnit.MILLISECONDS);
+
+            return new SearchDtos.AnswerWithSourcesResponse(
+                    question,
+                    STATUS_OK,
+                    cached.answer(),
+                    cached.sources(),
+                    pipeline
+            );
+        }
+
         long llmStartedAtMs = System.currentTimeMillis();
         LlmChatPort.ChatResponse llm = llmChatPort.chat(new LlmChatPort.ChatRequest(
                 question,
@@ -261,7 +346,19 @@ public class SearchService {
                 null
         ));
         long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
+        ragLlmTimer.record(llmLatencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
+        ragTotalTimer.record(pipeline.totalLatencyMs(), java.util.concurrent.TimeUnit.MILLISECONDS);
+
+        // Сохраняем в semantic cache
+        semanticCacheService.cacheAnswer(
+                question,
+                contextChunkIds,
+                llm.answer(),
+                llm.provider(),
+                llm.model(),
+                prepared.sources()
+        );
 
         auditService.append(
                 actor.id(),

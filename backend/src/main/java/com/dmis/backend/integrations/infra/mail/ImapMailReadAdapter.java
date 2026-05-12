@@ -2,6 +2,7 @@ package com.dmis.backend.integrations.infra.mail;
 
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.integrations.application.port.MailReadPort;
+import com.dmis.backend.integrations.domain.model.MailFolder;
 import com.dmis.backend.platform.error.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -32,7 +33,7 @@ public class ImapMailReadAdapter implements MailReadPort {
     }
 
     @Override
-    public List<IntegrationDtos.MailMessageSummaryView> listMailMessages(String mailbox) {
+    public List<IntegrationDtos.MailMessageSummaryView> listMailMessages(String mailbox, MailFolder folder) {
         String normalizedMailbox = normalizeMailbox(mailbox);
         try {
             MailpitMessagesResponse response = restClient.get()
@@ -40,12 +41,18 @@ public class ImapMailReadAdapter implements MailReadPort {
                     .retrieve()
                     .body(MailpitMessagesResponse.class);
             List<MailpitMessageSummary> messages = response == null ? List.of() : safeList(response.messages);
-            return messages.stream()
-                    .filter(message -> hasMailboxRecipient(message, normalizedMailbox))
-                    .map(this::toSummary)
-                    .sorted(Comparator.comparing(IntegrationDtos.MailMessageSummaryView::sentAtIso).reversed())
-                    .limit(DEFAULT_LIST_LIMIT)
-                    .toList();
+            List<IntegrationDtos.MailMessageSummaryView> mapped = new ArrayList<>();
+            for (MailpitMessageSummary message : messages) {
+                if (!matchesFolderFilter(message, normalizedMailbox, folder)) {
+                    continue;
+                }
+                mapped.add(toSummary(message));
+            }
+            mapped.sort(Comparator.comparing(IntegrationDtos.MailMessageSummaryView::sentAtIso).reversed());
+            if (mapped.size() > DEFAULT_LIST_LIMIT) {
+                mapped = mapped.subList(0, DEFAULT_LIST_LIMIT);
+            }
+            return mapped;
         } catch (ApiException ex) {
             throw ex;
         } catch (ResponseStatusException ex) {
@@ -67,7 +74,7 @@ public class ImapMailReadAdapter implements MailReadPort {
                     .uri("/api/v1/message/{id}", messageId)
                     .retrieve()
                     .body(MailpitMessageDetail.class);
-            if (message == null || !hasMailboxRecipient(message, normalizedMailbox)) {
+            if (message == null || !hasMailboxAccess(message, normalizedMailbox)) {
                 throw new ApiException(HttpStatus.NOT_FOUND, "MAIL_MESSAGE_NOT_FOUND", "Mail message not found");
             }
             return toDetail(message);
@@ -90,6 +97,7 @@ public class ImapMailReadAdapter implements MailReadPort {
             IntegrationDtos.MailMessageSearchRequest request
     ) {
         String normalizedMailbox = normalizeMailbox(mailbox);
+        MailFolder folder = MailFolder.fromNullable(request == null ? null : request.folder());
         String query = request == null ? "" : safeTrim(request.query());
         int limit = request == null ? DEFAULT_LIST_LIMIT : Math.max(1, Math.min(request.limit(), 200));
         if (query.isBlank()) {
@@ -103,7 +111,7 @@ public class ImapMailReadAdapter implements MailReadPort {
             List<MailpitMessageSummary> messages = response == null ? List.of() : safeList(response.messages);
             List<IntegrationDtos.MailMessageSummaryView> mapped = new ArrayList<>();
             for (MailpitMessageSummary message : messages) {
-                if (!hasMailboxRecipient(message, normalizedMailbox)) {
+                if (!matchesFolderFilter(message, normalizedMailbox, folder)) {
                     continue;
                 }
                 IntegrationDtos.MailMessageSummaryView summary = toSummary(message);
@@ -126,6 +134,72 @@ public class ImapMailReadAdapter implements MailReadPort {
         }
     }
 
+    @Override
+    public byte[] downloadAttachmentPart(String mailbox, String messageId, String partId) {
+        String normalizedMailbox = normalizeMailbox(mailbox);
+        if (messageId == null || messageId.isBlank() || partId == null || partId.isBlank()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "MAIL_ATTACHMENT_INVALID", "Invalid message or part id");
+        }
+        try {
+            MailpitMessageDetail message = restClient.get()
+                    .uri("/api/v1/message/{id}", messageId)
+                    .retrieve()
+                    .body(MailpitMessageDetail.class);
+            if (message == null || !hasMailboxAccess(message, normalizedMailbox)) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "MAIL_MESSAGE_NOT_FOUND", "Mail message not found");
+            }
+            byte[] body = restClient.get()
+                    .uri("/api/v1/message/{id}/part/{partId}", messageId, partId)
+                    .retrieve()
+                    .body(byte[].class);
+            if (body == null) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "MAIL_ATTACHMENT_NOT_FOUND", "Attachment not found");
+            }
+            return body;
+        } catch (ApiException ex) {
+            throw ex;
+        } catch (ResponseStatusException ex) {
+            if (ex.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "MAIL_ATTACHMENT_NOT_FOUND", "Attachment not found");
+            }
+            throw new ApiException(toHttpStatus(ex.getStatusCode().value()), "MAIL_READ_FAILED",
+                    "Attachment download failed: " + ex.getReason());
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "MAIL_READ_FAILED", "Attachment download failed: " + ex.getMessage());
+        }
+    }
+
+    private static boolean matchesFolderFilter(MailpitMessageSummary message, String mailbox, MailFolder folder) {
+        return switch (folder) {
+            case INBOX -> hasMailboxRecipient(message, mailbox);
+            case SENT -> fromAddressEquals(message.From, mailbox);
+            case DRAFT -> false;
+            case ARCHIVE -> false;
+            case ATTACHMENTS -> summaryHasAttachments(message)
+                    && (hasMailboxRecipient(message, mailbox) || fromAddressEquals(message.From, mailbox));
+        };
+    }
+
+    private static boolean hasMailboxAccess(MailpitMessageDetail message, String mailbox) {
+        return containsMailbox(safeList(message.To), mailbox)
+                || containsMailbox(safeList(message.Cc), mailbox)
+                || containsMailbox(safeList(message.Bcc), mailbox)
+                || fromAddressEquals(message.From, mailbox);
+    }
+
+    private static boolean summaryHasAttachments(MailpitMessageSummary message) {
+        Long n = message.Attachments;
+        return n != null && n > 0;
+    }
+
+    private static boolean fromAddressEquals(MailpitAddress from, String mailbox) {
+        if (from == null) {
+            return false;
+        }
+        String email = safeTrim(from.Address);
+        return !email.isBlank() && email.equalsIgnoreCase(mailbox);
+    }
+
     private static String normalizeMailbox(String mailbox) {
         String value = safeTrim(mailbox);
         if (value.isBlank()) {
@@ -144,7 +218,8 @@ public class ImapMailReadAdapter implements MailReadPort {
         String subject = safeTrim(message.Subject);
         String preview = safeTrim(message.Snippet);
         String sentAtIso = toIso(message.Created);
-        return new IntegrationDtos.MailMessageSummaryView(id, from, to, subject, preview, sentAtIso);
+        boolean hasAtt = summaryHasAttachments(message);
+        return new IntegrationDtos.MailMessageSummaryView(id, from, to, subject, preview, sentAtIso, hasAtt, false);
     }
 
     private IntegrationDtos.MailMessageDetailView toDetail(MailpitMessageDetail message) {
@@ -159,16 +234,35 @@ public class ImapMailReadAdapter implements MailReadPort {
         if (body.isBlank()) {
             body = normalizeText(stripHtml(safeTrim(message.HTML)));
         }
-        return new IntegrationDtos.MailMessageDetailView(id, from, to, subject, body, toIso(message.Date));
+        List<IntegrationDtos.MailAttachmentPartView> attachments = mapAttachments(safeList(message.Attachments));
+        return new IntegrationDtos.MailMessageDetailView(id, from, to, subject, body, toIso(message.Date), attachments);
+    }
+
+    private static List<IntegrationDtos.MailAttachmentPartView> mapAttachments(List<MailpitAttachment> attachments) {
+        if (attachments.isEmpty()) {
+            return List.of();
+        }
+        List<IntegrationDtos.MailAttachmentPartView> out = new ArrayList<>();
+        for (MailpitAttachment a : attachments) {
+            if (a == null || safeTrim(a.PartID).isBlank()) {
+                continue;
+            }
+            String ct = safeTrim(a.ContentType);
+            if (ct.isBlank()) {
+                ct = "application/octet-stream";
+            }
+            long size = a.Size <= 0 ? 0L : a.Size;
+            out.add(new IntegrationDtos.MailAttachmentPartView(
+                    safeTrim(a.PartID),
+                    safeTrim(a.FileName).isBlank() ? "attachment" : safeTrim(a.FileName),
+                    ct,
+                    size
+            ));
+        }
+        return out;
     }
 
     private static boolean hasMailboxRecipient(MailpitMessageSummary message, String mailbox) {
-        return containsMailbox(safeList(message.To), mailbox)
-                || containsMailbox(safeList(message.Cc), mailbox)
-                || containsMailbox(safeList(message.Bcc), mailbox);
-    }
-
-    private static boolean hasMailboxRecipient(MailpitMessageDetail message, String mailbox) {
         return containsMailbox(safeList(message.To), mailbox)
                 || containsMailbox(safeList(message.Cc), mailbox)
                 || containsMailbox(safeList(message.Bcc), mailbox);
@@ -274,6 +368,11 @@ public class ImapMailReadAdapter implements MailReadPort {
         public String Subject;
         public String Snippet;
         public String Created;
+        /**
+         * В ответе списка сообщений Mailpit передаёт число (вложения есть/нет или счётчик),
+         * не массив объектов — см. MessageSummary в API v1.
+         */
+        public Long Attachments;
     }
 
     private static final class MailpitMessageDetail {
@@ -286,6 +385,14 @@ public class ImapMailReadAdapter implements MailReadPort {
         public String Text;
         public String HTML;
         public String Date;
+        public List<MailpitAttachment> Attachments;
+    }
+
+    private static final class MailpitAttachment {
+        public String PartID;
+        public String FileName;
+        public String ContentType;
+        public long Size;
     }
 
     private static final class MailpitAddress {
@@ -293,4 +400,3 @@ public class ImapMailReadAdapter implements MailReadPort {
         public String Name;
     }
 }
-

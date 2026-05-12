@@ -32,7 +32,7 @@ class MailCalendarHttpAdapterCaldavSmokeTest {
         MailCalendarHttpAdapter adapter = new MailCalendarHttpAdapter(
                 mock(MailCalendarPersistenceAdapter.class),
                 new EmptyObjectProvider<>(),
-                "no-reply@dmis.test.local",
+                "no-reply@example.com",
                 baseUrl,
                 username,
                 password,

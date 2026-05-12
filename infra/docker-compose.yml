@@ -20,7 +20,7 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-http://ai-service:8002}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,prometheus}
       MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: ${MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS:-never}
-      # SMTP (Mailpit) для lightweight local-стека.
+      # SMTP → Mailpit (сервис mailpit:1025). Параметры см. infra/.env.example.
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
@@ -30,7 +30,8 @@ services:
       SMTP_CONNECT_TIMEOUT_MS: ${SMTP_CONNECT_TIMEOUT_MS:-5000}
       SMTP_READ_TIMEOUT_MS: ${SMTP_READ_TIMEOUT_MS:-10000}
       SMTP_WRITE_TIMEOUT_MS: ${SMTP_WRITE_TIMEOUT_MS:-10000}
-      MAIL_FROM: ${MAIL_FROM:-no-reply@dmis.local}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@example.com}
+      DMIS_DEMO_EMAIL_DOMAIN: ${DMIS_DEMO_EMAIL_DOMAIN:-example.com}
       # Mailpit API — используется backend для чтения писем.
       MAILPIT_BASE_URL: ${MAILPIT_BASE_URL:-http://mailpit:8025}
       MAILPIT_TIMEOUT_MS: ${MAILPIT_TIMEOUT_MS:-5000}

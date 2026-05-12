@@ -9,10 +9,19 @@ public interface MailCalendarPort {
 
     IntegrationDtos.CalendarDraftView saveCalendarDraft(IntegrationDtos.CalendarDraftView draftView);
 
-    IntegrationDtos.MailDraftView sendMailDraft(
+    default IntegrationDtos.MailDraftView sendMailDraft(
             IntegrationDtos.MailDraftView draft,
             String idempotencyKey,
             List<IntegrationDtos.MailAttachment> attachments
+    ) {
+        return sendMailDraft(draft, idempotencyKey, attachments, null);
+    }
+
+    IntegrationDtos.MailDraftView sendMailDraft(
+            IntegrationDtos.MailDraftView draft,
+            String idempotencyKey,
+            List<IntegrationDtos.MailAttachment> attachments,
+            String senderAddress
     );
 
     IntegrationDtos.CalendarDraftView sendCalendarDraft(IntegrationDtos.CalendarDraftView draft, String idempotencyKey);

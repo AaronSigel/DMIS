@@ -42,7 +42,7 @@ wait_for "${BASE_FRONTEND}/" "frontend /"
 echo "Login + flow smoke scenario..."
 LOGIN_JSON=$(curl -fsS -X POST "${BASE_BACKEND}/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@dmis.local","password":"demo"}')
+  -d '{"email":"admin@example.com","password":"demo"}')
 
 TOKEN=$(echo "$LOGIN_JSON" | sed -E 's/.*"token":"([^"]+)".*/\1/')
 
@@ -52,7 +52,7 @@ curl -fsS "${BASE_BACKEND}/api/users/me" \
 ACTION_JSON=$(curl -fsS -X POST "${BASE_BACKEND}/api/actions/draft" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -d '{"intent":"send_mail","entities":{"to":"demo@example.com"}}')
+  -d '{"intent":"send_email","entities":{"type":"send_email","to":"demo@example.com","subject":"DMIS smoke","body":"Smoke test body"}}')
 
 ACTION_ID=$(echo "$ACTION_JSON" | sed -E 's/.*"id":"([^"]+)".*/\1/')
 test -n "${ACTION_ID}"

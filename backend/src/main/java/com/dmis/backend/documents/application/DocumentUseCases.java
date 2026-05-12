@@ -28,7 +28,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -144,6 +146,30 @@ public class DocumentUseCases {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
         aclService.requireDocumentRead(actor, document.ownerId());
         return toView(document);
+    }
+
+    public Map<String, DocumentDtos.DocumentView> getAccessibleByIds(UserView actor, Collection<String> documentIds) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            return Map.of();
+        }
+        List<DocumentId> ids = documentIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .map(String::trim)
+                .distinct()
+                .map(DocumentId::from)
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+
+        boolean isAdmin = aclService.isAdmin(actor);
+        Map<String, DocumentDtos.DocumentView> views = new HashMap<>();
+        for (Document document : documentPort.findAllByIds(new LinkedHashSet<>(ids))) {
+            if (isAdmin || document.ownerId().equals(actor.id())) {
+                views.put(document.id().value(), toView(document));
+            }
+        }
+        return Map.copyOf(views);
     }
 
     public DocumentDtos.DocumentView patch(UserView actor, String documentId, DocumentDtos.PatchDocumentRequest request) {

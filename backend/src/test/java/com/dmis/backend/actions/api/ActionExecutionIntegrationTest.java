@@ -111,10 +111,10 @@ class ActionExecutionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EXECUTED"));
 
-        int calDrafts = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM calendar_drafts WHERE title = ?",
-                Integer.class, "Standup");
-        assertEquals(1, calDrafts);
+        int calEvents = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM calendar_events WHERE title = ? AND creation_source = ?",
+                Integer.class, "Standup", "AI_ACTION");
+        assertEquals(1, calEvents);
     }
 
     @Test
@@ -166,7 +166,7 @@ class ActionExecutionIntegrationTest {
                                 {"intent":"send_email","entities":{"type":"send_email","to":"@admin","subject":"Test","body":"Hello"}}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.entities.to").value("admin@dmis.local"));
+                .andExpect(jsonPath("$.entities.to").value("admin@example.com"));
 
         mockMvc.perform(post("/api/actions/draft")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -175,7 +175,7 @@ class ActionExecutionIntegrationTest {
                                 {"intent":"create_calendar_event","entities":{"type":"create_calendar_event","title":"Meet","attendees":["@admin"],"startIso":"2026-05-10T09:00:00Z","endIso":"2026-05-10T09:30:00Z"}}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.entities.attendees[0]").value("admin@dmis.local"));
+                .andExpect(jsonPath("$.entities.attendees[0]").value("admin@example.com"));
     }
 
     @Test
@@ -259,7 +259,7 @@ class ActionExecutionIntegrationTest {
     private String loginAndGetToken() throws Exception {
         String json = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@dmis.local\",\"password\":\"demo\"}"))
+                        .content("{\"email\":\"admin@example.com\",\"password\":\"demo\"}"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

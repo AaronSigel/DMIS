@@ -57,15 +57,16 @@ From the **repository root**:
 3. `make up` (runs `docker compose up -d --build` in `infra/`)
 4. `make smoke` (runs `infra/smoke.sh`)
 5. Open frontend: `http://localhost:5173`
-6. Use demo login: `admin@dmis.local` / `demo`
+6. Use demo login: `admin@example.com` / `demo`
 
-Shut down: `make down` from the repo root.
+Shut down: `make down` from the repo root (тома данных по умолчанию **сохраняются**).
 
-For a clean restart from zero data:
+Полный сброс персистентных данных (пустая БД и MinIO при следующем `make up`):
 
-- `cd infra && docker compose down -v`
-- `make up`
-- `make smoke`
+- `make down CLEAN_DATA=1` или `make clean-data` — удаляет тома `postgres_data`, `minio_data`, `prometheus_data`, `grafana_data`.
+- затем `make up` и при необходимости `make smoke`
+
+После этого PostgreSQL поднимается «с нуля»: Flyway создаёт схему заново. В профиле `demo` снова создаются только учётки bootstrap из `DataBootstrap` — без ваших документов и логов. Mailpit и Radicale в compose без именованных томов: их содержимое сбрасывается при пересоздании контейнеров.
 
 ### Local frontend dev (`npm run dev`)
 

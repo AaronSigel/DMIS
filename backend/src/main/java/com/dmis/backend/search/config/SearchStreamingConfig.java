@@ -15,8 +15,8 @@ public class SearchStreamingConfig {
     @Profile("!test")
     public TaskExecutor ragStreamExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(8);
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(16);
         executor.setQueueCapacity(100);
         executor.setThreadNamePrefix("rag-stream-");
         executor.setWaitForTasksToCompleteOnShutdown(true);

@@ -10,11 +10,14 @@ import com.dmis.backend.search.application.port.LlmChatPort;
 import com.dmis.backend.shared.model.RoleName;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SearchServiceTest {
     @Test
     void searchUsesRerankScoresWhenAvailable() {
+        SemanticCacheService noopCache = Mockito.mock(SemanticCacheService.class);
+        Mockito.when(noopCache.findSimilarAnswer(Mockito.any(), Mockito.any())).thenReturn(Optional.empty());
         SearchService service = new SearchService(
                 (actorId, isAdmin, query, limit, documentIds) -> List.of(
                         new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "policy alpha", 0.9),
@@ -35,10 +40,13 @@ class SearchServiceTest {
                 new AclService(),
                 new FakeLlmChatPort(),
                 new AuditService(new NoopAuditPort()),
+                new SimpleMeterRegistry(),
+                noopCache,
                 10,
                 5,
                 3,
                 4000,
+                0,
                 0
         );
 
@@ -52,6 +60,8 @@ class SearchServiceTest {
 
     @Test
     void searchFallsBackToRetrievalScoresWhenRerankerFails() {
+        SemanticCacheService noopCache2 = Mockito.mock(SemanticCacheService.class);
+        Mockito.when(noopCache2.findSimilarAnswer(Mockito.any(), Mockito.any())).thenReturn(Optional.empty());
         SearchService service = new SearchService(
                 (actorId, isAdmin, query, limit, documentIds) -> List.of(
                         new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "policy alpha", 0.9),
@@ -63,10 +73,13 @@ class SearchServiceTest {
                 new AclService(),
                 new FakeLlmChatPort(),
                 new AuditService(new NoopAuditPort()),
+                new SimpleMeterRegistry(),
+                noopCache2,
                 10,
                 5,
                 3,
                 4000,
+                0,
                 0
         );
 
@@ -78,8 +91,49 @@ class SearchServiceTest {
     }
 
     @Test
+    void searchReranksFullRetrievalPoolSoTailChunkCanLeadResults() {
+        SemanticCacheService noopCache = Mockito.mock(SemanticCacheService.class);
+        Mockito.when(noopCache.findSimilarAnswer(Mockito.any(), Mockito.any())).thenReturn(Optional.empty());
+        List<ChunkSearchPort.ChunkHit> tenHits = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            tenHits.add(new ChunkSearchPort.ChunkHit("doc", "Doc", "c-" + i, "chunk " + i, 1.0 - i * 0.05));
+        }
+        SearchService service = new SearchService(
+                (actorId, isAdmin, query, limit, documentIds) ->
+                        tenHits.stream().limit(Math.min(limit, tenHits.size())).toList(),
+                (query, candidates) -> {
+                    assertEquals(10, candidates.size());
+                    return tenHits.stream()
+                            .map(h -> new ChunkRerankPort.RerankScore(
+                                    h.chunkId(),
+                                    "c-10".equals(h.chunkId()) ? 100.0 : 1.0))
+                            .toList();
+                },
+                new AclService(),
+                new FakeLlmChatPort(),
+                new AuditService(new NoopAuditPort()),
+                new SimpleMeterRegistry(),
+                noopCache,
+                10,
+                5,
+                3,
+                4000,
+                0,
+                3
+        );
+
+        SearchDtos.SearchOnlyResponse response = service.search(admin(), "q");
+
+        assertEquals(5, response.hits().size());
+        assertEquals("c-10", response.hits().getFirst().chunkId());
+        assertEquals(100.0, response.hits().getFirst().score(), 0.0001);
+    }
+
+    @Test
     void answerUsesSameRerankedRetrievalOrderForContextAndIncludesVersionedSources() {
         FakeLlmChatPort llm = new FakeLlmChatPort();
+        SemanticCacheService noopCache3 = Mockito.mock(SemanticCacheService.class);
+        Mockito.when(noopCache3.findSimilarAnswer(Mockito.any(), Mockito.any())).thenReturn(Optional.empty());
         SearchService service = new SearchService(
                 (actorId, isAdmin, query, limit, documentIds) -> List.of(
                         new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "alpha context", 0.9),
@@ -92,10 +146,13 @@ class SearchServiceTest {
                 new AclService(),
                 llm,
                 new AuditService(new NoopAuditPort()),
+                new SimpleMeterRegistry(),
+                noopCache3,
                 10,
                 5,
                 3,
                 4000,
+                0,
                 0
         );
 
@@ -115,17 +172,22 @@ class SearchServiceTest {
     @Test
     void answerReturnsNoContextWithoutLlmCallWhenNoHitsFound() {
         FakeLlmChatPort llm = new FakeLlmChatPort();
+        SemanticCacheService noopCache4 = Mockito.mock(SemanticCacheService.class);
+        Mockito.when(noopCache4.findSimilarAnswer(Mockito.any(), Mockito.any())).thenReturn(Optional.empty());
         SearchService service = new SearchService(
                 (actorId, isAdmin, query, limit, documentIds) -> List.of(),
                 (query, candidates) -> List.of(),
                 new AclService(),
                 llm,
                 new AuditService(new NoopAuditPort()),
+                new SimpleMeterRegistry(),
+                noopCache4,
                 10,
                 5,
                 3,
                 4000,
-                0
+                0,
+                3
         );
 
         SearchDtos.AnswerWithSourcesResponse response = service.answer(admin(), "missing");
@@ -138,7 +200,7 @@ class SearchServiceTest {
     }
 
     private static UserView admin() {
-        return new UserView("u-admin", "admin@dmis.local", "Admin", Set.of(RoleName.ADMIN));
+        return new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
     }
 
     private static final class FakeLlmChatPort implements LlmChatPort {

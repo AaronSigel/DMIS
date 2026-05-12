@@ -57,12 +57,18 @@ cd infra
 ./scripts/stack.sh config
 ```
 
-Полный сброс данных (только при необходимости):
+Полный сброс персистентных данных (PostgreSQL, MinIO, Prometheus, Grafana):
 
 ```bash
-cd infra
-docker compose down -v
+# из корня репозитория (по умолчанию make down тома не трогает)
+make down CLEAN_DATA=1
+# или короткий алиас:
+make clean-data
 ```
+
+Эквивалент: `cd infra && docker compose down -v`. После следующего `make up` Flyway создаёт схему заново.
+
+В профиле **`demo`** при первом старте снова выполняются только автозасев пользователей (`DataBootstrap`) и демо-документов (`demoContentBootstrap`). Если нужна «пустая» БД только со схемой и без демо-контента и без учёток bootstrap — запускайте backend с **`SPRING_PROFILES_ACTIVE=dev`** и создавайте пользователей отдельно (или временно меняйте профиль в `infra/.env`).
 
 ## 3) Smoke checklist
 
@@ -120,7 +126,7 @@ docker compose down -v
 Короткий e2e-сценарий для финальной проверки ключевого MVP-пути после `up -d --build`.
 Демо-данные засеваются автоматически в профиле `demo` (`DmisBackendApplication.demoContentBootstrap`).
 
-1. Открыть `http://<vm-host>:5173`, войти как `admin@dmis.local` / `demo`.
+1. Открыть `http://<vm-host>:5173`, войти как `admin@example.com` / `demo`.
 2. Перейти в «Документы», нажать кнопку «Архив» — в списке должен остаться
    только `Старый отчёт 2024 Q3` (тег `archive`). URL: `/documents?archive=1`.
    Снять «Архив» — снова видны все демо-документы.

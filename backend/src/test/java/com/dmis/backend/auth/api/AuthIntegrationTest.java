@@ -61,7 +61,7 @@ class AuthIntegrationTest {
     void loginReturnsJwtAndAllowsUsersMe() throws Exception {
         MvcResult mvcResult = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@dmis.local\",\"password\":\"demo\"}"))
+                        .content("{\"email\":\"admin@example.com\",\"password\":\"demo\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").exists())
                 .andExpect(jsonPath("$.refreshToken").doesNotExist())
@@ -79,18 +79,18 @@ class AuthIntegrationTest {
         mockMvc.perform(get("/api/users/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value("admin@dmis.local"));
+                .andExpect(jsonPath("$.email").value("admin@example.com"));
     }
 
     @Test
     void loginAutoSyncsMailAccount() throws Exception {
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
 
         mockMvc.perform(get("/api/mail/account")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.connected").value(true))
-                .andExpect(jsonPath("$.imapUsername").value("admin@dmis.local"));
+                .andExpect(jsonPath("$.imapUsername").value("admin@example.com"));
     }
 
     @Test
@@ -105,19 +105,19 @@ class AuthIntegrationTest {
 
     @Test
     void refreshWithValidTokenReturnsNewTokenPair() throws Exception {
-        Cookie refreshCookie = loginAndGetRefreshCookie("admin@dmis.local");
+        Cookie refreshCookie = loginAndGetRefreshCookie("admin@example.com");
 
         mockMvc.perform(post("/api/auth/refresh").cookie(refreshCookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").exists())
                 .andExpect(jsonPath("$.refreshToken").doesNotExist())
-                .andExpect(jsonPath("$.user.email").value("admin@dmis.local"))
+                .andExpect(jsonPath("$.user.email").value("admin@example.com"))
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("dmis_refresh=")));
     }
 
     @Test
     void refreshTokenReuseRevokesWholeFamily() throws Exception {
-        Cookie initialRefresh = loginAndGetRefreshCookie("admin@dmis.local");
+        Cookie initialRefresh = loginAndGetRefreshCookie("admin@example.com");
 
         MvcResult rotateResult = mockMvc.perform(post("/api/auth/refresh").cookie(initialRefresh))
                 .andExpect(status().isOk())
@@ -151,8 +151,8 @@ class AuthIntegrationTest {
 
     @Test
     void usersListRequiresAdminRole() throws Exception {
-        String adminToken = loginAndGetToken("admin@dmis.local");
-        String userToken = loginAndGetToken("analyst@dmis.local");
+        String adminToken = loginAndGetToken("admin@example.com");
+        String userToken = loginAndGetToken("analyst@example.com");
 
         mockMvc.perform(get("/api/users")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
@@ -166,8 +166,8 @@ class AuthIntegrationTest {
 
     @Test
     void auditListRequiresAdminRole() throws Exception {
-        String adminToken = loginAndGetToken("admin@dmis.local");
-        String userToken = loginAndGetToken("analyst@dmis.local");
+        String adminToken = loginAndGetToken("admin@example.com");
+        String userToken = loginAndGetToken("analyst@example.com");
 
         mockMvc.perform(get("/api/audit")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))

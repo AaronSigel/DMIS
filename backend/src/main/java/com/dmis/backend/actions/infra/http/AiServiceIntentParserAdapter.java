@@ -15,22 +15,34 @@ public class AiServiceIntentParserAdapter implements IntentParserPort {
     private static final String SYSTEM_PROMPT = """
             Ты извлекаешь действие для корпоративной системы документооборота.
             Доступны только intent:
-            - %s
-            - %s
-            - %s
+            - %s — отправить письмо
+            - %s — создать событие календаря
+            - %s — обновить теги документа
+            - %s — перенести событие календаря
+            - %s — сгенерировать повестку встречи по документам
+            - %s — найти свободные слоты для встречи
             Верни только структурированный JSON с полями intent и entities.
-            Для %s entities: to, subject, body.
+            Для %s entities: to, subject, body, опционально attachmentDocumentIds (массив id документов).
             Для %s entities: title, attendees (массив email), startIso, endIso.
             Для %s entities: documentId, tags (массив строк).
+            Для %s entities: eventId, опционально title, startIso, endIso.
+            Для %s entities: eventId, опционально extraDocumentIds (массив id документов).
+            Для %s entities: attendeeEmails (массив email), fromIso, toIso, slotMinutes (целое число минут).
             Не используй пустые строки и пустые массивы как валидные значения entities.
             Если данных недостаточно, верни наиболее вероятный intent, но заполняй entities только содержательными значениями.
             """.formatted(
             ActionDtos.SEND_EMAIL_INTENT,
             ActionDtos.CREATE_CALENDAR_EVENT_INTENT,
             ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT,
+            ActionDtos.RESCHEDULE_CALENDAR_EVENT_INTENT,
+            ActionDtos.PREPARE_MEETING_AGENDA_INTENT,
+            ActionDtos.SUGGEST_MEETING_SLOTS_INTENT,
             ActionDtos.SEND_EMAIL_INTENT,
             ActionDtos.CREATE_CALENDAR_EVENT_INTENT,
-            ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT
+            ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT,
+            ActionDtos.RESCHEDULE_CALENDAR_EVENT_INTENT,
+            ActionDtos.PREPARE_MEETING_AGENDA_INTENT,
+            ActionDtos.SUGGEST_MEETING_SLOTS_INTENT
     );
 
     private final RestClient restClient;

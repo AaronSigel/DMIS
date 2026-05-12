@@ -35,6 +35,15 @@ public class CalendarEventEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "creation_source", nullable = false)
+    private String creationSource;
+
+    @Column(name = "source_mail_message_id")
+    private String sourceMailMessageId;
+
     protected CalendarEventEntity() {
     }
 
@@ -46,7 +55,10 @@ public class CalendarEventEntity {
             String endIso,
             String createdBy,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            String description,
+            String creationSource,
+            String sourceMailMessageId
     ) {
         this.id = id;
         this.title = title;
@@ -56,6 +68,9 @@ public class CalendarEventEntity {
         this.createdBy = createdBy;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.description = description;
+        this.creationSource = creationSource;
+        this.sourceMailMessageId = sourceMailMessageId;
     }
 
     public String getId() {
@@ -88,5 +103,17 @@ public class CalendarEventEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public String getCreationSource() {
+        return creationSource;
+    }
+
+    public String getSourceMailMessageId() {
+        return sourceMailMessageId;
     }
 }

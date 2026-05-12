@@ -45,7 +45,7 @@ class AssistantActionParseIntegrationTest {
         when(intentParserPort.parse("Отправь письмо директору"))
                 .thenReturn(new IntentParserPort.ParsedIntent(
                         "send_email",
-                        Map.of("to", "director@dmis.local", "subject", "Отчет", "body", "Отчет готов")
+                        Map.of("to", "director@example.com", "subject", "Отчет", "body", "Отчет готов")
                 ));
         String token = loginAndGetToken();
 
@@ -57,7 +57,7 @@ class AssistantActionParseIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.intent").value("send_email"))
                 .andExpect(jsonPath("$.entities.type").value("send_email"))
-                .andExpect(jsonPath("$.entities.to").value("director@dmis.local"));
+                .andExpect(jsonPath("$.entities.to").value("director@example.com"));
     }
 
     @Test
@@ -77,7 +77,7 @@ class AssistantActionParseIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.intent").value("send_email"))
                 .andExpect(jsonPath("$.entities.type").value("send_email"))
-                .andExpect(jsonPath("$.entities.to").value("analyst@dmis.local"));
+                .andExpect(jsonPath("$.entities.to").value("analyst@example.com"));
     }
 
     @Test
@@ -133,7 +133,7 @@ class AssistantActionParseIntegrationTest {
     private String loginAndGetToken() throws Exception {
         String json = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@dmis.local\",\"password\":\"demo\"}"))
+                        .content("{\"email\":\"admin@example.com\",\"password\":\"demo\"}"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

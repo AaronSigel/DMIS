@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -53,6 +54,16 @@ public class DocumentPersistenceAdapter implements DocumentPort {
     @Override
     public Optional<Document> findById(DocumentId id) {
         return documentJpaRepository.findById(id.value()).map(this::toDomain);
+    }
+
+    @Override
+    public List<Document> findAllByIds(Collection<DocumentId> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return documentJpaRepository.findAllById(ids.stream().map(DocumentId::value).toList()).stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     @Override

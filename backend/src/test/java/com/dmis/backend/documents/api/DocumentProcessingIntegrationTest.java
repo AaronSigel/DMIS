@@ -142,7 +142,7 @@ class DocumentProcessingIntegrationTest {
             return out;
         });
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "policy-v1.txt", "v1 text");
 
         mockMvc.perform(get("/api/documents")
@@ -162,7 +162,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "replace-source.txt", "initial");
         Instant now = Instant.now();
 
@@ -201,8 +201,8 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String adminToken = loginAndGetToken("admin@dmis.local");
-        String analystToken = loginAndGetToken("analyst@dmis.local");
+        String adminToken = loginAndGetToken("admin@example.com");
+        String analystToken = loginAndGetToken("analyst@example.com");
         String documentId = upload(adminToken, "admin-doc.txt", "admin text");
 
         mockMvc.perform(patch("/api/documents/{documentId}", documentId)
@@ -225,7 +225,7 @@ class DocumentProcessingIntegrationTest {
             return out;
         });
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "policy.txt", "alpha beta policy text");
         indexingWorker.flushPending();
 
@@ -249,7 +249,7 @@ class DocumentProcessingIntegrationTest {
 
     @Test
     void getDocumentReturnsNotFoundForUnknownId() throws Exception {
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         mockMvc.perform(get("/api/documents/{documentId}", "doc-missing")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isNotFound())
@@ -263,7 +263,7 @@ class DocumentProcessingIntegrationTest {
         doNothing().when(objectStoragePort).delete(anyString());
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "downloadable.txt", "v1 text");
 
         mockMvc.perform(get("/api/documents/{documentId}/binary", documentId)
@@ -287,7 +287,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "demo-ref-doc.txt", "text");
 
         jdbcTemplate.update(
@@ -313,7 +313,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "bad-ref-doc.txt", "text");
 
         doThrow(new IllegalArgumentException("Invalid storage reference"))
@@ -330,7 +330,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         upload(token, "zzz-policy.txt", "b text");
         upload(token, "aaa-policy.txt", "a text");
         indexingWorker.flushPending();
@@ -369,7 +369,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenThrow(new IllegalStateException("Embeddings service unavailable"));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "broken.txt",
@@ -406,7 +406,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "queued.txt",
@@ -468,7 +468,7 @@ class DocumentProcessingIntegrationTest {
 
     @Test
     void uploadRejectsUnsupportedFileType() throws Exception {
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         MockMultipartFile badFile = new MockMultipartFile(
                 "file",
                 "script.sh",
@@ -486,7 +486,7 @@ class DocumentProcessingIntegrationTest {
     void uploadRejectsEicarWhenScannerReportsInfected() throws Exception {
         when(malwareScanPort.scan(anyString(), any())).thenReturn(DocumentMalwareScanPort.ScanVerdict.INFECTED);
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         MockMultipartFile eicarFile = new MockMultipartFile(
                 "file",
                 "eicar.txt",
@@ -507,7 +507,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         MockMultipartFile cleanFile = new MockMultipartFile(
                 "file",
                 "clean.txt",
@@ -526,7 +526,7 @@ class DocumentProcessingIntegrationTest {
 
     @Test
     void uploadRejectsTooLargeFile() throws Exception {
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         byte[] hugeContent = new byte[20 * 1024 * 1024 + 1];
         MockMultipartFile hugeFile = new MockMultipartFile(
                 "file",
@@ -546,7 +546,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         upload(token, "page-b.txt", "b");
         upload(token, "page-a.txt", "a");
 
@@ -580,7 +580,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "plain.txt", "hello extracted");
 
         String body = mockMvc.perform(get("/api/documents/{documentId}/extracted-text", documentId)
@@ -598,7 +598,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "inline.txt", "v1 text");
 
         mockMvc.perform(get("/api/documents/{documentId}/binary", documentId)
@@ -614,7 +614,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.presignDownload("minio://test-bucket/path", 300)).thenReturn("http://minio.local/presigned");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "presigned.txt", "v1 text");
 
         mockMvc.perform(get("/api/documents/{documentId}/download-url", documentId)
@@ -629,8 +629,8 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String adminToken = loginAndGetToken("admin@dmis.local");
-        String analystToken = loginAndGetToken("analyst@dmis.local");
+        String adminToken = loginAndGetToken("admin@example.com");
+        String analystToken = loginAndGetToken("analyst@example.com");
         String documentId = upload(adminToken, "owner-only.txt", "private");
 
         mockMvc.perform(get("/api/documents/{documentId}/download-url", documentId)
@@ -645,7 +645,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String taggedId = upload(token, "tagged.txt", "x");
         String partialTagId = upload(token, "partial-tagged.txt", "z");
         upload(token, "other.txt", "y");
@@ -684,7 +684,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.load("minio://test-bucket/path")).thenReturn("v1 text".getBytes(StandardCharsets.UTF_8));
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "original-name.txt", "v1 text");
 
         mockMvc.perform(patch("/api/documents/{documentId}", documentId)
@@ -706,7 +706,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "noop-patch.txt", "x");
 
         mockMvc.perform(patch("/api/documents/{documentId}", documentId)
@@ -722,7 +722,7 @@ class DocumentProcessingIntegrationTest {
         when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/path");
         when(embeddingsPort.embed(anyList())).thenReturn(List.of(dummyEmbedding1024()));
 
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         String documentId = upload(token, "ext-test.txt", "body");
 
         mockMvc.perform(patch("/api/documents/{documentId}", documentId)
@@ -735,7 +735,7 @@ class DocumentProcessingIntegrationTest {
 
     @Test
     void uploadRejectsEmptyFile() throws Exception {
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
         MockMultipartFile emptyFile = new MockMultipartFile(
                 "file",
                 "empty.txt",
@@ -778,7 +778,7 @@ class DocumentProcessingIntegrationTest {
     }
 
     private String loginAndGetToken() throws Exception {
-        return loginAndGetToken("admin@dmis.local");
+        return loginAndGetToken("admin@example.com");
     }
 
     private static float[] dummyEmbedding1024() {

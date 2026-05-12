@@ -1,6 +1,7 @@
 package com.dmis.backend.integrations.infra.mail;
 
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
+import com.dmis.backend.integrations.domain.model.MailFolder;
 import com.dmis.backend.platform.error.ApiException;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -12,7 +13,7 @@ class ImapMailReadAdapterTest {
     @Test
     void listMailMessages_throwsMailboxNotFound_whenMailboxBlank() {
         ImapMailReadAdapter adapter = new ImapMailReadAdapter(RestClient.builder(), "http://localhost:8025");
-        ApiException ex = assertThrows(ApiException.class, () -> adapter.listMailMessages("  "));
+        ApiException ex = assertThrows(ApiException.class, () -> adapter.listMailMessages("  ", MailFolder.INBOX));
         assertEquals("MAILBOX_NOT_FOUND", ex.errorCode());
     }
 
@@ -28,7 +29,7 @@ class ImapMailReadAdapterTest {
         ImapMailReadAdapter adapter = new ImapMailReadAdapter(RestClient.builder(), "http://localhost:8025");
         IntegrationDtos.MailMessageSearchView result = adapter.searchMailMessages(
                 "user@example.com",
-                new IntegrationDtos.MailMessageSearchRequest("   ", 10)
+                new IntegrationDtos.MailMessageSearchRequest("   ", 10, null)
         );
         assertEquals("", result.query());
         assertEquals(0, result.messages().size());

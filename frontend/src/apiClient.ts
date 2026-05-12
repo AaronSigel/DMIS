@@ -1,11 +1,18 @@
 import { z } from "zod";
 import type { DocumentPage, DocumentView } from "./entities/document";
-import type { CalendarEvent, CalendarEventUpsertPayload } from "./entities/calendar";
+import type {
+  AvailabilityResponse,
+  CalendarEvent,
+  CalendarEventUpsertPayload,
+  UserSummary,
+} from "./entities/calendar";
 import type {
   MailAccount,
   MailMessageDetail,
   MailMessageSearch,
   MailMessageSummary,
+  MailDraft,
+  MailThreadSummary,
 } from "./entities/mail";
 import type { AuditRecord } from "./entities/audit";
 import {
@@ -19,12 +26,19 @@ import {
   DocumentViewSchema,
 } from "./shared/api/schemas/document";
 import { ActionViewSchema, type ActionView } from "./shared/api/schemas/action";
-import { CalendarEventListSchema, CalendarEventSchema } from "./shared/api/schemas/calendar";
+import {
+  AvailabilityResponseSchema,
+  CalendarEventListSchema,
+  CalendarEventSchema,
+  UserSummaryListSchema,
+} from "./shared/api/schemas/calendar";
 import {
   MailMessageDetailSchema,
   MailMessageListSchema,
   MailAccountSchema,
   MailMessageSearchSchema,
+  MailDraftSchema,
+  MailThreadSummarySchema,
 } from "./shared/api/schemas/mail";
 import { AuditRecordListSchema } from "./shared/api/schemas/audit";
 
@@ -768,20 +782,159 @@ export async function apiDeleteDocument(
   }
 }
 
-/** Список событий календаря (`GET /calendar/events`). */
+/** Список событий календаря (`GET /calendar/events`), опционально с `from`/`to` (ISO). */
+export type CalendarListParams = { from: string; to: string } | undefined;
+
 export async function apiListCalendarEvents(
+  params: CalendarListParams,
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
 ): Promise<CalendarEvent[]> {
+  const qs = new URLSearchParams();
+  if (params?.from) qs.set("from", params.from);
+  if (params?.to) qs.set("to", params.to);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const response = await fetchWithAuth(
-    `${apiBaseUrl}/calendar/events`,
+    `${apiBaseUrl}/calendar/events${suffix}`,
     { method: "GET" },
     onNewToken,
   );
   return parseAuthenticatedSchema(response, CalendarEventListSchema, onUnauthorized);
 }
 
-/** Список аудита (`GET /audit`). */
+/** Поиск пользователей для участников календаря (`GET /users/search`). */
+export async function apiSearchUsers(
+  query: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<UserSummary[]> {
+  const qs = new URLSearchParams({ q: query });
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/users/search?${qs.toString()}`,
+    { method: "GET" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, UserSummaryListSchema, onUnauthorized);
+}
+
+/** Свободные слоты (`POST /calendar/availability`). */
+export async function apiPostCalendarAvailability(
+  body: { attendeeEmails: string[]; fromIso: string; toIso: string; slotMinutes: number },
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<AvailabilityResponse> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/availability`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, AvailabilityResponseSchema, onUnauthorized);
+}
+
+/** Создание события из письма (`POST /calendar/events/from-mail`). */
+export async function apiCreateCalendarFromMail(
+  body: { mailbox: string; messageId: string },
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/from-mail`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
+
+/** Черновик повестки через LLM (`POST /calendar/events/{id}/agenda`). */
+export async function apiPostCalendarAgenda(
+  eventId: string,
+  extraDocumentIds: string[] | undefined,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/agenda`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(extraDocumentIds?.length ? { extraDocumentIds } : {}),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
+
+export async function apiAddCalendarParticipant(
+  eventId: string,
+  userId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/participants`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
+
+export async function apiRemoveCalendarParticipant(
+  eventId: string,
+  userId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
+
+export async function apiAddCalendarAttachment(
+  eventId: string,
+  body: { documentId: string; role: string },
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/attachments`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
+
+export async function apiRemoveCalendarAttachment(
+  eventId: string,
+  attachmentId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<CalendarEvent> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { method: "DELETE" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, CalendarEventSchema, onUnauthorized);
+}
 export async function apiListAudit(
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
@@ -848,6 +1001,9 @@ export async function apiDeleteCalendarEvent(
   }
 }
 
+/** Виртуальная папка ящика (`GET /mail/messages?folder=`). */
+export type ApiMailFolder = "INBOX" | "SENT" | "DRAFT" | "ARCHIVE" | "ATTACHMENTS";
+
 /**
  * Список писем для текущего пользователя.
  *
@@ -855,11 +1011,17 @@ export async function apiDeleteCalendarEvent(
  * фронтенду не требуется передавать его явно.
  */
 export async function apiListMailMessages(
+  folder: ApiMailFolder | undefined,
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
 ): Promise<MailMessageSummary[]> {
+  const qs = new URLSearchParams();
+  if (folder && folder !== "INBOX") {
+    qs.set("folder", folder);
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const response = await fetchWithAuth(
-    `${apiBaseUrl}/mail/messages`,
+    `${apiBaseUrl}/mail/messages${suffix}`,
     { method: "GET" },
     onNewToken,
   );
@@ -883,6 +1045,7 @@ export async function apiGetMailMessage(
 export type ApiSearchMailMessagesParams = {
   query: string;
   limit: number;
+  folder?: ApiMailFolder;
 };
 
 /** Поиск писем (`POST /mail/messages/search`). Mailbox опускаем — backend подставит email пользователя. */
@@ -896,11 +1059,156 @@ export async function apiSearchMailMessages(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: params.query, limit: params.limit }),
+      body: JSON.stringify({
+        query: params.query,
+        limit: params.limit,
+        folder: params.folder && params.folder !== "INBOX" ? params.folder : "",
+      }),
     },
     onNewToken,
   );
   return parseAuthenticatedSchema(response, MailMessageSearchSchema, onUnauthorized);
+}
+
+export async function apiListMailDrafts(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailDraft[]> {
+  const response = await fetchWithAuth(`${apiBaseUrl}/mail/drafts`, { method: "GET" }, onNewToken);
+  return parseAuthenticatedSchema(response, z.array(MailDraftSchema), onUnauthorized);
+}
+
+export async function apiCreateMailDraft(
+  payload: { to: string; subject: string; body: string; attachmentDocumentIds?: string[] },
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailDraft> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/drafts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailDraftSchema, onUnauthorized);
+}
+
+export async function apiUpdateMailDraft(
+  draftId: string,
+  payload: { to: string; subject: string; body: string; attachmentDocumentIds?: string[] },
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailDraft> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/drafts/${encodeURIComponent(draftId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailDraftSchema, onUnauthorized);
+}
+
+export async function apiSendMailDraft(
+  draftId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailDraft> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/drafts/${encodeURIComponent(draftId)}/send`,
+    { method: "POST" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailDraftSchema, onUnauthorized);
+}
+
+export async function apiReplyDraft(
+  messageId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailDraft> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/reply-draft`,
+    { method: "POST" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailDraftSchema, onUnauthorized);
+}
+
+export async function apiForwardDraft(
+  messageId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailDraft> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/forward-draft`,
+    { method: "POST" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailDraftSchema, onUnauthorized);
+}
+
+export async function apiMailThreadSummary(
+  threadId: string,
+  messageIds: string[] | undefined,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<MailThreadSummary> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/threads/${encodeURIComponent(threadId)}/summary`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageIds: messageIds ?? [] }),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, MailThreadSummarySchema, onUnauthorized);
+}
+
+export async function apiSaveMailAttachmentToDocuments(
+  messageId: string,
+  partId: string,
+  fileName: string | undefined,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<DocumentView> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(partId)}/save-to-documents`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fileName ? { fileName } : {}),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, DocumentViewSchema, onUnauthorized);
+}
+
+/** Скачивает вложение в браузер (blob). */
+export async function apiDownloadMailAttachment(
+  messageId: string,
+  partId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<Blob> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(partId)}`,
+    { method: "GET" },
+    onNewToken,
+  );
+  if (response.status === 401 || response.status === 403) {
+    onUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.blob();
 }
 
 export async function apiGetMailAccount(

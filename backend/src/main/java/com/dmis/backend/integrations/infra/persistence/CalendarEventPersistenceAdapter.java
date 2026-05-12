@@ -2,6 +2,7 @@ package com.dmis.backend.integrations.infra.persistence;
 
 import com.dmis.backend.integrations.application.port.CalendarEventPort;
 import com.dmis.backend.integrations.domain.model.CalendarEvent;
+import com.dmis.backend.integrations.domain.model.EventCreationSource;
 import com.dmis.backend.integrations.infra.persistence.entity.CalendarEventEntity;
 import com.dmis.backend.integrations.infra.persistence.repository.CalendarEventJpaRepository;
 import org.springframework.stereotype.Component;
@@ -34,6 +35,20 @@ public class CalendarEventPersistenceAdapter implements CalendarEventPort {
     }
 
     @Override
+    public List<CalendarEvent> listByCreatedByOverlapping(String createdBy, String rangeStart, String rangeEnd) {
+        return calendarEventJpaRepository.findByCreatedByOverlappingRange(createdBy, rangeStart, rangeEnd).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<CalendarEvent> listAllOverlapping(String rangeStart, String rangeEnd) {
+        return calendarEventJpaRepository.findAllOverlappingRange(rangeStart, rangeEnd).stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
     public Optional<CalendarEvent> findById(String id) {
         return calendarEventJpaRepository.findById(id).map(this::toDomain);
     }
@@ -51,7 +66,10 @@ public class CalendarEventPersistenceAdapter implements CalendarEventPort {
                 event.endIso(),
                 event.createdBy(),
                 createdAt,
-                updatedAt
+                updatedAt,
+                event.description(),
+                event.creationSource().name(),
+                event.sourceMailMessageId()
         );
         calendarEventJpaRepository.save(entity);
         return toDomain(entity);
@@ -71,8 +89,22 @@ public class CalendarEventPersistenceAdapter implements CalendarEventPort {
                 e.getEndIso(),
                 e.getCreatedBy(),
                 e.getCreatedAt(),
-                e.getUpdatedAt()
+                e.getUpdatedAt(),
+                e.getDescription() == null ? "" : e.getDescription(),
+                parseCreationSource(e.getCreationSource()),
+                e.getSourceMailMessageId()
         );
+    }
+
+    private static EventCreationSource parseCreationSource(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return EventCreationSource.UI;
+        }
+        try {
+            return EventCreationSource.valueOf(raw);
+        } catch (IllegalArgumentException ignored) {
+            return EventCreationSource.UI;
+        }
     }
 
     private static String attendeesToCsv(List<String> attendees) {

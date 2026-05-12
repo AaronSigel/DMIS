@@ -56,7 +56,8 @@ public class MailCalendarPersistenceAdapter implements MailCalendarPort {
     public IntegrationDtos.MailDraftView sendMailDraft(
             IntegrationDtos.MailDraftView draft,
             String idempotencyKey,
-            List<IntegrationDtos.MailAttachment> attachments
+            List<IntegrationDtos.MailAttachment> attachments,
+            String senderAddress
     ) {
         return draft;
     }

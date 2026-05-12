@@ -14,6 +14,7 @@ import com.dmis.backend.documents.application.DocumentUseCases;
 import com.dmis.backend.documents.application.dto.DocumentDtos;
 import com.dmis.backend.integrations.application.IntegrationService;
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
+import com.dmis.backend.integrations.domain.model.EventCreationSource;
 import com.dmis.backend.shared.model.RoleName;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -65,8 +67,8 @@ class ActionServiceTest {
                 10,
                 26_214_400L
         );
-        owner = new UserView("u-owner", "owner@dmis.local", "Owner", Set.of(RoleName.USER));
-        outsider = new UserView("u-outsider", "out@dmis.local", "Out", Set.of(RoleName.USER));
+        owner = new UserView("u-owner", "owner@example.com", "Owner", Set.of(RoleName.USER));
+        outsider = new UserView("u-outsider", "out@example.com", "Out", Set.of(RoleName.USER));
     }
 
     @Test
@@ -94,8 +96,8 @@ class ActionServiceTest {
 
     @Test
     void listReturnsOnlyActorActionsForNonAdmin() {
-        actionService.draft(owner, "send_email", new SendEmailEntities("owner@dmis.local", "Subj", "Body"));
-        actionService.draft(outsider, "send_email", new SendEmailEntities("out@dmis.local", "Subj", "Body"));
+        actionService.draft(owner, "send_email", new SendEmailEntities("owner@example.com", "Subj", "Body"));
+        actionService.draft(outsider, "send_email", new SendEmailEntities("out@example.com", "Subj", "Body"));
 
         List<ActionDtos.AiActionView> ownerActions = actionService.list(owner);
 
@@ -164,13 +166,15 @@ class ActionServiceTest {
         actionService.confirm(owner, draft.id());
         doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Calendar service unavailable"))
                 .when(integrationService)
-                .sendCalendarEvent(
+                .createCalendarEvent(
                         eq(owner),
                         eq("Standup"),
                         anyList(),
                         eq("2026-05-10T09:00:00Z"),
                         eq("2026-05-10T09:30:00Z"),
-                        eq("action:" + draft.id())
+                        eq(""),
+                        eq(EventCreationSource.AI_ACTION),
+                        isNull()
                 );
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> actionService.execute(owner, draft.id()));
@@ -178,13 +182,15 @@ class ActionServiceTest {
         assertEquals(HttpStatus.BAD_GATEWAY, exception.getStatusCode());
         assertTrue(exception.getReason().contains("Calendar service unavailable"));
         assertEquals(ActionStatus.CONFIRMED, aiActionPort.findById(draft.id()).orElseThrow().status());
-        verify(integrationService).sendCalendarEvent(
+        verify(integrationService).createCalendarEvent(
                 eq(owner),
                 eq("Standup"),
                 anyList(),
                 eq("2026-05-10T09:00:00Z"),
                 eq("2026-05-10T09:30:00Z"),
-                eq("action:" + draft.id())
+                eq(""),
+                eq(EventCreationSource.AI_ACTION),
+                isNull()
         );
     }
 

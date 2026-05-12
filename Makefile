@@ -1,10 +1,16 @@
-.PHONY: up down smoke test build lint daily-summary
+.PHONY: up down clean-data smoke test build lint daily-summary
 
+# Остановка стека: по умолчанию тома PostgreSQL/MinIO/Prometheus/Grafana сохраняются.
+# Удалить тома (полный сброс данных): make down CLEAN_DATA=1
+# Краткий алиас: make clean-data
 up:
 	cd infra && docker compose up -d --build
 
 down:
-	cd infra && docker compose down
+	cd infra && docker compose down $$([ "$(CLEAN_DATA)" = "1" ] && echo "-v" || true)
+
+clean-data:
+	@$(MAKE) down CLEAN_DATA=1
 
 smoke:
 	bash infra/smoke.sh

@@ -16,13 +16,16 @@ export const queryKeys = {
     metrics: ["dashboard-metrics"] as const,
   },
   mail: {
-    list: ["mail", "list"] as const,
+    list: (folder: string) => ["mail", "list", folder] as const,
     detail: (id: string) => ["mail", "detail", id] as const,
-    search: (query: string) => ["mail", "search", query] as const,
+    search: (query: string, folder: string) => ["mail", "search", query, folder] as const,
     account: ["mail", "account"] as const,
   },
   calendar: {
-    list: ["calendar", "list"] as const,
+    list: (range?: { from: string; to: string }) =>
+      range
+        ? (["calendar", "list", range.from, range.to] as const)
+        : (["calendar", "list", "all"] as const),
   },
   audit: {
     list: ["audit", "list"] as const,

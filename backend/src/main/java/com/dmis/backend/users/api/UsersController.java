@@ -7,6 +7,7 @@ import com.dmis.backend.users.application.dto.UserSummaryView;
 import com.dmis.backend.users.application.port.UserAccessPort;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -31,6 +32,12 @@ public class UsersController {
     @GetMapping("/me")
     public UserView me() {
         return currentUserProvider.currentUser();
+    }
+
+    @GetMapping("/search")
+    public List<UserSummaryView> searchUsers(@RequestParam("q") String q) {
+        currentUserProvider.currentUser();
+        return userAccessPort.searchSummaries(q, 20);
     }
 
     @GetMapping

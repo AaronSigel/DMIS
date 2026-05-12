@@ -4,7 +4,6 @@ import com.dmis.backend.integrations.application.IntegrationService;
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.platform.security.CurrentUserProvider;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import org.springframework.http.ResponseEntity;
@@ -23,7 +22,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
 @RestController
@@ -37,75 +38,42 @@ public class IntegrationsController {
         this.currentUserProvider = currentUserProvider;
     }
 
-    @PostMapping("/mail/drafts")
-    public IntegrationDtos.MailDraftView mailDraft(@Valid @RequestBody MailDraftRequest request) {
-        return integrationService.createMailDraft(currentUserProvider.currentUser(), request.to(), request.subject(), request.body());
-    }
-
-    @GetMapping("/mail/account")
-    public IntegrationDtos.MailAccountView getMailAccount() {
-        return integrationService.getMailAccount(currentUserProvider.currentUser());
-    }
-
-    @PutMapping("/mail/account")
-    public IntegrationDtos.MailAccountView upsertMailAccount(@Valid @RequestBody MailAccountUpsertRequest request) {
-        return integrationService.upsertMailAccount(
-                currentUserProvider.currentUser(),
-                request.imapUsername(),
-                request.password(),
-                request.imapHost(),
-                request.imapPort()
-        );
-    }
-
-    @DeleteMapping("/mail/account")
-    public ResponseEntity<Void> deleteMailAccount() {
-        integrationService.deleteMailAccount(currentUserProvider.currentUser());
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/mail/messages")
-    public List<IntegrationDtos.MailMessageSummaryView> listMailMessages(
-            @RequestParam(value = "mailbox", required = false, defaultValue = "") String mailbox
-    ) {
-        return integrationService.listMailMessages(currentUserProvider.currentUser(), resolveMailbox(mailbox));
-    }
-
-    @GetMapping("/mail/messages/{id}")
-    public IntegrationDtos.MailMessageDetailView getMailMessage(
-            @PathVariable("id") @NotBlank String id,
-            @RequestParam(value = "mailbox", required = false, defaultValue = "") String mailbox
-    ) {
-        return integrationService.getMailMessage(currentUserProvider.currentUser(), resolveMailbox(mailbox), id);
-    }
-
-    @PostMapping("/mail/messages/search")
-    public IntegrationDtos.MailMessageSearchView searchMailMessages(
-            @Valid @RequestBody MailSearchRequest request
-    ) {
-        IntegrationDtos.MailMessageSearchRequest searchRequest =
-                new IntegrationDtos.MailMessageSearchRequest(request.query(), request.limit());
-        return integrationService.searchMailMessages(
-                currentUserProvider.currentUser(),
-                resolveMailbox(request.mailbox()),
-                searchRequest
-        );
-    }
-
     @GetMapping("/calendar/events")
-    public List<IntegrationDtos.CalendarEventView> listCalendarEvents() {
-        return integrationService.listCalendarEvents(currentUserProvider.currentUser());
+    public List<IntegrationDtos.CalendarEventView> listCalendarEvents(
+            @RequestParam(value = "from", required = false) String from,
+            @RequestParam(value = "to", required = false) String to
+    ) {
+        boolean hasFrom = from != null && !from.isBlank();
+        boolean hasTo = to != null && !to.isBlank();
+        if (hasFrom != hasTo) {
+            throw new ResponseStatusException(BAD_REQUEST, "Параметры from и to должны передаваться вместе");
+        }
+        return integrationService.listCalendarEvents(
+                currentUserProvider.currentUser(),
+                hasFrom ? Optional.of(from.trim()) : Optional.empty(),
+                hasTo ? Optional.of(to.trim()) : Optional.empty()
+        );
     }
 
     @PostMapping("/calendar/events")
     public IntegrationDtos.CalendarEventView createCalendarEvent(@Valid @RequestBody CalendarEventUpsertRequest request) {
         validateDateRange(request.startIso(), request.endIso());
-        return integrationService.createCalendarEvent(
+        return integrationService.createCalendarEventUi(
                 currentUserProvider.currentUser(),
                 request.title(),
                 request.attendees(),
                 request.startIso(),
-                request.endIso()
+                request.endIso(),
+                request.description()
+        );
+    }
+
+    @PostMapping("/calendar/events/from-mail")
+    public IntegrationDtos.CalendarEventView createCalendarEventFromMail(@Valid @RequestBody IntegrationDtos.CreateCalendarEventFromMailRequest request) {
+        return integrationService.createCalendarEventFromMail(
+                currentUserProvider.currentUser(),
+                request.mailbox(),
+                request.messageId()
         );
     }
 
@@ -126,7 +94,8 @@ public class IntegrationsController {
                 request.title(),
                 request.attendees(),
                 request.startIso(),
-                request.endIso()
+                request.endIso(),
+                request.description()
         );
     }
 
@@ -134,6 +103,64 @@ public class IntegrationsController {
     public ResponseEntity<Void> deleteCalendarEvent(@PathVariable("id") @NotBlank String id) {
         integrationService.deleteCalendarEvent(currentUserProvider.currentUser(), id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/calendar/events/{id}/participants")
+    public IntegrationDtos.CalendarEventView addParticipant(
+            @PathVariable("id") @NotBlank String eventId,
+            @Valid @RequestBody IntegrationDtos.AddCalendarParticipantRequest request
+    ) {
+        return integrationService.addCalendarParticipant(
+                currentUserProvider.currentUser(),
+                eventId,
+                request.userId()
+        );
+    }
+
+    @DeleteMapping("/calendar/events/{id}/participants/{userId}")
+    public IntegrationDtos.CalendarEventView removeParticipant(
+            @PathVariable("id") @NotBlank String eventId,
+            @PathVariable("userId") @NotBlank String userId
+    ) {
+        return integrationService.removeCalendarParticipant(currentUserProvider.currentUser(), eventId, userId);
+    }
+
+    @PostMapping("/calendar/events/{id}/attachments")
+    public IntegrationDtos.CalendarEventView addAttachment(
+            @PathVariable("id") @NotBlank String eventId,
+            @Valid @RequestBody IntegrationDtos.AddCalendarAttachmentRequest request
+    ) {
+        return integrationService.addCalendarAttachment(
+                currentUserProvider.currentUser(),
+                eventId,
+                request.documentId(),
+                request.role()
+        );
+    }
+
+    @DeleteMapping("/calendar/events/{id}/attachments/{attachmentId}")
+    public IntegrationDtos.CalendarEventView removeAttachment(
+            @PathVariable("id") @NotBlank String eventId,
+            @PathVariable("attachmentId") @NotBlank String attachmentId
+    ) {
+        return integrationService.removeCalendarAttachment(currentUserProvider.currentUser(), eventId, attachmentId);
+    }
+
+    @PostMapping("/calendar/availability")
+    public IntegrationDtos.AvailabilityResponse availability(@Valid @RequestBody IntegrationDtos.AvailabilityRequest request) {
+        return integrationService.calendarAvailability(currentUserProvider.currentUser(), request);
+    }
+
+    @PostMapping("/calendar/events/{id}/agenda")
+    public IntegrationDtos.CalendarEventView generateAgenda(
+            @PathVariable("id") @NotBlank String eventId,
+            @RequestBody(required = false) AgendaRequest body
+    ) {
+        List<String> extra = body != null && body.extraDocumentIds() != null ? body.extraDocumentIds() : List.of();
+        return integrationService.prepareMeetingAgendaDraft(currentUserProvider.currentUser(), eventId, extra);
+    }
+
+    public record AgendaRequest(List<String> extraDocumentIds) {
     }
 
     @GetMapping("/calendar/free-busy")
@@ -170,17 +197,6 @@ public class IntegrationsController {
         }
     }
 
-    public record MailDraftRequest(@NotBlank @Email String to, @NotBlank String subject, @NotBlank String body) {
-    }
-
-    public record MailAccountUpsertRequest(
-            String imapHost,
-            Integer imapPort,
-            String imapUsername,
-            String password
-    ) {
-    }
-
     public record CalendarDraftRequest(
             @NotBlank String title,
             @NotEmpty List<String> attendees,
@@ -193,18 +209,12 @@ public class IntegrationsController {
             @NotBlank String title,
             @NotEmpty List<String> attendees,
             @NotBlank String startIso,
-            @NotBlank String endIso
+            @NotBlank String endIso,
+            String description
     ) {
     }
 
     public record TranscriptRequest(@NotBlank String text) {
-    }
-
-    public record MailSearchRequest(
-            @NotBlank String query,
-            String mailbox,
-            int limit
-    ) {
     }
 
     public record TranscriptResponse(String text, String status) {
@@ -237,12 +247,5 @@ public class IntegrationsController {
         } catch (Exception ex) {
             throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "Invalid ISO datetime format");
         }
-    }
-
-    private String resolveMailbox(String mailbox) {
-        if (mailbox == null || mailbox.isBlank()) {
-            return currentUserProvider.currentUser().email();
-        }
-        return mailbox;
     }
 }

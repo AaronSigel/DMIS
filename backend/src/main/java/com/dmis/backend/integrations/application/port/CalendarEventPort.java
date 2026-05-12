@@ -11,6 +11,11 @@ public interface CalendarEventPort {
 
     List<CalendarEvent> listAllOrderByStartIsoAsc();
 
+    /** Пересечение с полуоткрытым интервалом {@code [rangeStart, rangeEnd)} по строковым ISO (UTC). */
+    List<CalendarEvent> listByCreatedByOverlapping(String createdBy, String rangeStart, String rangeEnd);
+
+    List<CalendarEvent> listAllOverlapping(String rangeStart, String rangeEnd);
+
     Optional<CalendarEvent> findById(String id);
 
     CalendarEvent save(CalendarEvent event);

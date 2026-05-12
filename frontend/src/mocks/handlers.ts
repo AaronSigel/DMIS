@@ -1,16 +1,22 @@
 import { http, HttpResponse } from "msw";
 
 const usersByEmail = {
-  "admin@dmis.local": {
+  "admin@example.com": {
     id: "u-admin",
     fullName: "System Admin",
-    email: "admin@dmis.local",
+    email: "admin@example.com",
     roles: ["ADMIN"],
   },
-  "user@dmis.local": {
+  "analyst@example.com": {
+    id: "u-analyst",
+    fullName: "Data Analyst",
+    email: "analyst@example.com",
+    roles: ["USER"],
+  },
+  "user@example.com": {
     id: "u-user",
     fullName: "Demo User",
-    email: "user@dmis.local",
+    email: "user@example.com",
     roles: ["USER"],
   },
 } as const;
@@ -39,7 +45,7 @@ const defaultDocument = {
 } as const;
 
 function buildUserByEmail(email: string) {
-  return usersByEmail[email as keyof typeof usersByEmail] ?? usersByEmail["admin@dmis.local"];
+  return usersByEmail[email as keyof typeof usersByEmail] ?? usersByEmail["admin@example.com"];
 }
 
 function buildDocumentPage(page: number, size: number) {
@@ -70,18 +76,38 @@ type CalendarEventMock = {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  description: string;
+  creationSource: string;
+  sourceMailMessageId: string | null;
+  participants: {
+    userId: string | null;
+    email: string;
+    displayName: string;
+    status: string;
+  }[];
+  attachments: {
+    id: string;
+    documentId: string;
+    documentTitle: string;
+    role: string;
+  }[];
 };
 
 let calendarEvents: CalendarEventMock[] = [
   {
     id: "event-1",
     title: "Планерка проекта",
-    attendees: ["alice@dmis.local", "admin@dmis.local"],
+    attendees: ["alice@example.com", "admin@example.com"],
     startIso: "2026-05-01T09:00:00Z",
     endIso: "2026-05-01T10:00:00Z",
     createdBy: "u-admin",
     createdAt: "2026-05-01T08:00:00Z",
     updatedAt: "2026-05-01T08:00:00Z",
+    description: "",
+    creationSource: "UI",
+    sourceMailMessageId: null,
+    participants: [],
+    attachments: [],
   },
 ];
 
@@ -98,9 +124,9 @@ let aiActions: AiActionMock[] = [];
 
 let mailAccount = {
   connected: true,
-  imapHost: "imap.dmis.local",
+  imapHost: "imap.example.com",
   imapPort: 993,
-  imapUsername: "admin@dmis.local",
+  imapUsername: "admin@example.com",
 };
 
 export const handlers = [
@@ -108,7 +134,7 @@ export const handlers = [
 
   http.post("*/auth/login", async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as { email?: string };
-    const user = buildUserByEmail(body.email ?? "admin@dmis.local");
+    const user = buildUserByEmail(body.email ?? "admin@example.com");
     aiActions = [];
     return HttpResponse.json({
       token: "token-1",
@@ -161,7 +187,7 @@ export const handlers = [
         entities: {
           type: "create_calendar_event",
           title: "Обсуждение схемотехники",
-          attendees: ["analyst@dmis.local"],
+          attendees: ["analyst@example.com"],
           startIso: "2026-05-09T12:00:00Z",
           endIso: "2026-05-09T13:00:00Z",
         },
@@ -251,11 +277,13 @@ export const handlers = [
     HttpResponse.json([
       {
         id: "mail-1",
-        from: "alice@dmis.local",
-        to: "admin@dmis.local",
+        from: "alice@example.com",
+        to: "admin@example.com",
         subject: "Hello from Alice",
         preview: "Привет, нужно обсудить контракт",
         sentAtIso: "2026-05-01T10:00:00Z",
+        hasAttachments: false,
+        draft: false,
       },
     ]),
   ),
@@ -282,11 +310,12 @@ export const handlers = [
     if (params.messageId === "mail-1") {
       return HttpResponse.json({
         id: "mail-1",
-        from: "alice@dmis.local",
-        to: "admin@dmis.local",
+        from: "alice@example.com",
+        to: "admin@example.com",
         subject: "Hello from Alice",
         body: "Привет!\nНужно обсудить контракт на следующей неделе.",
         sentAtIso: "2026-05-01T10:00:00Z",
+        attachments: [],
       });
     }
     return HttpResponse.json({ message: "Mail not found" }, { status: 404 });
@@ -300,7 +329,38 @@ export const handlers = [
     });
   }),
 
-  http.get("*/calendar/events", () => HttpResponse.json(calendarEvents)),
+  http.get("*/users/search", ({ request }) => {
+    const q = new URL(request.url).searchParams.get("q")?.trim().toLowerCase() ?? "";
+    const pool = [
+      { id: "u-admin", email: "admin@example.com", fullName: "System Admin" },
+      { id: "u-analyst", email: "analyst@example.com", fullName: "Data Analyst" },
+      { id: "u-user", email: "user@example.com", fullName: "Demo User" },
+    ];
+    const filtered =
+      q.length < 2
+        ? []
+        : pool.filter(
+            (u) => u.email.toLowerCase().includes(q) || u.fullName.toLowerCase().includes(q),
+          );
+    return HttpResponse.json(filtered);
+  }),
+
+  http.get("*/calendar/events", ({ request }) => {
+    const url = new URL(request.url);
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    let list = calendarEvents;
+    if (from && to) {
+      const fs = Date.parse(from);
+      const te = Date.parse(to);
+      list = calendarEvents.filter((ev) => {
+        const s = Date.parse(ev.startIso);
+        const e = Date.parse(ev.endIso);
+        return e > fs && s < te;
+      });
+    }
+    return HttpResponse.json(list);
+  }),
 
   http.post("*/calendar/events", async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as {
@@ -308,6 +368,7 @@ export const handlers = [
       attendees?: string[];
       startIso?: string;
       endIso?: string;
+      description?: string;
     };
     const nowIso = new Date().toISOString();
     const created: CalendarEventMock = {
@@ -319,9 +380,135 @@ export const handlers = [
       createdBy: "u-admin",
       createdAt: nowIso,
       updatedAt: nowIso,
+      description: body.description ?? "",
+      creationSource: "UI",
+      sourceMailMessageId: null,
+      participants: [],
+      attachments: [],
     };
     calendarEvents = [...calendarEvents, created];
     return HttpResponse.json(created, { status: 200 });
+  }),
+
+  http.post("*/calendar/events/from-mail", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      mailbox?: string;
+      messageId?: string;
+    };
+    const nowIso = new Date().toISOString();
+    const start = new Date(Date.now() + 3600_000).toISOString();
+    const end = new Date(Date.now() + 7200_000).toISOString();
+    const created: CalendarEventMock = {
+      id: `event-${Math.random().toString(36).slice(2, 9)}`,
+      title: "Встреча по письму",
+      attendees: ["admin@example.com"],
+      startIso: start,
+      endIso: end,
+      createdBy: "u-admin",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      description: "Создано из письма",
+      creationSource: "MAIL",
+      sourceMailMessageId: body.messageId ?? null,
+      participants: [],
+      attachments: [],
+    };
+    calendarEvents = [...calendarEvents, created];
+    return HttpResponse.json(created);
+  }),
+
+  http.post("*/calendar/availability", () =>
+    HttpResponse.json({
+      slots: [
+        { startIso: "2026-05-10T10:00:00Z", endIso: "2026-05-10T10:30:00Z" },
+        { startIso: "2026-05-10T14:00:00Z", endIso: "2026-05-10T14:30:00Z" },
+      ],
+    }),
+  ),
+
+  http.post("*/calendar/events/:eventId/agenda", ({ params }) => {
+    const index = calendarEvents.findIndex((e) => e.id === params.eventId);
+    if (index < 0) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const ev = calendarEvents[index];
+    if (!ev) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const updated: CalendarEventMock = {
+      ...ev,
+      description: `${ev.description}\n\n--- Повестка ---\n- Пункт 1\n- Пункт 2`,
+      updatedAt: new Date().toISOString(),
+    };
+    calendarEvents = calendarEvents.map((e) => (e.id === params.eventId ? updated : e));
+    return HttpResponse.json(updated);
+  }),
+
+  http.post("*/calendar/events/:eventId/participants", async ({ params, request }) => {
+    const body = (await request.json().catch(() => ({}))) as { userId?: string };
+    const index = calendarEvents.findIndex((e) => e.id === params.eventId);
+    if (index < 0) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const ev = calendarEvents[index];
+    if (!ev) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const uid = body.userId ?? "u-user";
+    const email = uid === "u-admin" ? "admin@example.com" : "user@example.com";
+    const name = uid === "u-admin" ? "System Admin" : "Demo User";
+    const updated: CalendarEventMock = {
+      ...ev,
+      participants: [
+        ...ev.participants,
+        { userId: uid, email, displayName: name, status: "PENDING" },
+      ],
+      attendees: [...new Set([...ev.attendees, email])],
+      updatedAt: new Date().toISOString(),
+    };
+    calendarEvents = calendarEvents.map((e) => (e.id === params.eventId ? updated : e));
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete("*/calendar/events/:eventId/participants/:userId", ({ params }) => {
+    const index = calendarEvents.findIndex((e) => e.id === params.eventId);
+    if (index < 0) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const ev = calendarEvents[index];
+    if (!ev) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const updated: CalendarEventMock = {
+      ...ev,
+      participants: ev.participants.filter((p) => p.userId !== params.userId),
+      updatedAt: new Date().toISOString(),
+    };
+    calendarEvents = calendarEvents.map((e) => (e.id === params.eventId ? updated : e));
+    return HttpResponse.json(updated);
+  }),
+
+  http.post("*/calendar/events/:eventId/attachments", async ({ params, request }) => {
+    const body = (await request.json().catch(() => ({}))) as { documentId?: string; role?: string };
+    const index = calendarEvents.findIndex((e) => e.id === params.eventId);
+    if (index < 0) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const ev = calendarEvents[index];
+    if (!ev) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const att = {
+      id: `att-${Math.random().toString(36).slice(2, 7)}`,
+      documentId: body.documentId ?? "doc-1",
+      documentTitle: "Policy Doc",
+      role: body.role ?? "AGENDA",
+    };
+    const updated: CalendarEventMock = {
+      ...ev,
+      attachments: [...ev.attachments, att],
+      updatedAt: new Date().toISOString(),
+    };
+    calendarEvents = calendarEvents.map((e) => (e.id === params.eventId ? updated : e));
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete("*/calendar/events/:eventId/attachments/:attachmentId", ({ params }) => {
+    const index = calendarEvents.findIndex((e) => e.id === params.eventId);
+    if (index < 0) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const ev = calendarEvents[index];
+    if (!ev) return HttpResponse.json({ message: "Not found" }, { status: 404 });
+    const updated: CalendarEventMock = {
+      ...ev,
+      attachments: ev.attachments.filter((a) => a.id !== params.attachmentId),
+      updatedAt: new Date().toISOString(),
+    };
+    calendarEvents = calendarEvents.map((e) => (e.id === params.eventId ? updated : e));
+    return HttpResponse.json(updated);
   }),
 
   http.put("*/calendar/events/:eventId", async ({ params, request }) => {
@@ -330,6 +517,7 @@ export const handlers = [
       attendees?: string[];
       startIso?: string;
       endIso?: string;
+      description?: string;
     };
     const index = calendarEvents.findIndex((event) => event.id === params.eventId);
     if (index < 0) {
@@ -345,6 +533,7 @@ export const handlers = [
       attendees: body.attendees ?? previous.attendees,
       startIso: body.startIso ?? previous.startIso,
       endIso: body.endIso ?? previous.endIso,
+      description: body.description ?? previous.description,
       updatedAt: new Date().toISOString(),
     };
     calendarEvents = calendarEvents.map((event) => (event.id === params.eventId ? updated : event));

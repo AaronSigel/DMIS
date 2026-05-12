@@ -3,7 +3,10 @@ package com.dmis.backend.actions.application;
 import com.dmis.backend.actions.application.dto.ActionDtos;
 import com.dmis.backend.actions.application.dto.ActionDtos.ActionEntities;
 import com.dmis.backend.actions.application.dto.ActionDtos.CreateCalendarEventEntities;
+import com.dmis.backend.actions.application.dto.ActionDtos.PrepareMeetingAgendaEntities;
+import com.dmis.backend.actions.application.dto.ActionDtos.RescheduleCalendarEventEntities;
 import com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities;
+import com.dmis.backend.actions.application.dto.ActionDtos.SuggestMeetingSlotsEntities;
 import com.dmis.backend.actions.application.dto.ActionDtos.UpdateDocumentTagsEntities;
 import com.dmis.backend.actions.application.port.AiActionPort;
 import com.dmis.backend.actions.domain.ActionStatus;
@@ -11,6 +14,7 @@ import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.documents.application.DocumentUseCases;
 import com.dmis.backend.documents.application.dto.DocumentDtos;
 import com.dmis.backend.integrations.application.IntegrationService;
+import com.dmis.backend.integrations.domain.model.EventCreationSource;
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
@@ -151,7 +155,7 @@ public class ActionService {
         validateEntitiesMatchIntent(action.intent(), action.entities());
         try {
             switch (action.intent()) {
-                case "send_email" -> {
+                case ActionDtos.SEND_EMAIL_INTENT -> {
                     SendEmailEntities entities = (SendEmailEntities) action.entities();
                     List<IntegrationDtos.MailAttachment> attachments = resolveMailAttachments(actor, entities);
                     integrationService.sendMail(
@@ -163,18 +167,54 @@ public class ActionService {
                             attachments
                     );
                 }
-                case "create_calendar_event" -> {
+                case ActionDtos.CREATE_CALENDAR_EVENT_INTENT -> {
                     CreateCalendarEventEntities entities = (CreateCalendarEventEntities) action.entities();
-                    integrationService.sendCalendarEvent(
+                    integrationService.createCalendarEvent(
                             actor,
                             entities.title(),
                             entities.attendees(),
                             entities.startIso(),
                             entities.endIso(),
-                            integrationIdempotencyKey(action.id())
+                            "",
+                            EventCreationSource.AI_ACTION,
+                            null
                     );
                 }
-                case "update_document_tags" -> {
+                case ActionDtos.RESCHEDULE_CALENDAR_EVENT_INTENT -> {
+                    RescheduleCalendarEventEntities entities = (RescheduleCalendarEventEntities) action.entities();
+                    IntegrationDtos.CalendarEventView existing = integrationService.getCalendarEvent(actor, entities.eventId());
+                    String title = entities.title() != null && !entities.title().isBlank()
+                            ? entities.title()
+                            : existing.title();
+                    integrationService.updateCalendarEvent(
+                            actor,
+                            entities.eventId(),
+                            title,
+                            existing.attendees(),
+                            entities.startIso(),
+                            entities.endIso(),
+                            existing.description()
+                    );
+                }
+                case ActionDtos.PREPARE_MEETING_AGENDA_INTENT -> {
+                    PrepareMeetingAgendaEntities entities = (PrepareMeetingAgendaEntities) action.entities();
+                    integrationService.prepareMeetingAgendaDraft(actor, entities.eventId(), entities.extraDocumentIds());
+                }
+                case ActionDtos.SUGGEST_MEETING_SLOTS_INTENT -> {
+                    SuggestMeetingSlotsEntities entities = (SuggestMeetingSlotsEntities) action.entities();
+                    IntegrationDtos.AvailabilityResponse av = integrationService.calendarAvailability(
+                            actor,
+                            new IntegrationDtos.AvailabilityRequest(
+                                    entities.attendeeEmails(),
+                                    entities.fromIso(),
+                                    entities.toIso(),
+                                    entities.slotMinutes()
+                            )
+                    );
+                    auditService.append(actor.id(), "calendar.slots.suggested", "ai_action", action.id(),
+                            "Suggested slots: " + av.slots());
+                }
+                case ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT -> {
                     UpdateDocumentTagsEntities entities = (UpdateDocumentTagsEntities) action.entities();
                     documentUseCases.patch(
                             actor,
@@ -232,6 +272,14 @@ public class ActionService {
                     e.endIso()
             );
             case UpdateDocumentTagsEntities e -> e;
+            case RescheduleCalendarEventEntities e -> e;
+            case PrepareMeetingAgendaEntities e -> e;
+            case SuggestMeetingSlotsEntities e -> new SuggestMeetingSlotsEntities(
+                    e.attendeeEmails().stream().map(userMentionResolver::resolve).toList(),
+                    e.fromIso(),
+                    e.toIso(),
+                    e.slotMinutes()
+            );
         };
     }
 
@@ -257,6 +305,9 @@ public class ActionService {
             case ActionDtos.SEND_EMAIL_INTENT -> entities instanceof SendEmailEntities;
             case ActionDtos.CREATE_CALENDAR_EVENT_INTENT -> entities instanceof CreateCalendarEventEntities;
             case ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT -> entities instanceof UpdateDocumentTagsEntities;
+            case ActionDtos.RESCHEDULE_CALENDAR_EVENT_INTENT -> entities instanceof RescheduleCalendarEventEntities;
+            case ActionDtos.PREPARE_MEETING_AGENDA_INTENT -> entities instanceof PrepareMeetingAgendaEntities;
+            case ActionDtos.SUGGEST_MEETING_SLOTS_INTENT -> entities instanceof SuggestMeetingSlotsEntities;
             default -> false;
         };
         if (!matches) {

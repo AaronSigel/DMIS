@@ -46,7 +46,7 @@ class CalendarEventsIntegrationTest {
 
     @Test
     void analystCrudLifecycle() throws Exception {
-        String token = loginAndGetToken("analyst@dmis.local");
+        String token = loginAndGetToken("analyst@example.com");
 
         String body = mockMvc.perform(post("/api/calendar/events")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -120,7 +120,7 @@ class CalendarEventsIntegrationTest {
                 Timestamp.from(now)
         );
 
-        String analystToken = loginAndGetToken("analyst@dmis.local");
+        String analystToken = loginAndGetToken("analyst@example.com");
 
         mockMvc.perform(get("/api/calendar/events/" + foreignId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + analystToken))
@@ -131,7 +131,7 @@ class CalendarEventsIntegrationTest {
 
     @Test
     void adminCanReadAnalystEvent() throws Exception {
-        String analystToken = loginAndGetToken("analyst@dmis.local");
+        String analystToken = loginAndGetToken("analyst@example.com");
 
         String body = mockMvc.perform(post("/api/calendar/events")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -146,7 +146,7 @@ class CalendarEventsIntegrationTest {
 
         String id = objectMapper.readTree(body).get("id").asText();
 
-        String adminToken = loginAndGetToken("admin@dmis.local");
+        String adminToken = loginAndGetToken("admin@example.com");
 
         mockMvc.perform(get("/api/calendar/events/" + id)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))

@@ -21,7 +21,6 @@ infra/.env.*
 /.agent
 /.husky
 /reports
-infra/mailcow/
 infra/data/
 # Core dumps и аварийные дампы
 core
@@ -33,3 +32,5 @@ frontend/core.*
 /frontend/test-results/*
 /scripts/*
 /e2e/*
+.mcp.json
+.claude/

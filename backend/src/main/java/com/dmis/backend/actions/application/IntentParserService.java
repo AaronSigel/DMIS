@@ -74,6 +74,24 @@ public class IntentParserService {
                         requiredString(entities, "documentId"),
                         requiredStringList(entities, "tags")
                 );
+                case ActionDtos.RESCHEDULE_CALENDAR_EVENT_INTENT -> new ActionDtos.RescheduleCalendarEventEntities(
+                        requiredString(entities, "eventId"),
+                        optionalString(entities, "title"),
+                        requiredString(entities, "startIso"),
+                        requiredString(entities, "endIso")
+                );
+                case ActionDtos.PREPARE_MEETING_AGENDA_INTENT -> new ActionDtos.PrepareMeetingAgendaEntities(
+                        requiredString(entities, "eventId"),
+                        optionalDocumentIdList(entities, "extraDocumentIds")
+                );
+                case ActionDtos.SUGGEST_MEETING_SLOTS_INTENT -> new ActionDtos.SuggestMeetingSlotsEntities(
+                        requiredStringList(entities, "attendeeEmails").stream()
+                                .map(userMentionResolver::resolve)
+                                .toList(),
+                        requiredString(entities, "fromIso"),
+                        requiredString(entities, "toIso"),
+                        requiredInt(entities, "slotMinutes")
+                );
                 default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported intent: " + intent);
             };
         } catch (ResponseStatusException exception) {
@@ -91,6 +109,30 @@ public class IntentParserService {
                     .sorted()
                     .collect(Collectors.joining("; "));
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid entities for intent " + intent + ": " + details);
+        }
+    }
+
+    private static String optionalString(Map<String, Object> source, String key) {
+        Object value = source.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isBlank() ? null : text;
+    }
+
+    private static int requiredInt(Map<String, Object> source, String key) {
+        Object value = source.get(key);
+        if (value == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing entity field: " + key);
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (NumberFormatException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Entity field must be integer: " + key);
         }
     }
 

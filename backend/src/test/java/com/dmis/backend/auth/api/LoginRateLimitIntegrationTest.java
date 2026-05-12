@@ -22,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 class LoginRateLimitIntegrationTest {
-    private static final String LOGIN_BODY = "{\"email\":\"admin@dmis.local\",\"password\":\"wrong-password\"}";
+    private static final String LOGIN_BODY = "{\"email\":\"admin@example.com\",\"password\":\"wrong-password\"}";
 
     @Autowired
     private MockMvc mockMvc;

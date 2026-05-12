@@ -93,13 +93,13 @@ class IntentParserServiceTest {
                         Map.of("to", "@analyst", "subject", "Тема", "body", "Текст")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@dmis.local", "Data Analyst")
+                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("send to analyst");
 
         var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
-        assertEquals("analyst@dmis.local", entities.to());
+        assertEquals("analyst@example.com", entities.to());
     }
 
     @Test
@@ -115,13 +115,13 @@ class IntentParserServiceTest {
                         )
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@dmis.local", "Data Analyst")
+                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("create meeting with analyst");
 
         var entities = (com.dmis.backend.actions.application.dto.ActionDtos.CreateCalendarEventEntities) parsed.entities();
-        assertEquals(List.of("analyst@dmis.local", "external@example.com"), entities.attendees());
+        assertEquals(List.of("analyst@example.com", "external@example.com"), entities.attendees());
     }
 
     @Test
@@ -132,7 +132,7 @@ class IntentParserServiceTest {
                         Map.of("to", "@unknown", "subject", "Тема", "body", "Текст")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@dmis.local", "Data Analyst")
+                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
         ));
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> intentParserService.parseDraft("send to unknown"));
@@ -149,8 +149,8 @@ class IntentParserServiceTest {
                         Map.of("to", "@Data_Analyst", "subject", "Тема", "body", "Текст")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst-1", "analyst1@dmis.local", "Data Analyst"),
-                new UserSummaryView("u-analyst-2", "analyst2@dmis.local", "Data Analyst")
+                new UserSummaryView("u-analyst-1", "analyst1@example.com", "Data Analyst"),
+                new UserSummaryView("u-analyst-2", "analyst2@example.com", "Data Analyst")
         ));
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> intentParserService.parseDraft("send to analyst"));

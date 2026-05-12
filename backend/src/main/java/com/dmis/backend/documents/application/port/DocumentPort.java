@@ -5,6 +5,7 @@ import com.dmis.backend.documents.domain.model.DocumentId;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Collection;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +14,8 @@ public interface DocumentPort {
     Document save(Document document);
 
     Optional<Document> findById(DocumentId id);
+
+    List<Document> findAllByIds(Collection<DocumentId> ids);
 
     List<Document> findAll();
 

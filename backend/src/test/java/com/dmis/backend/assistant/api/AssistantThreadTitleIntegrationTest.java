@@ -46,7 +46,7 @@ class AssistantThreadTitleIntegrationTest {
     @Test
     void generateTitleUpdatesThreadForOwner() throws Exception {
         when(threadTitleGeneratorPort.generateTitle(anyString(), anyString(), anyString())).thenReturn("Новая тема");
-        String token = loginAndGetToken("admin@dmis.local");
+        String token = loginAndGetToken("admin@example.com");
 
         String threadJson = mockMvc.perform(post("/api/assistant/threads")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -85,8 +85,8 @@ class AssistantThreadTitleIntegrationTest {
     @Test
     void generateTitleReturnsNotFoundForNonOwner() throws Exception {
         when(threadTitleGeneratorPort.generateTitle(anyString(), anyString(), anyString())).thenReturn("Новая тема");
-        String adminToken = loginAndGetToken("admin@dmis.local");
-        String analystToken = loginAndGetToken("analyst@dmis.local");
+        String adminToken = loginAndGetToken("admin@example.com");
+        String analystToken = loginAndGetToken("analyst@example.com");
 
         String threadJson = mockMvc.perform(post("/api/assistant/threads")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)

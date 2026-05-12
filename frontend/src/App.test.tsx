@@ -20,7 +20,7 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -48,7 +48,7 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -101,7 +101,7 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -145,7 +145,7 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "user@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "user@example.com");
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -186,7 +186,7 @@ describe("mail page", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -226,7 +226,7 @@ describe("calendar page", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -243,13 +243,15 @@ describe("calendar page", () => {
     await userEvent.type(screen.getByLabelText(/название события/i), "Синк команды");
     await userEvent.type(
       screen.getByLabelText(/участники события/i),
-      "bob@dmis.local, carol@dmis.local",
+      "bob@example.com, carol@example.com",
     );
     await userEvent.type(screen.getByLabelText(/начало события/i), "2026-05-01T12:00");
     await userEvent.type(screen.getByLabelText(/окончание события/i), "2026-05-01T13:00");
     await userEvent.click(screen.getByRole("button", { name: /^создать$/i }));
 
-    await waitFor(() => expect(screen.getByText("Синк команды")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Синк команды/i })).toBeInTheDocument(),
+    );
 
     const editButtons = screen.getAllByRole("button", { name: /изменить/i });
     await userEvent.click(editButtons[0]!);
@@ -258,7 +260,11 @@ describe("calendar page", () => {
     await userEvent.type(titleInput, "Синк команды (обновлено)");
     await userEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
-    await waitFor(() => expect(screen.getByText("Синк команды (обновлено)")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /Синк команды \(обновлено\)/i }),
+      ).toBeInTheDocument(),
+    );
 
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const deleteButtons = screen.getAllByRole("button", { name: /удалить/i });
@@ -278,7 +284,7 @@ describe("doc table url filters", () => {
   });
 
   async function loginAsAdmin() {
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@dmis.local");
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
   }

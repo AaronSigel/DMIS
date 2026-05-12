@@ -38,7 +38,7 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
         fetchWithAuth(`${apiBaseUrl}/actions`, {}, onTokenRefresh),
         fetchWithAuth(`${apiBaseUrl}/audit`, {}, onTokenRefresh),
         fetch(`${apiBaseUrl}/health`),
-        apiListCalendarEvents(onSessionExpired, onTokenRefresh),
+        apiListCalendarEvents(undefined, onSessionExpired, onTokenRefresh),
       ]);
       let actions: AiAction[] = [];
       if (actionsRes.ok) {

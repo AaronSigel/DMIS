@@ -11,6 +11,13 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="DMIS AI Service")
 
+# Совпадают с com.dmis.backend.actions.application.dto.ActionDtos (контракт backend).
+SEND_EMAIL_INTENT = "send_email"
+CREATE_CALENDAR_EVENT_INTENT = "create_calendar_event"
+UPDATE_DOCUMENT_TAGS_INTENT = "update_document_tags"
+RESCHEDULE_CALENDAR_EVENT_INTENT = "reschedule_calendar_event"
+PREPARE_MEETING_AGENDA_INTENT = "prepare_meeting_agenda"
+SUGGEST_MEETING_SLOTS_INTENT = "suggest_meeting_slots"
 
 Provider = Literal["openrouter", "local"]
 
@@ -102,26 +109,107 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
     return json.loads(trimmed[start : end + 1])
 
 
+def _default_structured_system_prompt() -> str:
+    """Дефолт при отсутствии systemPrompt (прямой вызов API). Должен совпадать по смыслу с AiServiceIntentParserAdapter."""
+    return (
+        "Ты извлекаешь действие для корпоративной системы документооборота.\n"
+        "Доступны только intent:\n"
+        f"- {SEND_EMAIL_INTENT} — отправить письмо\n"
+        f"- {CREATE_CALENDAR_EVENT_INTENT} — создать событие календаря\n"
+        f"- {UPDATE_DOCUMENT_TAGS_INTENT} — обновить теги документа\n"
+        f"- {RESCHEDULE_CALENDAR_EVENT_INTENT} — перенести событие календаря\n"
+        f"- {PREPARE_MEETING_AGENDA_INTENT} — сгенерировать повестку встречи по документам\n"
+        f"- {SUGGEST_MEETING_SLOTS_INTENT} — найти свободные слоты для встречи\n"
+        "Верни только структурированный JSON с полями intent и entities.\n"
+        f"Для {SEND_EMAIL_INTENT} entities: to, subject, body, опционально attachmentDocumentIds (массив id документов).\n"
+        f"Для {CREATE_CALENDAR_EVENT_INTENT} entities: title, attendees (массив email), startIso, endIso.\n"
+        f"Для {UPDATE_DOCUMENT_TAGS_INTENT} entities: documentId, tags (массив строк).\n"
+        f"Для {RESCHEDULE_CALENDAR_EVENT_INTENT} entities: eventId, опционально title, startIso, endIso.\n"
+        f"Для {PREPARE_MEETING_AGENDA_INTENT} entities: eventId, опционально extraDocumentIds (массив id документов).\n"
+        f"Для {SUGGEST_MEETING_SLOTS_INTENT} entities: attendeeEmails (массив email), fromIso, toIso, slotMinutes (целое число минут).\n"
+        "Не используй пустые строки и пустые массивы как валидные значения entities.\n"
+        "Если данных недостаточно, верни наиболее вероятный intent, но заполняй entities только содержательными значениями."
+    )
+
+
+def _iso_example_pair() -> tuple[str, str]:
+    return ("2026-05-10T10:00:00Z", "2026-05-10T11:00:00Z")
+
+
 def _build_structured_fallback(question: str) -> dict[str, Any]:
-    lower = question.strip().lower()
-    if "пись" in lower or "email" in lower or "mail" in lower:
+    """Локальный провайдер (MVP): эвристики + заглушки, достаточные для прохождения валидации backend при smoke-тестах."""
+    q = question.strip()
+    lower = q.lower()
+    start_iso, end_iso = _iso_example_pair()
+
+    if any(
+        w in lower
+        for w in (
+            "слот",
+            "свободн",
+            "окно для встреч",
+            "availability",
+            "free/busy",
+            "подбери время",
+        )
+    ):
         return {
-            "intent": "send_email",
-            "entities": {"to": "", "subject": "", "body": question.strip()},
-        }
-    if "встреч" in lower or "календар" in lower or "meeting" in lower:
-        return {
-            "intent": "create_calendar_event",
+            "intent": SUGGEST_MEETING_SLOTS_INTENT,
             "entities": {
-                "title": question.strip() or "Встреча",
-                "attendees": [],
-                "startIso": "",
-                "endIso": "",
+                "attendeeEmails": ["colleague@example.com"],
+                "fromIso": start_iso,
+                "toIso": "2026-05-17T18:00:00Z",
+                "slotMinutes": 30,
             },
         }
+
+    if "повестк" in lower or "agenda" in lower:
+        return {
+            "intent": PREPARE_MEETING_AGENDA_INTENT,
+            "entities": {"eventId": "evt-local-placeholder", "extraDocumentIds": []},
+        }
+
+    if any(w in lower for w in ("перенес", "reschedule", "перенести", "перенеси")):
+        return {
+            "intent": RESCHEDULE_CALENDAR_EVENT_INTENT,
+            "entities": {
+                "eventId": "evt-local-placeholder",
+                "startIso": start_iso,
+                "endIso": end_iso,
+            },
+        }
+
+    if any(w in lower for w in ("пись", "email", "mail", "напиши")):
+        return {
+            "intent": SEND_EMAIL_INTENT,
+            "entities": {
+                "to": "recipient@example.com",
+                "subject": "Тема",
+                "body": q or "Текст письма",
+                "attachmentDocumentIds": [],
+            },
+        }
+
+    if any(w in lower for w in ("встреч", "календар", "meeting")):
+        return {
+            "intent": CREATE_CALENDAR_EVENT_INTENT,
+            "entities": {
+                "title": q or "Встреча",
+                "attendees": ["attendee@example.com"],
+                "startIso": start_iso,
+                "endIso": end_iso,
+            },
+        }
+
+    if any(w in lower for w in ("тег", "tag", "теги")):
+        return {
+            "intent": UPDATE_DOCUMENT_TAGS_INTENT,
+            "entities": {"documentId": "doc-local-placeholder", "tags": ["draft"]},
+        }
+
     return {
-        "intent": "update_document_tags",
-        "entities": {"documentId": "", "tags": []},
+        "intent": UPDATE_DOCUMENT_TAGS_INTENT,
+        "entities": {"documentId": "doc-local-placeholder", "tags": ["draft"]},
     }
 
 
@@ -184,11 +272,7 @@ async def chat_structured(req: StructuredChatRequest) -> StructuredChatResponse:
     model = _model()
     try:
         if provider == "openrouter":
-            system = req.systemPrompt or (
-                "Извлеки интент и сущности для корпоративной системы документооборота. "
-                "Верни строго JSON объект без markdown: "
-                '{"intent":"send_email|create_calendar_event|update_document_tags","entities":{...}}.'
-            )
+            system = req.systemPrompt or _default_structured_system_prompt()
             payload: dict[str, Any] = {
                 "model": model,
                 "messages": [

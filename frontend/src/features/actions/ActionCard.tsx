@@ -7,7 +7,10 @@ import type {
   ActionCardEntities,
   ActionStatus,
   CreateCalendarEventEntities,
+  PrepareMeetingAgendaEntities,
+  RescheduleCalendarEventEntities,
   SendEmailEntities,
+  SuggestMeetingSlotsEntities,
   UpdateDocumentTagsEntities,
 } from "../../shared/api/schemas/action";
 
@@ -54,6 +57,34 @@ function renderKnownIntentFields(intent: string, entities: ActionCardEntities) {
     return [
       { label: "Документ", value: tags.documentId },
       { label: "Теги", value: tags.tags },
+    ];
+  }
+
+  if (intent === "reschedule_calendar_event") {
+    const r = entities as RescheduleCalendarEventEntities;
+    return [
+      { label: "Событие (id)", value: r.eventId },
+      { label: "Название", value: r.title },
+      { label: "Начало", value: r.startIso },
+      { label: "Окончание", value: r.endIso },
+    ];
+  }
+
+  if (intent === "prepare_meeting_agenda") {
+    const a = entities as PrepareMeetingAgendaEntities;
+    return [
+      { label: "Событие (id)", value: a.eventId },
+      { label: "Доп. документы", value: a.extraDocumentIds },
+    ];
+  }
+
+  if (intent === "suggest_meeting_slots") {
+    const s = entities as SuggestMeetingSlotsEntities;
+    return [
+      { label: "Участники", value: s.attendeeEmails },
+      { label: "Окно с", value: s.fromIso },
+      { label: "Окно по", value: s.toIso },
+      { label: "Длина слота (мин)", value: s.slotMinutes },
     ];
   }
 

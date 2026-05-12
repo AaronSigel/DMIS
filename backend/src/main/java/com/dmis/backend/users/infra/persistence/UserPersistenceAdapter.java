@@ -6,8 +6,10 @@ import com.dmis.backend.users.application.dto.UserSummaryView;
 import com.dmis.backend.users.application.port.UserAccessPort;
 import com.dmis.backend.users.infra.persistence.entity.UserEntity;
 import com.dmis.backend.users.infra.persistence.repository.UserJpaRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +33,28 @@ public class UserPersistenceAdapter implements UserAccessPort {
     @Override
     public Optional<UserView> findById(String id) {
         return userJpaRepository.findById(id).map(mapper::toUserView);
+    }
+
+    @Override
+    public List<UserView> findAllByIds(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return userJpaRepository.findAllById(ids).stream()
+                .map(mapper::toUserView)
+                .toList();
+    }
+
+    @Override
+    public List<UserSummaryView> searchSummaries(String query, int limit) {
+        String q = query == null ? "" : query.trim();
+        if (q.length() < 2) {
+            return List.of();
+        }
+        int safeLimit = Math.min(Math.max(limit, 1), 50);
+        return userJpaRepository.searchByEmailOrName(q, PageRequest.of(0, safeLimit)).stream()
+                .map(e -> new UserSummaryView(e.getId(), e.getEmail(), e.getFullName()))
+                .toList();
     }
 
     @Override

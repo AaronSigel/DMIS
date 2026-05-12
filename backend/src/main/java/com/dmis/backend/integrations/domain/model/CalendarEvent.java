@@ -14,6 +14,13 @@ public record CalendarEvent(
         String endIso,
         String createdBy,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        String description,
+        EventCreationSource creationSource,
+        String sourceMailMessageId
 ) {
+    public CalendarEvent {
+        description = description == null ? "" : description;
+        creationSource = creationSource == null ? EventCreationSource.UI : creationSource;
+    }
 }
