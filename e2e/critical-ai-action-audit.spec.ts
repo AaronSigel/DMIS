@@ -1,18 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? "admin@dmis.local";
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "demo";
-
-async function login(page: import("@playwright/test").Page) {
-  await page.goto("/");
-  await page.getByPlaceholder("Электронная почта").fill(ADMIN_EMAIL);
-  await page.getByPlaceholder("Пароль").fill(ADMIN_PASSWORD);
-  await page.getByRole("button", { name: "Войти" }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-}
-
-test("critical flow: ask question and open citation when available", async ({ page }) => {
-  await login(page);
+test("critical flow: ask question and open citation when available", async ({ authenticatedPage: page }) => {
 
   const token = await page.evaluate(() => window.localStorage.getItem("dmis_token") ?? "");
   expect(token.length).toBeGreaterThan(0);
@@ -41,8 +29,7 @@ test("critical flow: ask question and open citation when available", async ({ pa
   expect(threadDetailResponse.ok()).toBeTruthy();
 });
 
-test("critical flow: confirm action and open audit when available", async ({ page }) => {
-  await login(page);
+test("critical flow: confirm action and open audit when available", async ({ authenticatedPage: page }) => {
 
   const token = await page.evaluate(() => window.localStorage.getItem("dmis_token") ?? "");
   expect(token.length).toBeGreaterThan(0);

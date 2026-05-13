@@ -342,6 +342,7 @@ export class AssistantActionParseError extends Error {
  */
 export async function apiParseAssistantAction(
   text: string,
+  documentIds: string[],
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
 ): Promise<ActionView> {
@@ -350,7 +351,7 @@ export async function apiParseAssistantAction(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, documentIds }),
     },
     onNewToken,
   );

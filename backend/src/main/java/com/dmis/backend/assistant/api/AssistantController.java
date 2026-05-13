@@ -71,7 +71,7 @@ public class AssistantController {
 
     @PostMapping("/actions/parse")
     public ActionDtos.AiActionView parseActionDraft(@Valid @RequestBody ParseActionRequest request) {
-        return assistantService.parseActionDraft(currentUserProvider.currentUser(), request.text());
+        return assistantService.parseActionDraft(currentUserProvider.currentUser(), request.text(), request.documentIds());
     }
 
     @PostMapping("/threads/{threadId}/documents")
@@ -137,6 +137,6 @@ public class AssistantController {
     ) {
     }
 
-    public record ParseActionRequest(@NotBlank String text) {
+    public record ParseActionRequest(@NotBlank String text, List<String> documentIds) {
     }
 }

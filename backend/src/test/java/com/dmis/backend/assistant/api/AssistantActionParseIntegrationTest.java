@@ -81,6 +81,29 @@ class AssistantActionParseIntegrationTest {
     }
 
     @Test
+    void parseActionUsesSelectedDocumentsForEmailForwardCommand() throws Exception {
+        when(intentParserPort.parse("перешли документ @contract.txt аналитику"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of()
+                ));
+        String token = loginAndGetToken();
+
+        mockMvc.perform(post("/api/assistant/actions/parse")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"text":"перешли документ @contract.txt аналитику","documentIds":["doc-1"]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.intent").value("send_email"))
+                .andExpect(jsonPath("$.entities.type").value("send_email"))
+                .andExpect(jsonPath("$.entities.to").value("analyst@example.com"))
+                .andExpect(jsonPath("$.entities.attachmentDocumentIds[0]").value("doc-1"));
+    }
+
+    @Test
     void parseActionRejectsBlankText() throws Exception {
         String token = loginAndGetToken();
 

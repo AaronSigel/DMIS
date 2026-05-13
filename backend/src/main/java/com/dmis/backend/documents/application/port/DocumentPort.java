@@ -31,7 +31,12 @@ public interface DocumentPort {
             String type,
             Instant dateFrom,
             Instant dateTo,
-            String tag
+            String tag,
+            List<String> grantedDocumentIds,
+            boolean viewerOnly
     ) {
+        public ListQuery {
+            grantedDocumentIds = grantedDocumentIds == null ? List.of() : List.copyOf(grantedDocumentIds);
+        }
     }
 }

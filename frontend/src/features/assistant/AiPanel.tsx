@@ -412,7 +412,12 @@ export function AiPanel({
     if (!question.trim() || !token) return;
     const threadId = await ensureThreadId();
     try {
-      const action = await apiParseAssistantAction(question, onSessionExpired, onTokenRefresh);
+      const action = await apiParseAssistantAction(
+        question,
+        selectedDocumentIds,
+        onSessionExpired,
+        onTokenRefresh,
+      );
       appendActionToThread(threadId, action);
       await queryClient.invalidateQueries({
         queryKey: queryKeys.assistant.threadDetail(threadId),

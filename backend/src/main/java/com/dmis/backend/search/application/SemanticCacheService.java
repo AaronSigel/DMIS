@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -132,11 +133,12 @@ public class SemanticCacheService {
                     provider,
                     model,
                     sourcesJson,
-                    now,
-                    now
+                    Timestamp.from(now),
+                    Timestamp.from(now)
             );
-        } catch (JsonProcessingException e) {
+        } catch (Exception e) {
             // Не критично, просто не кэшируем
+            log.warn("Skipping semantic cache write: {}", e.getMessage());
         }
     }
 
@@ -147,7 +149,11 @@ public class SemanticCacheService {
                     access_count = access_count + 1
                 WHERE id = ?
                 """;
-        jdbcTemplate.update(sql, Instant.now(), cacheId);
+        try {
+            jdbcTemplate.update(sql, Timestamp.from(Instant.now()), cacheId);
+        } catch (Exception e) {
+            log.warn("Skipping semantic cache access update for {}: {}", cacheId, e.getMessage());
+        }
     }
 
     public void cleanupOldEntries() {

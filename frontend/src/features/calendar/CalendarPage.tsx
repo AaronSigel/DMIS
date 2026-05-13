@@ -89,10 +89,6 @@ function formatDateTime(iso: string): string {
   }).format(date);
 }
 
-function minutesSinceDayStart(d: Date): number {
-  return d.getHours() * 60 + d.getMinutes();
-}
-
 function eventStyleBounds(
   startIso: string,
   endIso: string,
@@ -101,22 +97,31 @@ function eventStyleBounds(
   const start = new Date(startIso);
   const end = new Date(endIso);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  const day0 = startOfDayLocal(dayStart).getTime();
-  if (start.getTime() >= day0 + DAY_MS || end.getTime() <= day0) return null;
-  const clipStart = Math.max(start.getTime(), day0);
-  const clipEnd = Math.min(end.getTime(), day0 + DAY_MS);
-  const startMin = minutesSinceDayStart(new Date(clipStart));
-  const endMin = minutesSinceDayStart(new Date(clipEnd));
+  const day0 = startOfDayLocal(dayStart);
+  const day1 = addDays(day0, 1);
+  const day0Ms = day0.getTime();
+  const day1Ms = day1.getTime();
+  if (start.getTime() >= day1Ms || end.getTime() <= day0Ms) return null;
+  const clipStart = Math.max(start.getTime(), day0Ms);
+  const clipEnd = Math.min(end.getTime(), day1Ms);
+  const startMin = (clipStart - day0Ms) / (60 * 1000);
+  const endMin = (clipEnd - day0Ms) / (60 * 1000);
   const windowMin = (END_HOUR - START_HOUR) * 60;
   const relStart = Math.max(0, startMin - START_HOUR * 60);
   const relEnd = Math.min(windowMin, endMin - START_HOUR * 60);
-  if (relEnd <= relStart) return { top: 0, height: 8 };
+  if (relEnd <= relStart) return null;
   const top = (relStart / windowMin) * ((END_HOUR - START_HOUR) * HOUR_PX);
   const height = Math.max(
     ((relEnd - relStart) / windowMin) * ((END_HOUR - START_HOUR) * HOUR_PX),
     10,
   );
   return { top, height };
+}
+
+function eventIntersectsDay(event: CalendarEvent, day: Date): boolean {
+  const day0 = startOfDayLocal(day);
+  const day1 = addDays(day0, 1);
+  return intersectsRange(event, day0, day1);
 }
 
 type EventFormState = {
@@ -627,10 +632,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
               >
                 {gridDays.map((day) => {
                   const isToday = startOfDayLocal(day).getTime() === todayStart;
-                  const dayEvents = visibleEvents.filter((ev) => {
-                    const ds = new Date(ev.startIso);
-                    return startOfDayLocal(ds).getTime() === startOfDayLocal(day).getTime();
-                  });
+                  const dayEvents = visibleEvents.filter((ev) => eventIntersectsDay(ev, day));
                   return (
                     <div
                       key={day.toISOString()}

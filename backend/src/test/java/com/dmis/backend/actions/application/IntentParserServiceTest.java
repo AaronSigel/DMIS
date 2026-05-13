@@ -68,6 +68,59 @@ class IntentParserServiceTest {
     }
 
     @Test
+    void parseDraftBuildsEmailForwardFromSelectedDocumentAndAnalystAlias() {
+        when(intentParserPort.parse("перешли документ @contract.txt аналитику"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of()
+                ));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(
+                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
+        ));
+
+        IntentParserService.ParsedDraft parsed = intentParserService.parseDraft(
+                "перешли документ @contract.txt аналитику",
+                List.of("doc-1")
+        );
+
+        var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
+        assertEquals("analyst@example.com", entities.to());
+        assertEquals(List.of("doc-1"), entities.attachmentDocumentIds());
+        assertTrue(entities.subject().contains("Документ"));
+        assertTrue(entities.body().contains("перешли документ"));
+    }
+
+    /**
+     * Регрессия: пересылка выбранных документов должна работать даже когда
+     * текст команды не содержит слова «документ» (например, «перешли это
+     * аналитику», «forward to analyst»). Раньше {@code resolveEmailSubject}
+     * /{@code resolveEmailBody} требовали ключевое слово «документ», иначе
+     * падали в {@code requiredString} → BAD_REQUEST.
+     */
+    @Test
+    void parseDraftBuildsEmailForwardWhenUserTextHasNoDocumentKeyword() {
+        when(intentParserPort.parse("перешли это аналитику"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of()
+                ));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(
+                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
+        ));
+
+        IntentParserService.ParsedDraft parsed = intentParserService.parseDraft(
+                "перешли это аналитику",
+                List.of("doc-1")
+        );
+
+        var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
+        assertEquals("analyst@example.com", entities.to());
+        assertEquals(List.of("doc-1"), entities.attachmentDocumentIds());
+        assertTrue(entities.subject().contains("Документ"));
+        assertTrue(entities.body().contains("перешли это аналитику"));
+    }
+
+    @Test
     void parseDraftMapsCalendarIntent() {
         when(intentParserPort.parse("create meeting"))
                 .thenReturn(new IntentParserPort.ParsedIntent(

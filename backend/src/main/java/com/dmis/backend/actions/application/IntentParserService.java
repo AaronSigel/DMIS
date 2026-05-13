@@ -10,6 +10,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -30,6 +31,10 @@ public class IntentParserService {
     }
 
     public ParsedDraft parseDraft(String userText) {
+        return parseDraft(userText, List.of());
+    }
+
+    public ParsedDraft parseDraft(String userText, List<String> selectedDocumentIds) {
         if (userText == null || userText.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User text is required");
         }
@@ -44,23 +49,28 @@ public class IntentParserService {
         if (!ActionDtos.supportedIntents().contains(raw.intent())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported intent: " + raw.intent());
         }
-        if (raw.entities() == null || raw.entities().isEmpty()) {
+        if (raw.entities() == null || (raw.entities().isEmpty() && !ActionDtos.SEND_EMAIL_INTENT.equals(raw.intent()))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Intent parser did not return entities");
         }
 
-        ActionDtos.ActionEntities entities = mapEntities(raw.intent(), raw.entities());
+        ActionDtos.ActionEntities entities = mapEntities(raw.intent(), raw.entities(), userText.trim(), normalizeSelectedDocumentIds(selectedDocumentIds));
         validateEntities(raw.intent(), entities);
         return new ParsedDraft(raw.intent(), entities);
     }
 
-    private ActionDtos.ActionEntities mapEntities(String intent, Map<String, Object> entities) {
+    private ActionDtos.ActionEntities mapEntities(
+            String intent,
+            Map<String, Object> entities,
+            String userText,
+            List<String> selectedDocumentIds
+    ) {
         try {
             return switch (intent) {
                 case ActionDtos.SEND_EMAIL_INTENT -> new ActionDtos.SendEmailEntities(
-                        userMentionResolver.resolve(requiredString(entities, "to")),
-                        requiredString(entities, "subject"),
-                        requiredString(entities, "body"),
-                        optionalDocumentIdList(entities, "attachmentDocumentIds")
+                        userMentionResolver.resolve(resolveEmailRecipient(entities, userText)),
+                        resolveEmailSubject(entities, selectedDocumentIds),
+                        resolveEmailBody(entities, userText, selectedDocumentIds),
+                        mergeDocumentIds(optionalDocumentIdList(entities, "attachmentDocumentIds"), selectedDocumentIds)
                 );
                 case ActionDtos.CREATE_CALENDAR_EVENT_INTENT -> new ActionDtos.CreateCalendarEventEntities(
                         requiredString(entities, "title"),
@@ -119,6 +129,85 @@ public class IntentParserService {
         }
         String text = String.valueOf(value).trim();
         return text.isBlank() ? null : text;
+    }
+
+    private String resolveEmailRecipient(Map<String, Object> entities, String userText) {
+        String explicit = optionalString(entities, "to");
+        if (explicit != null) {
+            return explicit;
+        }
+        String normalized = userText.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("аналит")) {
+            return "@analyst";
+        }
+        if (normalized.contains("reviewer") || normalized.contains("ревьюер")) {
+            return "@reviewer";
+        }
+        if (normalized.contains("manager") || normalized.contains("менеджер")) {
+            return "@manager";
+        }
+        if (normalized.contains("admin") || normalized.contains("админ")) {
+            return "@admin";
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing entity field: to");
+    }
+
+    /**
+     * Тема письма для черновика. Если парсер не вернул {@code subject}, но
+     * к запросу приложены документы — генерируем дефолтную тему. Наличие
+     * выбранных документов само по себе достаточный сигнал намерения
+     * «отправить документ»: не привязываемся к конкретным ключевым словам
+     * в тексте пользователя (RU/EN/перефразировки).
+     */
+    private static String resolveEmailSubject(Map<String, Object> entities, List<String> selectedDocumentIds) {
+        String explicit = optionalString(entities, "subject");
+        if (explicit != null) {
+            return explicit;
+        }
+        if (!selectedDocumentIds.isEmpty()) {
+            return "Документ для ознакомления";
+        }
+        return requiredString(entities, "subject");
+    }
+
+    /**
+     * Тело письма. Логика симметрична {@link #resolveEmailSubject}: при
+     * наличии выбранных документов используем дефолтное тело, иначе
+     * требуем {@code body} от парсера.
+     */
+    private static String resolveEmailBody(Map<String, Object> entities, String userText, List<String> selectedDocumentIds) {
+        String explicit = optionalString(entities, "body");
+        if (explicit != null) {
+            return explicit;
+        }
+        if (!selectedDocumentIds.isEmpty()) {
+            return "Коллеги, направляю документ из DMIS. Команда пользователя: " + userText;
+        }
+        return requiredString(entities, "body");
+    }
+
+    private static List<String> normalizeSelectedDocumentIds(List<String> selectedDocumentIds) {
+        if (selectedDocumentIds == null) {
+            return List.of();
+        }
+        return selectedDocumentIds.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+    }
+
+    private static List<String> mergeDocumentIds(List<String> parsedDocumentIds, List<String> selectedDocumentIds) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        parsedDocumentIds.stream()
+                .filter(IntentParserService::looksLikeDocumentId)
+                .forEach(merged::add);
+        merged.addAll(selectedDocumentIds);
+        return List.copyOf(merged);
+    }
+
+    private static boolean looksLikeDocumentId(String value) {
+        return value != null && value.startsWith("doc-");
     }
 
     private static int requiredInt(Map<String, Object> source, String key) {

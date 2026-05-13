@@ -36,9 +36,14 @@ public class DataBootstrap implements CommandLineRunner {
                 .orElseGet(() -> roleRepository.save(new RoleEntity(RoleName.ADMIN.name())));
         RoleEntity userRole = roleRepository.findById(RoleName.USER.name())
                 .orElseGet(() -> roleRepository.save(new RoleEntity(RoleName.USER.name())));
+        RoleEntity viewerRole = roleRepository.findById(RoleName.VIEWER.name())
+                .orElseGet(() -> roleRepository.save(new RoleEntity(RoleName.VIEWER.name())));
 
         ensureDemoUser("u-admin", "admin", "System Admin", adminRole);
         ensureDemoUser("u-analyst", "analyst", "Data Analyst", userRole);
+        ensureDemoUser("u-reviewer", "reviewer", "Document Reviewer", userRole);
+        ensureDemoUser("u-manager", "manager", "Project Manager", userRole);
+        ensureDemoUser("u-viewer", "viewer", "Read-only Viewer", viewerRole);
     }
 
     private void ensureDemoUser(String id, String localPart, String fullName, RoleEntity primaryRole) {

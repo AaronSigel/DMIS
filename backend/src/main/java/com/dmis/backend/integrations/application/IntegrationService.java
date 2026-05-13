@@ -51,6 +51,8 @@ import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
 @Service
 public class IntegrationService {
+    private static final String AGENDA_SEPARATOR = "--- Повестка ---";
+
     private final MailCalendarPort mailCalendarPort;
     private final MailReadPort mailReadPort;
     private final CalendarEventPort calendarEventPort;
@@ -482,10 +484,11 @@ public class IntegrationService {
 
     public IntegrationDtos.CalendarEventView prepareMeetingAgendaDraft(UserView actor, String eventId, List<String> extraDocumentIds) {
         CalendarEvent event = requireAccessibleCalendarEvent(actor, eventId);
+        String userDescription = stripGeneratedAgenda(event.description());
         StringBuilder context = new StringBuilder();
         context.append("Название встречи: ").append(event.title()).append("\n\n");
-        if (!event.description().isBlank()) {
-            context.append("Описание:\n").append(event.description()).append("\n\n");
+        if (!userDescription.isBlank()) {
+            context.append("Описание:\n").append(userDescription).append("\n\n");
         }
         List<CalendarEventAttachment> atts = calendarAttachmentPort.listByEventIdOrdered(eventId);
         List<String> docIds = new ArrayList<>();
@@ -521,12 +524,33 @@ public class IntegrationService {
                 event.createdBy(),
                 event.createdAt(),
                 Instant.now(),
-                event.description().isBlank() ? agendaText : event.description() + "\n\n--- Повестка ---\n" + agendaText,
+                replaceGeneratedAgenda(event.description(), agendaText),
                 event.creationSource(),
                 event.sourceMailMessageId()
         ));
         auditService.append(actor.id(), "calendar.agenda.generated", "event", eventId, "Agenda draft generated via LLM");
         return toCalendarEventView(actor, updated);
+    }
+
+    private static String replaceGeneratedAgenda(String description, String agendaText) {
+        String baseDescription = stripGeneratedAgenda(description);
+        String safeAgenda = agendaText == null ? "" : agendaText.trim();
+        if (safeAgenda.isBlank()) {
+            return baseDescription;
+        }
+        if (baseDescription.isBlank()) {
+            return AGENDA_SEPARATOR + "\n" + safeAgenda;
+        }
+        return baseDescription + "\n\n" + AGENDA_SEPARATOR + "\n" + safeAgenda;
+    }
+
+    private static String stripGeneratedAgenda(String description) {
+        String safeDescription = description == null ? "" : description;
+        int agendaStart = safeDescription.indexOf(AGENDA_SEPARATOR);
+        if (agendaStart < 0) {
+            return safeDescription.trim();
+        }
+        return safeDescription.substring(0, agendaStart).trim();
     }
 
     public List<IntegrationDtos.MailMessageSummaryView> listMailMessages(UserView actor, String mailbox, String folderRaw) {

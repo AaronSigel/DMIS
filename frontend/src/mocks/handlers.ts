@@ -111,6 +111,17 @@ let calendarEvents: CalendarEventMock[] = [
   },
 ];
 
+const agendaSeparator = "--- Повестка ---";
+
+function replaceGeneratedAgenda(description: string, agendaText: string): string {
+  const agendaStart = description.indexOf(agendaSeparator);
+  const baseDescription =
+    agendaStart < 0 ? description.trim() : description.slice(0, agendaStart).trim();
+  if (!agendaText.trim()) return baseDescription;
+  if (!baseDescription) return `${agendaSeparator}\n${agendaText.trim()}`;
+  return `${baseDescription}\n\n${agendaSeparator}\n${agendaText.trim()}`;
+}
+
 type AiActionMock = {
   id: string;
   intent: string;
@@ -433,7 +444,7 @@ export const handlers = [
     if (!ev) return HttpResponse.json({ message: "Not found" }, { status: 404 });
     const updated: CalendarEventMock = {
       ...ev,
-      description: `${ev.description}\n\n--- Повестка ---\n- Пункт 1\n- Пункт 2`,
+      description: replaceGeneratedAgenda(ev.description, "- Пункт 1\n- Пункт 2"),
       updatedAt: new Date().toISOString(),
     };
     calendarEvents = calendarEvents.map((e) => (e.id === params.eventId ? updated : e));

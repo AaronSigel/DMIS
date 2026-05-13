@@ -12,6 +12,7 @@ import com.dmis.backend.audit.application.dto.AuditView;
 import com.dmis.backend.audit.application.port.AuditPort;
 import com.dmis.backend.documents.application.DocumentUseCases;
 import com.dmis.backend.documents.application.dto.DocumentDtos;
+import com.dmis.backend.documents.application.port.DocumentAccessPort;
 import com.dmis.backend.integrations.application.IntegrationService;
 import com.dmis.backend.integrations.application.dto.IntegrationDtos;
 import com.dmis.backend.integrations.domain.model.EventCreationSource;
@@ -59,7 +60,7 @@ class ActionServiceTest {
         when(userMentionResolver.resolve(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
         actionService = new ActionService(
                 aiActionPort,
-                new AclService(),
+                new AclService(noopAccessPort()),
                 auditService,
                 integrationService,
                 documentUseCases,
@@ -246,6 +247,20 @@ class ActionServiceTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         assertTrue(exception.getReason().contains("Entities type does not match intent"));
+    }
+
+    private static DocumentAccessPort noopAccessPort() {
+        return new DocumentAccessPort() {
+            @Override
+            public Optional<com.dmis.backend.documents.domain.DocumentAccessLevel> findLevel(String documentId, String principalId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public List<String> findAccessibleDocumentIds(String principalId) {
+                return List.of();
+            }
+        };
     }
 
     private static class InMemoryAiActionPort implements AiActionPort {

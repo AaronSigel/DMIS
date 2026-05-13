@@ -91,7 +91,23 @@ public class DocumentPersistenceAdapter implements DocumentPort {
 
     private Specification<DocumentEntity> visibilitySpec(ListQuery query) {
         if (!query.admin()) {
-            return (root, ignored, cb) -> cb.equal(root.get("ownerId"), query.actorId());
+            return (root, ignored, cb) -> {
+                List<String> granted = query.grantedDocumentIds();
+                // VIEWER никогда не «owner» по бизнес-смыслу: видим только grants.
+                if (query.viewerOnly()) {
+                    if (granted.isEmpty()) {
+                        return cb.disjunction();
+                    }
+                    return root.get("id").in(granted);
+                }
+                if (granted.isEmpty()) {
+                    return cb.equal(root.get("ownerId"), query.actorId());
+                }
+                return cb.or(
+                        cb.equal(root.get("ownerId"), query.actorId()),
+                        root.get("id").in(granted)
+                );
+            };
         }
         if (query.ownerId() == null || query.ownerId().isBlank()) {
             return null;

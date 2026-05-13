@@ -2,6 +2,7 @@ package com.dmis.backend.documents.application;
 
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.documents.application.dto.DocumentDtos;
+import com.dmis.backend.documents.application.port.DocumentAccessPort;
 import com.dmis.backend.documents.application.port.DocumentMalwareScanPort;
 import com.dmis.backend.documents.application.port.DocumentPort;
 import com.dmis.backend.documents.application.port.IndexingJobPort;
@@ -58,6 +59,7 @@ public class DocumentUseCases {
     private final IndexingWorker indexingWorker;
     private final AclService aclService;
     private final AuditService auditService;
+    private final DocumentAccessPort documentAccessPort;
     private final StorageProperties storageProperties;
     private final int extractedTextPreviewMaxChars;
     private final boolean scanEnabled;
@@ -71,6 +73,7 @@ public class DocumentUseCases {
             IndexingWorker indexingWorker,
             AclService aclService,
             AuditService auditService,
+            DocumentAccessPort documentAccessPort,
             StorageProperties storageProperties,
             @Value("${documents.extracted-text.preview-max-chars:2000}") int extractedTextPreviewMaxChars,
             @Value("${document.scan.enabled:false}") boolean scanEnabled
@@ -83,6 +86,7 @@ public class DocumentUseCases {
         this.indexingWorker = indexingWorker;
         this.aclService = aclService;
         this.auditService = auditService;
+        this.documentAccessPort = documentAccessPort;
         this.storageProperties = storageProperties;
         this.extractedTextPreviewMaxChars = Math.max(1, extractedTextPreviewMaxChars);
         this.scanEnabled = scanEnabled;
@@ -117,15 +121,20 @@ public class DocumentUseCases {
         int page = Math.max(0, query.page());
         int size = query.size() > 0 ? query.size() : DEFAULT_PAGE_SIZE;
         size = Math.min(size, MAX_PAGE_SIZE);
+        boolean admin = aclService.isAdmin(actor);
+        boolean viewerOnly = aclService.isViewer(actor);
+        List<String> grantedIds = admin ? List.of() : documentAccessPort.findAccessibleDocumentIds(actor.id());
         DocumentPort.ListQuery listQuery = new DocumentPort.ListQuery(
-                aclService.isAdmin(actor),
+                admin,
                 actor.id(),
                 query.ownerId(),
                 query.status(),
                 query.type(),
                 query.dateFrom(),
                 query.dateTo(),
-                query.tag()
+                query.tag(),
+                grantedIds,
+                viewerOnly
         );
         Page<Document> resultPage = documentPort.findPage(
                 listQuery,
@@ -144,7 +153,7 @@ public class DocumentUseCases {
     public DocumentDtos.DocumentView get(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentRead(actor, document.ownerId());
+        aclService.requireDocumentRead(actor, document.id().value(), document.ownerId());
         return toView(document);
     }
 
@@ -162,10 +171,9 @@ public class DocumentUseCases {
             return Map.of();
         }
 
-        boolean isAdmin = aclService.isAdmin(actor);
         Map<String, DocumentDtos.DocumentView> views = new HashMap<>();
         for (Document document : documentPort.findAllByIds(new LinkedHashSet<>(ids))) {
-            if (isAdmin || document.ownerId().equals(actor.id())) {
+            if (aclService.canReadDocument(actor, document.id().value(), document.ownerId())) {
                 views.put(document.id().value(), toView(document));
             }
         }
@@ -175,7 +183,7 @@ public class DocumentUseCases {
     public DocumentDtos.DocumentView patch(UserView actor, String documentId, DocumentDtos.PatchDocumentRequest request) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentWrite(actor, document.ownerId());
+        aclService.requireDocumentWrite(actor, document.id().value(), document.ownerId());
 
         boolean changeTags = request.tags() != null;
         boolean changeTitle = request.title() != null;
@@ -271,14 +279,14 @@ public class DocumentUseCases {
     public String getLatestExtractedText(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentRead(actor, document.ownerId());
+        aclService.requireDocumentRead(actor, document.id().value(), document.ownerId());
         return document.fullExtractedText();
     }
 
     public DocumentDtos.DocumentBinary downloadLatest(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentRead(actor, document.ownerId());
+        aclService.requireDocumentRead(actor, document.id().value(), document.ownerId());
         byte[] bytes = loadDocumentBinary(document);
         auditService.append(actor.id(), "document.download", "document", document.id().value(), "Downloaded latest");
         return new DocumentDtos.DocumentBinary(document.fileName(), document.contentType(), bytes);
@@ -287,7 +295,7 @@ public class DocumentUseCases {
     public DocumentDtos.PresignedDownloadUrl getDownloadUrl(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentRead(actor, document.ownerId());
+        aclService.requireDocumentRead(actor, document.id().value(), document.ownerId());
         String storageRef = document.storageRef();
         if (storageRef != null && storageRef.startsWith("demo://")) {
             throw new ApiException(
@@ -306,7 +314,7 @@ public class DocumentUseCases {
     public void delete(UserView actor, String documentId) {
         Document document = documentPort.findById(DocumentId.from(documentId))
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Document not found"));
-        aclService.requireDocumentWrite(actor, document.ownerId());
+        aclService.requireDocumentWrite(actor, document.id().value(), document.ownerId());
         deleteFile(document.storageRef(), document.id().value());
         documentPort.deleteById(document.id());
         auditService.append(actor.id(), "document.delete", "document", document.id().value(), "Deleted document");

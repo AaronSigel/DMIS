@@ -170,7 +170,11 @@ public class AssistantService {
     }
 
     public ActionDtos.AiActionView parseActionDraft(UserView actor, String userText) {
-        IntentParserService.ParsedDraft parsedDraft = intentParserService.parseDraft(userText);
+        return parseActionDraft(actor, userText, List.of());
+    }
+
+    public ActionDtos.AiActionView parseActionDraft(UserView actor, String userText, List<String> selectedDocumentIds) {
+        IntentParserService.ParsedDraft parsedDraft = intentParserService.parseDraft(userText, selectedDocumentIds);
         return actionService.draft(actor, parsedDraft.intent(), parsedDraft.entities());
     }
 
@@ -229,7 +233,7 @@ public class AssistantService {
     public void linkDocument(UserView actor, String threadId, String documentId) {
         AssistantDtos.ThreadView thread = loadAccessibleThread(actor, threadId);
         DocumentDtos.DocumentView document = documentUseCases.get(actor, documentId);
-        aclService.requireDocumentRead(actor, document.ownerId());
+        aclService.requireDocumentRead(actor, document.id(), document.ownerId());
         assistantPort.linkDocument(thread.id(), documentId);
         auditService.append(actor.id(), "assistant.thread.link_document", "assistant_thread", thread.id(), "Linked " + documentId);
     }
@@ -291,7 +295,7 @@ public class AssistantService {
     private void validateDocumentAccess(UserView actor, List<String> documentIds) {
         for (String documentId : documentIds) {
             DocumentDtos.DocumentView document = documentUseCases.get(actor, documentId);
-            aclService.requireDocumentRead(actor, document.ownerId());
+            aclService.requireDocumentRead(actor, document.id(), document.ownerId());
         }
     }
 

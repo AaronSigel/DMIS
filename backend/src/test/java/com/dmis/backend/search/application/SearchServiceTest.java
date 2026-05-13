@@ -3,6 +3,8 @@ package com.dmis.backend.search.application;
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.audit.application.dto.AuditView;
 import com.dmis.backend.audit.application.port.AuditPort;
+import com.dmis.backend.documents.application.port.DocumentAccessPort;
+import com.dmis.backend.documents.domain.DocumentAccessLevel;
 import com.dmis.backend.search.application.dto.SearchDtos;
 import com.dmis.backend.search.application.port.ChunkRerankPort;
 import com.dmis.backend.search.application.port.ChunkSearchPort;
@@ -37,7 +39,7 @@ class SearchServiceTest {
                         new ChunkRerankPort.RerankScore("c-2", 0.95),
                         new ChunkRerankPort.RerankScore("c-1", 0.10)
                 ),
-                new AclService(),
+                new AclService(noopAccessPort()),
                 new FakeLlmChatPort(),
                 new AuditService(new NoopAuditPort()),
                 new SimpleMeterRegistry(),
@@ -70,7 +72,7 @@ class SearchServiceTest {
                 (query, candidates) -> {
                     throw new IllegalStateException("reranker unavailable");
                 },
-                new AclService(),
+                new AclService(noopAccessPort()),
                 new FakeLlmChatPort(),
                 new AuditService(new NoopAuditPort()),
                 new SimpleMeterRegistry(),
@@ -109,7 +111,7 @@ class SearchServiceTest {
                                     "c-10".equals(h.chunkId()) ? 100.0 : 1.0))
                             .toList();
                 },
-                new AclService(),
+                new AclService(noopAccessPort()),
                 new FakeLlmChatPort(),
                 new AuditService(new NoopAuditPort()),
                 new SimpleMeterRegistry(),
@@ -143,7 +145,7 @@ class SearchServiceTest {
                         new ChunkRerankPort.RerankScore("c-2", 0.95),
                         new ChunkRerankPort.RerankScore("c-1", 0.10)
                 ),
-                new AclService(),
+                new AclService(noopAccessPort()),
                 llm,
                 new AuditService(new NoopAuditPort()),
                 new SimpleMeterRegistry(),
@@ -177,7 +179,7 @@ class SearchServiceTest {
         SearchService service = new SearchService(
                 (actorId, isAdmin, query, limit, documentIds) -> List.of(),
                 (query, candidates) -> List.of(),
-                new AclService(),
+                new AclService(noopAccessPort()),
                 llm,
                 new AuditService(new NoopAuditPort()),
                 new SimpleMeterRegistry(),
@@ -201,6 +203,20 @@ class SearchServiceTest {
 
     private static UserView admin() {
         return new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
+    }
+
+    private static DocumentAccessPort noopAccessPort() {
+        return new DocumentAccessPort() {
+            @Override
+            public Optional<DocumentAccessLevel> findLevel(String documentId, String principalId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public List<String> findAccessibleDocumentIds(String principalId) {
+                return List.of();
+            }
+        };
     }
 
     private static final class FakeLlmChatPort implements LlmChatPort {
