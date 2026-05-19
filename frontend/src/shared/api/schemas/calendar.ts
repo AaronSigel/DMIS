@@ -47,6 +47,7 @@ export const UserSummaryListSchema = z.array(
   z.object({
     id: z.string(),
     email: z.string(),
+    nickname: z.string().nullable().optional(),
     fullName: z.string(),
   }),
 );

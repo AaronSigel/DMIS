@@ -1,11 +1,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import {
   apiBaseUrl,
   apiDeleteDocument,
   apiListDocuments,
+  apiSearchDocuments,
   apiUploadDocumentWithProgress,
   apiUpdateDocument,
   fetchWithAuth,
@@ -25,8 +26,15 @@ import { sectionTitle } from "../../shared/lib/sectionTitle";
 import { timeAgo } from "../../shared/lib/timeAgo";
 import { RenameDocumentModal } from "./documentUi";
 import type { DocumentView } from "../../entities/document";
+import type { SearchHitView } from "../../entities/search";
 
-type UserLite = { id: string; fullName: string; email: string; roles?: string[] };
+type UserLite = {
+  id: string;
+  fullName: string;
+  email: string;
+  nickname?: string | null;
+  roles?: string[];
+};
 
 type DocTableProps = {
   token: string;
@@ -58,6 +66,63 @@ type UploadItem = {
   status: "queued" | "uploading" | "done" | "error";
   error?: string;
 };
+
+type SearchResultGroup = {
+  documentId: string;
+  documentTitle: string;
+  bestScore: number;
+  hits: SearchHitView[];
+};
+
+function groupSearchHits(hits: SearchHitView[]): SearchResultGroup[] {
+  const byDocument = new Map<string, SearchResultGroup>();
+  for (const hit of hits) {
+    const current = byDocument.get(hit.documentId);
+    if (!current) {
+      byDocument.set(hit.documentId, {
+        documentId: hit.documentId,
+        documentTitle: hit.documentTitle,
+        bestScore: hit.score,
+        hits: [hit],
+      });
+      continue;
+    }
+    current.hits.push(hit);
+    current.bestScore = Math.max(current.bestScore, hit.score);
+  }
+  return [...byDocument.values()].sort((a, b) => b.bestScore - a.bestScore);
+}
+
+function HighlightedSearchText({ text, query }: { text: string; query: string }) {
+  const needle = query.trim();
+  if (!needle) return <>{text}</>;
+
+  const lowerText = text.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = lowerText.indexOf(lowerNeedle);
+
+  while (matchIndex >= 0) {
+    if (matchIndex > cursor) {
+      parts.push(text.slice(cursor, matchIndex));
+    }
+    const matchEnd = matchIndex + needle.length;
+    parts.push(
+      <mark key={`${matchIndex}-${matchEnd}`} className="rounded bg-[#fff3bf] px-0.5 text-text">
+        {text.slice(matchIndex, matchEnd)}
+      </mark>,
+    );
+    cursor = matchEnd;
+    matchIndex = lowerText.indexOf(lowerNeedle, cursor);
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+
+  return <>{parts}</>;
+}
 
 /** Тег API для фильтрации списка по «разделу» сайдбара. */
 function tagForSection(section: string): string | undefined {
@@ -144,6 +209,8 @@ export function DocTable({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const [dropActive, setDropActive] = useState(false);
+  const [documentSearchInput, setDocumentSearchInput] = useState("");
+  const [documentSearchQuery, setDocumentSearchQuery] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
@@ -198,6 +265,13 @@ export function DocTable({
       ),
     enabled: !!token,
     placeholderData: keepPreviousData,
+  });
+
+  const searchQueryText = documentSearchQuery.trim();
+  const documentSearch = useQuery({
+    queryKey: queryKeys.documents.search(searchQueryText),
+    queryFn: () => apiSearchDocuments(searchQueryText, onSessionExpired, onTokenRefresh),
+    enabled: !!token && searchQueryText.length > 0,
   });
 
   const renameMutation = useMutation({
@@ -256,6 +330,9 @@ export function DocTable({
   const uploadsInProgress = uploadItems.some(
     (item) => item.status === "queued" || item.status === "uploading",
   );
+  const searchHits = useMemo(() => documentSearch.data?.hits ?? [], [documentSearch.data?.hits]);
+  const groupedSearchHits = useMemo(() => groupSearchHits(searchHits), [searchHits]);
+  const searchError = formatQueryOrMutationError(documentSearch.error);
 
   useEffect(() => {
     const visibleIds = new Set(docs.map((doc) => doc.id));
@@ -341,6 +418,16 @@ export function DocTable({
       return;
     }
     setSelectedIds(docs.map((doc) => doc.id));
+  }
+
+  function submitDocumentSearch() {
+    const next = documentSearchInput.trim();
+    setDocumentSearchQuery(next);
+  }
+
+  function clearDocumentSearch() {
+    setDocumentSearchInput("");
+    setDocumentSearchQuery("");
   }
 
   function parseBulkTags(input: string): string[] {
@@ -484,6 +571,112 @@ export function DocTable({
           </div>
         )}
 
+        <div className="mt-3 rounded-lg border border-border bg-white p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="m-0 text-sm font-semibold text-text">Поиск по документам</p>
+              <p className="m-0 text-[12px] text-muted">
+                Ищет по содержимому проиндексированных файлов и показывает найденные фрагменты.
+              </p>
+            </div>
+            {searchQueryText && (
+              <span className="rounded-full bg-primary/15 px-2 py-1 text-[11px] text-text">
+                {documentSearch.isFetching
+                  ? "поиск..."
+                  : `найдено фрагментов: ${searchHits.length}`}
+              </span>
+            )}
+          </div>
+          <form
+            className="flex flex-wrap gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitDocumentSearch();
+            }}
+          >
+            <input
+              value={documentSearchInput}
+              onChange={(event) => setDocumentSearchInput(event.target.value)}
+              placeholder="Введите фразу из документа, тему или ключевые слова..."
+              aria-label="Поиск по содержимому документов"
+              className="min-w-[260px] flex-1 rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!documentSearchInput.trim() || documentSearch.isFetching}
+              className={`${smallBtnClass} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              Найти
+            </button>
+            <button
+              type="button"
+              onClick={clearDocumentSearch}
+              disabled={!documentSearchInput && !searchQueryText}
+              className={`${smallBtnClass} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              Сбросить
+            </button>
+          </form>
+
+          {searchError && <p className="m-0 mt-2 text-[13px] text-danger">{searchError}</p>}
+          {searchQueryText &&
+            !documentSearch.isFetching &&
+            !searchError &&
+            !groupedSearchHits.length && (
+              <p className="m-0 mt-2 text-[13px] text-muted">По содержимому ничего не найдено.</p>
+            )}
+          {!!groupedSearchHits.length && (
+            <div className="mt-3 grid gap-2">
+              {groupedSearchHits.map((result) => (
+                <article
+                  key={result.documentId}
+                  className="grid gap-2 rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-semibold">{result.documentTitle}</span>
+                    <span className="text-[12px] text-muted">
+                      Лучшее совпадение: {result.bestScore.toFixed(4)} · фрагментов:{" "}
+                      {result.hits.length}
+                    </span>
+                  </div>
+                  <div className="grid gap-1.5">
+                    {result.hits.map((hit, idx) => (
+                      <button
+                        key={hit.chunkId}
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/documents/${hit.documentId}?chunk=${encodeURIComponent(
+                              hit.chunkId,
+                            )}&q=${encodeURIComponent(searchQueryText)}`,
+                            {
+                              state: {
+                                searchHit: {
+                                  chunkId: hit.chunkId,
+                                  chunkText: hit.chunkText,
+                                  query: searchQueryText,
+                                },
+                              },
+                            },
+                          )
+                        }
+                        className="grid w-full gap-1 rounded-md border border-border bg-white px-2.5 py-2 text-left hover:border-primary"
+                      >
+                        <span className="text-[11px] text-muted">
+                          Фрагмент {idx + 1} · совпадение {hit.score.toFixed(4)}
+                        </span>
+                        <span className="line-clamp-3 text-[12px] text-text">
+                          <HighlightedSearchText text={hit.chunkText} query={searchQueryText} />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="mt-3 rounded-lg border border-border p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted">Выбрано: {selectedCount}</span>
@@ -491,7 +684,7 @@ export function DocTable({
               value={bulkTagsInput}
               onChange={(e) => setBulkTagsInput(e.target.value)}
               className="min-w-[220px] rounded-md border border-border px-2 py-1 text-xs"
-              placeholder="Теги через запятую (replace)"
+              placeholder="Теги через запятую (замена)"
               aria-label="Теги для массовой замены"
             />
             <button
@@ -537,7 +730,7 @@ export function DocTable({
           <span
             className={`rounded-full px-2 py-1 text-[11px] ${filterActive ? "bg-primary/15 text-text" : "bg-zinc-100 text-text"}`}
           >
-            {filterActive ? "Только INDEXED" : "Все статусы"}
+            {filterActive ? "Только проиндексированные" : "Все статусы"}
           </span>
           <span
             className={`rounded-full px-2 py-1 text-[11px] ${archiveActive ? "bg-primary/15 text-text" : "bg-zinc-100 text-muted"}`}
@@ -561,7 +754,7 @@ export function DocTable({
               onChange={toggleSelectAllVisible}
             />
           </div>
-          {["название", "владелец / ACL", "обновлено", "статус", ""].map((h) => (
+          {["название", "владелец / доступ", "обновлено", "статус", ""].map((h) => (
             <div
               key={h}
               className="border-b border-border py-[10px] text-[11px] font-semibold uppercase tracking-[0.06em] text-muted"
@@ -815,7 +1008,7 @@ function DocRow({
     { id: "dl", label: "Скачать файл", action: () => void downloadBinary() },
     {
       id: "ai",
-      label: "Спросить AI…",
+      label: "Спросить ассистента…",
       action: () => {
         askAssistant();
       },

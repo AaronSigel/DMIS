@@ -15,6 +15,7 @@ import type {
   MailThreadSummary,
 } from "./entities/mail";
 import type { AuditRecord } from "./entities/audit";
+import type { SearchOnlyResponse } from "./entities/search";
 import {
   AssistantThreadDetailViewSchema,
   AssistantThreadViewSchema,
@@ -84,7 +85,7 @@ export async function readApiError(response: Response): Promise<ApiErrorPayload>
   const ct = response.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
     const fallback = await response.text();
-    return { message: fallback.trim() || "Request failed" };
+    return { message: fallback.trim() || "Запрос не выполнен" };
   }
   try {
     return (await response.json()) as ApiErrorPayload;
@@ -569,6 +570,23 @@ export async function apiListDocuments(
     onNewToken,
   );
   return parseAuthenticatedSchema(response, DocumentPageSchema, onUnauthorized);
+}
+
+export async function apiSearchDocuments(
+  query: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<SearchOnlyResponse> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/search`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    },
+    onNewToken,
+  );
+  return parseAuthenticatedJson<SearchOnlyResponse>(response, onUnauthorized);
 }
 
 export async function apiUploadDocument(

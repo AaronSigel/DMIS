@@ -40,16 +40,6 @@ class MailCalendarHttpAdapterTest {
     );
 
     @Test
-    void sendCalendarDraft_returnsDraftWithoutRemoteCall() {
-        MailCalendarHttpAdapter adapter = createAdapter(new EmptyObjectProvider<>());
-        IntegrationDtos.CalendarDraftView draft = calendarDraft();
-
-        IntegrationDtos.CalendarDraftView result = adapter.sendCalendarDraft(draft, "idem-1");
-
-        assertEquals(draft, result);
-    }
-
-    @Test
     void noopWhenMailSenderUnavailable() {
         @SuppressWarnings("unchecked")
         ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
@@ -300,18 +290,6 @@ class MailCalendarHttpAdapterTest {
                 mock(MailCalendarPersistenceAdapter.class),
                 mailSenderProvider,
                 "no-reply@example.com"
-        );
-    }
-
-
-    private static IntegrationDtos.CalendarDraftView calendarDraft() {
-        return new IntegrationDtos.CalendarDraftView(
-                "event-1",
-                "Demo event",
-                List.of("a@example.com", "b@example.com"),
-                "2026-05-08T08:00:00Z",
-                "2026-05-08T09:00:00Z",
-                "user-1"
         );
     }
 

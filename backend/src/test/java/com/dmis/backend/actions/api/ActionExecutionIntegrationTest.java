@@ -89,7 +89,7 @@ class ActionExecutionIntegrationTest {
     }
 
     @Test
-    void createCalendarEventIntentCreatesCalendarDraftOnExecute() throws Exception {
+    void createCalendarEventIntentCreatesCalendarEventOnExecute() throws Exception {
         String token = loginAndGetToken();
 
         String draftJson = mockMvc.perform(post("/api/actions/draft")

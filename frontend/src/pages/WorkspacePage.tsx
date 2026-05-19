@@ -16,10 +16,20 @@ import { DashboardPage } from "./DashboardPage";
 import { DocumentCardPage } from "./DocumentCardPage";
 import { SettingsPage } from "./SettingsPage";
 
-type User = { id: string; fullName: string; email: string; roles?: string[] };
+type User = {
+  id: string;
+  fullName: string;
+  email: string;
+  nickname?: string | null;
+  roles?: string[];
+};
 
 function isAdmin(u: User | null) {
   return u?.roles?.includes("ADMIN") ?? false;
+}
+
+function homePath(user: User): string {
+  return isAdmin(user) ? "/dashboard" : "/documents";
 }
 
 type NavSearchResultItem = {
@@ -106,7 +116,7 @@ function Sidebar({
         <span className="font-mono text-[20px] font-bold text-primary">DMIS</span>
         <div className="flex items-center gap-1.5">
           <span className="whitespace-nowrap rounded-xl bg-danger-soft px-1.5 py-[2px] text-[10px] font-semibold text-danger">
-            ● audit on
+            ● аудит включён
           </span>
           {mobile && (
             <button
@@ -192,15 +202,15 @@ function Sidebar({
       </button>
 
       <SectionLabel>рабочее пространство</SectionLabel>
-      <NavItem label="Дашборд" k="dashboard" icon="◈" />
+      {isAdmin(user) && <NavItem label="Дашборд" k="dashboard" icon="◈" />}
       <NavItem label="Документы" count={docCount} k="documents" icon="📄" />
       <SectionLabel>сервисы</SectionLabel>
       <NavItem label="Почта" k="mail" icon="✉" />
       <NavItem label="Календарь" k="calendar" icon="📅" />
       <SectionLabel>контроль</SectionLabel>
-      <NavItem label={isAdmin(user) ? "Журнал аудита" : "Мои AI-действия"} k="audit" icon="○" />
+      <NavItem label={isAdmin(user) ? "Журнал аудита" : "Мои ИИ-действия"} k="audit" icon="○" />
       <NavItem label="Настройки" k="settings" icon="☰" />
-      {isAdmin(user) && <NavItem label="ACL (скоро)" k="acl" icon="🔒" />}
+      {isAdmin(user) && <NavItem label="Права доступа (скоро)" k="acl" icon="🔒" />}
     </aside>
   );
 }
@@ -227,7 +237,9 @@ export function WorkspacePage({
   const closeMobileAi = useUiStore((state) => state.closeMobileAi);
   const closeDesktopAi = useUiStore((state) => state.closeDesktopAi);
   const navigate = useNavigate();
-  const section = location.pathname.split("/")[1] || "dashboard";
+  const defaultSection = isAdmin(user) ? "dashboard" : "documents";
+  const section = location.pathname.split("/")[1] || defaultSection;
+  const userHomePath = homePath(user);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -271,9 +283,9 @@ export function WorkspacePage({
       if (s === "documents") {
         setUploadTrigger(0);
       }
-      navigate(map[s] ?? "/dashboard");
+      navigate(map[s] ?? userHomePath);
     },
-    [navigate],
+    [navigate, userHomePath],
   );
 
   const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
@@ -300,15 +312,19 @@ export function WorkspacePage({
       : [];
 
     const core: NavSearchResultItem[] = [
-      {
-        id: "sec-dash",
-        label: "Дашборд",
-        hint: "раздел",
-        onActivate: () => {
-          handleSection("dashboard");
-          closeMobileSidebar();
-        },
-      },
+      ...(isAdmin(user)
+        ? [
+            {
+              id: "sec-dash",
+              label: "Дашборд",
+              hint: "раздел",
+              onActivate: () => {
+                handleSection("dashboard");
+                closeMobileSidebar();
+              },
+            } satisfies NavSearchResultItem,
+          ]
+        : []),
       {
         id: "sec-docs",
         label: "Документы",
@@ -356,7 +372,7 @@ export function WorkspacePage({
       },
       {
         id: "sec-audit",
-        label: isAdmin(user) ? "Журнал аудита" : "Мои AI-действия",
+        label: isAdmin(user) ? "Журнал аудита" : "Мои ИИ-действия",
         hint: "раздел",
         onActivate: () => {
           handleSection("audit");
@@ -368,7 +384,7 @@ export function WorkspacePage({
     if (isAdmin(user)) {
       core.push({
         id: "sec-acl",
-        label: "ACL",
+        label: "Права доступа",
         hint: "скоро",
         onActivate: () => {
           handleSection("acl");
@@ -424,11 +440,15 @@ export function WorkspacePage({
       <Route
         path="/dashboard"
         element={
-          <DashboardPage
-            token={token}
-            onSessionExpired={onSessionExpired}
-            onTokenRefresh={onTokenRefresh}
-          />
+          isAdmin(user) ? (
+            <DashboardPage
+              token={token}
+              onSessionExpired={onSessionExpired}
+              onTokenRefresh={onTokenRefresh}
+            />
+          ) : (
+            <Navigate to="/documents" replace />
+          )
         }
       />
       <Route
@@ -487,8 +507,8 @@ export function WorkspacePage({
           />
         }
       />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Navigate to={userHomePath} replace />} />
+      <Route path="*" element={<Navigate to={userHomePath} replace />} />
     </Routes>
   );
 

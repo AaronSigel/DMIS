@@ -30,6 +30,7 @@ public class AiServiceIntentParserAdapter implements IntentParserPort {
             Для %s entities: attendeeEmails (массив email), fromIso, toIso, slotMinutes (целое число минут).
             Не используй пустые строки и пустые массивы как валидные значения entities.
             Если данных недостаточно, верни наиболее вероятный intent, но заполняй entities только содержательными значениями.
+            Для %s: поля to, subject и body обязательны. Если subject или body не заданы явно, сгенерируй краткое разумное значение на основе запроса (например, имя файла как тема, деловая формулировка как тело). Не оставляй их пустыми.
             """.formatted(
             ActionDtos.SEND_EMAIL_INTENT,
             ActionDtos.CREATE_CALENDAR_EVENT_INTENT,
@@ -42,7 +43,8 @@ public class AiServiceIntentParserAdapter implements IntentParserPort {
             ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT,
             ActionDtos.RESCHEDULE_CALENDAR_EVENT_INTENT,
             ActionDtos.PREPARE_MEETING_AGENDA_INTENT,
-            ActionDtos.SUGGEST_MEETING_SLOTS_INTENT
+            ActionDtos.SUGGEST_MEETING_SLOTS_INTENT,
+            ActionDtos.SEND_EMAIL_INTENT
     );
 
     private final RestClient restClient;

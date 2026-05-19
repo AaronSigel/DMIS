@@ -1,18 +1,24 @@
 import { type FormEvent, useState } from "react";
 import { apiBaseUrl, parsePublicJson, readApiError } from "../apiClient";
 
-type User = { id: string; fullName: string; email: string; roles?: string[] };
+type User = {
+  id: string;
+  fullName: string;
+  email: string;
+  nickname?: string | null;
+  roles?: string[];
+};
 
 type LoginPageProps = {
   onLogin: (t: string, u: User) => void;
 };
 
 function mapLoginError(status?: number, message?: string): string {
-  if (status === 401) return "Неверный email или пароль.";
-  if (status === 400) return "Проверьте корректность email и пароля.";
+  if (status === 401) return "Неверная почта или пароль.";
+  if (status === 400) return "Проверьте корректность почты и пароля.";
   if (status === 403) return "Доступ запрещен для этого аккаунта.";
   if (message?.includes("Failed to fetch")) {
-    return "Сервер недоступен. Проверьте настройки API/CORS и запуск backend.";
+    return "Сервер недоступен. Проверьте настройки подключения и запуск серверной части.";
   }
   return message || "Не удалось выполнить вход.";
 }
@@ -30,7 +36,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     try {
       const healthRes = await fetch(`${apiBaseUrl}/health`);
       if (!healthRes.ok) {
-        setError("Сервер backend недоступен. Проверьте, что API отвечает на /health.");
+        setError("Серверная часть недоступна. Проверьте, что служба отвечает на /health.");
         return;
       }
       const res = await fetch(`${apiBaseUrl}/auth/login`, {
@@ -60,7 +66,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           Система документооборота и интеллектуального поиска
         </p>
         <p className="mb-[14px] mt-0 text-xs text-muted">
-          API: <code>{apiBaseUrl}</code>
+          Сервер: <code>{apiBaseUrl}</code>
         </p>
         <form onSubmit={submit} className="flex flex-col gap-2.5">
           <input

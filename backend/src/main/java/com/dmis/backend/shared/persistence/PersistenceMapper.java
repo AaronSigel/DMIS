@@ -30,7 +30,7 @@ public class PersistenceMapper {
                 .map(RoleEntity::getName)
                 .map(RoleName::valueOf)
                 .collect(Collectors.toSet());
-        return new UserView(entity.getId(), entity.getEmail(), entity.getFullName(), roles);
+        return new UserView(entity.getId(), entity.getEmail(), entity.getNickname(), entity.getFullName(), roles);
     }
 
     public String toJson(ActionEntities entities) {

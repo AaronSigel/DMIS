@@ -197,14 +197,6 @@ public class IntegrationsController {
         }
     }
 
-    public record CalendarDraftRequest(
-            @NotBlank String title,
-            @NotEmpty List<String> attendees,
-            @NotBlank String startIso,
-            @NotBlank String endIso
-    ) {
-    }
-
     public record CalendarEventUpsertRequest(
             @NotBlank String title,
             @NotEmpty List<String> attendees,
@@ -218,18 +210,6 @@ public class IntegrationsController {
     }
 
     public record TranscriptResponse(String text, String status) {
-    }
-
-    @PostMapping("/calendar/drafts")
-    public IntegrationDtos.CalendarDraftView validatedCalendarDraft(@Valid @RequestBody CalendarDraftRequest request) {
-        validateDateRange(request.startIso(), request.endIso());
-        return integrationService.createCalendarDraft(
-                currentUserProvider.currentUser(),
-                request.title(),
-                request.attendees(),
-                request.startIso(),
-                request.endIso()
-        );
     }
 
     private static void validateDateRange(String startIso, String endIso) {

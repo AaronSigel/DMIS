@@ -56,6 +56,15 @@ public class DataBootstrap implements CommandLineRunner {
                         userRepository.save(new UserEntity(
                                 existing.getId(),
                                 email,
+                                localPart,
+                                existing.getFullName(),
+                                existing.getPasswordHash(),
+                                existing.getRoles()));
+                    } else if (existing.getNickname() == null || existing.getNickname().isBlank()) {
+                        userRepository.save(new UserEntity(
+                                existing.getId(),
+                                existing.getEmail(),
+                                localPart,
                                 existing.getFullName(),
                                 existing.getPasswordHash(),
                                 existing.getRoles()));
@@ -65,6 +74,7 @@ public class DataBootstrap implements CommandLineRunner {
                         userRepository.save(new UserEntity(
                                 id,
                                 email,
+                                localPart,
                                 fullName,
                                 passwordEncoder.encode("demo"),
                                 Set.of(primaryRole)))));

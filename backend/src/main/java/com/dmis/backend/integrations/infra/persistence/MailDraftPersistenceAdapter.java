@@ -6,6 +6,7 @@ import com.dmis.backend.integrations.infra.persistence.entity.MailDraftEntity;
 import com.dmis.backend.integrations.infra.persistence.repository.MailDraftAttachmentJpaRepository;
 import com.dmis.backend.integrations.infra.persistence.repository.MailDraftJpaRepository;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +42,7 @@ public class MailDraftPersistenceAdapter implements MailDraftPort {
     }
 
     @Override
+    @Transactional
     public MailDraftSummary save(MailDraftSummary draft) {
         mailDraftJpaRepository.save(new MailDraftEntity(
                 draft.id(),
@@ -53,6 +55,7 @@ public class MailDraftPersistenceAdapter implements MailDraftPort {
     }
 
     @Override
+    @Transactional
     public void deleteById(String id) {
         mailDraftAttachmentJpaRepository.deleteByDraftId(id);
         mailDraftJpaRepository.deleteById(id);
@@ -66,6 +69,7 @@ public class MailDraftPersistenceAdapter implements MailDraftPort {
     }
 
     @Override
+    @Transactional
     public void replaceAttachmentDocumentIds(String draftId, List<String> documentIds) {
         mailDraftAttachmentJpaRepository.deleteByDraftId(draftId);
         if (documentIds == null || documentIds.isEmpty()) {

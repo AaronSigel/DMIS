@@ -22,6 +22,11 @@ import type {
 } from "../../entities/calendar";
 import { queryKeys } from "../../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
+import {
+  localizeAttachmentRole,
+  localizeCreationSource,
+  localizeParticipantStatus,
+} from "../../shared/lib/localizeDomain";
 import { isoToLocalDateTimeInput, localDateTimeInputToIso } from "../../shared/lib/datetimeLocal";
 import { PageHeader } from "../../shared/ui/PageHeader";
 import { useToast } from "../../shared/ui/ToastProvider";
@@ -536,7 +541,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
               <input
                 value={form.attendees}
                 onChange={(e) => setForm((p) => ({ ...p, attendees: e.target.value }))}
-                placeholder="Участники (email через запятую)"
+                placeholder="Участники (почта через запятую)"
                 aria-label="Участники события"
                 className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
               />
@@ -698,7 +703,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                 {formatDateTime(detailEvent.startIso)} — {formatDateTime(detailEvent.endIso)}
               </p>
               <p className="m-0 text-[11px] text-muted">
-                Источник: {detailEvent.creationSource}
+                Источник: {localizeCreationSource(detailEvent.creationSource)}
                 {detailEvent.sourceMailMessageId
                   ? ` · письмо ${detailEvent.sourceMailMessageId}`
                   : ""}
@@ -717,7 +722,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                       className="flex items-center justify-between gap-2 text-[12px]"
                     >
                       <span>
-                        {p.displayName} ({p.email}) — {p.status}
+                        {p.displayName} ({p.email}) — {localizeParticipantStatus(p.status)}
                       </span>
                       {p.userId && (
                         <button
@@ -748,7 +753,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                   {detailEvent.attachments.map((a) => (
                     <li key={a.id} className="flex items-center justify-between gap-2 text-[12px]">
                       <span>
-                        {a.documentTitle} ({a.role})
+                        {a.documentTitle} ({localizeAttachmentRole(a.role)})
                       </span>
                       <button
                         type="button"
@@ -786,7 +791,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                           addParticipantMutation.mutate({ eventId: detailEvent.id, userId: u.id })
                         }
                       >
-                        {u.fullName} ({u.email})
+                        {u.fullName} {u.nickname ? `(@${u.nickname}) ` : ""}({u.email})
                       </button>
                     ))}
                   </div>
@@ -797,7 +802,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                 <input
                   value={attachDocId}
                   onChange={(e) => setAttachDocId(e.target.value)}
-                  placeholder="ID документа"
+                  placeholder="Идентификатор документа"
                   className="min-w-0 flex-1 rounded-md border border-border px-2 py-1 text-[12px]"
                 />
                 <select
@@ -850,7 +855,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                   onClick={() => agendaMutation.mutate(detailEvent.id)}
                   className="rounded-md border border-border px-3 py-1.5 text-[12px]"
                 >
-                  AI: повестка
+                  Повестка от ассистента
                 </button>
                 <button
                   type="button"

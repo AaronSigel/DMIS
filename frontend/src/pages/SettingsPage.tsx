@@ -1,6 +1,12 @@
 import { PageHeader } from "../shared/ui/PageHeader";
 
-type User = { id: string; fullName: string; email: string; roles?: string[] };
+type User = {
+  id: string;
+  fullName: string;
+  email: string;
+  nickname?: string | null;
+  roles?: string[];
+};
 
 type SettingsPageProps = { user: User };
 
@@ -33,7 +39,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
           <div className="flex items-center justify-between gap-2.5">
             <div>
-              <p className="m-0 text-sm font-semibold text-text">Email-дайджест</p>
+              <p className="m-0 text-sm font-semibold text-text">Почтовый дайджест</p>
               <p className="mb-0 mt-1 text-xs text-muted">
                 Ежедневная сводка по документам и активности (скоро).
               </p>

@@ -165,7 +165,7 @@ class AuthIntegrationTest {
     }
 
     @Test
-    void auditListRequiresAdminRole() throws Exception {
+    void auditListReturnsOwnRecordsForRegularUser() throws Exception {
         String adminToken = loginAndGetToken("admin@example.com");
         String userToken = loginAndGetToken("analyst@example.com");
 
@@ -175,7 +175,8 @@ class AuthIntegrationTest {
 
         mockMvc.perform(get("/api/audit")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
     }
 
     private String loginAndGetToken(String email) throws Exception {

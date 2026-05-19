@@ -3,6 +3,7 @@ import { apiConfirmAction, apiExecuteAction, apiGetDocumentTags } from "../../ap
 import { useToast } from "../../shared/ui/ToastProvider";
 import { StatusBadge } from "../../shared/ui/StatusBadge";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
+import { localizeIntent } from "../../shared/lib/localizeDomain";
 import type {
   ActionCardEntities,
   ActionStatus,
@@ -158,7 +159,9 @@ export function ActionCard({
       const confirmed = await apiConfirmAction(id, onSessionExpired ?? (() => {}), onTokenRefresh);
       setLocalStatus(confirmed.status);
       setConfirmOpen(false);
-      toast.success("Действие подтверждено.");
+      toast.success(
+        confirmed.status === "EXECUTED" ? "Действие выполнено." : "Действие подтверждено.",
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось подтвердить действие";
       setActionError(message);
@@ -189,7 +192,7 @@ export function ActionCard({
   return (
     <div className="rounded-lg border border-border bg-white px-[10px] py-2">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="m-0 text-[11px] text-muted">Действие: {intent}</p>
+        <p className="m-0 text-[11px] text-muted">Действие: {localizeIntent(intent)}</p>
         <StatusBadge status={localStatus} />
       </div>
       <div className="grid gap-1.5">
@@ -201,7 +204,9 @@ export function ActionCard({
         ))}
         {intent === "update_document_tags" && (
           <div className="rounded-md border border-border bg-white px-2 py-1.5">
-            <p className="m-0 text-[10px] uppercase tracking-[0.06em] text-muted">Diff тегов</p>
+            <p className="m-0 text-[10px] uppercase tracking-[0.06em] text-muted">
+              Изменение тегов
+            </p>
             {tagsLoading && <p className="m-0 text-[12px] text-muted">Загрузка текущих тегов…</p>}
             {!tagsLoading && tagsError && (
               <p className="m-0 text-[12px] text-danger">{tagsError}</p>
@@ -247,7 +252,7 @@ export function ActionCard({
         onOpenChange={setConfirmOpen}
         onConfirm={handleConfirmAction}
         title="Подтвердить действие"
-        description="После подтверждения действие перейдет в статус CONFIRMED."
+        description="После подтверждения действие перейдет в статус «подтверждено»."
         confirmText="Подтвердить"
         cancelText="Отмена"
         pending={confirmPending}

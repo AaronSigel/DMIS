@@ -20,6 +20,7 @@ import { useUiStore } from "../../shared/store/uiStore";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
 import { timeAgo } from "../../shared/lib/timeAgo";
 import { PageHeader } from "../../shared/ui/PageHeader";
+import { useToast } from "../../shared/ui/ToastProvider";
 import type { MailMessageSummary } from "../../entities/mail";
 
 type MailPageProps = {
@@ -72,6 +73,7 @@ function buildReplyPrefill(detail: { from: string; subject: string; body: string
 
 export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPageProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [folder, setFolder] = useState<ApiMailFolder>("INBOX");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -241,21 +243,25 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
   async function handleConfirmSend() {
     const to = normalizeMailRecipientInput(composeTo);
     let id = composeDraftId;
-    if (!id) {
-      const created = await apiCreateMailDraft(
-        { to, subject: composeSubject, body: composeBody },
-        onSessionExpired,
-        onTokenRefresh,
-      );
-      id = created.id;
-      setComposeDraftId(id);
+    try {
+      if (!id) {
+        const created = await apiCreateMailDraft(
+          { to, subject: composeSubject, body: composeBody },
+          onSessionExpired,
+          onTokenRefresh,
+        );
+        id = created.id;
+        setComposeDraftId(id);
+      }
+      await apiSendMailDraft(id, onSessionExpired, onTokenRefresh);
+      setConfirmSendOpen(false);
+      setComposeOpen(false);
+      setComposeDraftId(null);
+      invalidateMail();
+      setFolder("SENT");
+    } catch (err) {
+      toast.error(formatErrorMessage(err, "Не удалось отправить письмо."));
     }
-    await apiSendMailDraft(id, onSessionExpired, onTokenRefresh);
-    setConfirmSendOpen(false);
-    setComposeOpen(false);
-    setComposeDraftId(null);
-    invalidateMail();
-    setFolder("SENT");
   }
 
   async function handleDownloadPart(partId: string, fileName: string) {
@@ -412,10 +418,10 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                     <button
                       type="button"
                       onClick={handleReplyWithAi}
-                      aria-label="Ответить на письмо через AI-ассистента"
+                      aria-label="Ответить на письмо через ИИ-ассистента"
                       className="rounded-md border border-border bg-white px-2 py-1 text-[12px] font-medium text-text"
                     >
-                      Ответить через AI
+                      Ответить через ассистента
                     </button>
                     <button
                       type="button"
@@ -528,7 +534,7 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                 value={composeTo}
                 onChange={(e) => setComposeTo(e.target.value)}
                 className="mt-1 w-full rounded-md border border-border px-2 py-1.5 text-[13px]"
-                placeholder="email@example.com"
+                placeholder="адрес получателя"
               />
             </label>
             <label className="mb-2 block text-[12px] text-muted">

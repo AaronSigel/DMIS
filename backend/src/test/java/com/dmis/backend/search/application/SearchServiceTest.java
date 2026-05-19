@@ -41,7 +41,7 @@ class SearchServiceTest {
                 ),
                 new AclService(noopAccessPort()),
                 new FakeLlmChatPort(),
-                new AuditService(new NoopAuditPort()),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
                 new SimpleMeterRegistry(),
                 noopCache,
                 10,
@@ -74,7 +74,7 @@ class SearchServiceTest {
                 },
                 new AclService(noopAccessPort()),
                 new FakeLlmChatPort(),
-                new AuditService(new NoopAuditPort()),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
                 new SimpleMeterRegistry(),
                 noopCache2,
                 10,
@@ -113,7 +113,7 @@ class SearchServiceTest {
                 },
                 new AclService(noopAccessPort()),
                 new FakeLlmChatPort(),
-                new AuditService(new NoopAuditPort()),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
                 new SimpleMeterRegistry(),
                 noopCache,
                 10,
@@ -147,7 +147,7 @@ class SearchServiceTest {
                 ),
                 new AclService(noopAccessPort()),
                 llm,
-                new AuditService(new NoopAuditPort()),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
                 new SimpleMeterRegistry(),
                 noopCache3,
                 10,
@@ -181,7 +181,7 @@ class SearchServiceTest {
                 (query, candidates) -> List.of(),
                 new AclService(noopAccessPort()),
                 llm,
-                new AuditService(new NoopAuditPort()),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
                 new SimpleMeterRegistry(),
                 noopCache4,
                 10,
@@ -252,6 +252,11 @@ class SearchServiceTest {
 
         @Override
         public List<AuditView> findAll() {
+            return List.of();
+        }
+
+        @Override
+        public List<AuditView> findByActorId(String actorId) {
             return List.of();
         }
     }

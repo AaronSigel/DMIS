@@ -48,12 +48,15 @@ public class UserPersistenceAdapter implements UserAccessPort {
     @Override
     public List<UserSummaryView> searchSummaries(String query, int limit) {
         String q = query == null ? "" : query.trim();
+        if (q.startsWith("@")) {
+            q = q.substring(1).trim();
+        }
         if (q.length() < 2) {
             return List.of();
         }
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         return userJpaRepository.searchByEmailOrName(q, PageRequest.of(0, safeLimit)).stream()
-                .map(e -> new UserSummaryView(e.getId(), e.getEmail(), e.getFullName()))
+                .map(e -> new UserSummaryView(e.getId(), e.getEmail(), e.getNickname(), e.getFullName()))
                 .toList();
     }
 
@@ -61,7 +64,7 @@ public class UserPersistenceAdapter implements UserAccessPort {
     public List<UserSummaryView> findAllSummaries() {
         return userJpaRepository.findAll().stream()
                 .sorted(Comparator.comparing(UserEntity::getEmail, String.CASE_INSENSITIVE_ORDER))
-                .map(e -> new UserSummaryView(e.getId(), e.getEmail(), e.getFullName()))
+                .map(e -> new UserSummaryView(e.getId(), e.getEmail(), e.getNickname(), e.getFullName()))
                 .toList();
     }
 }

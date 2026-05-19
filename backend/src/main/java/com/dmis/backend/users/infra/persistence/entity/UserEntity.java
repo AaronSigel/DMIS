@@ -22,6 +22,9 @@ public class UserEntity {
     @Column(name = "email", nullable = false, unique = true)
     private String email;
 
+    @Column(name = "nickname", unique = true)
+    private String nickname;
+
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
@@ -40,8 +43,20 @@ public class UserEntity {
     }
 
     public UserEntity(String id, String email, String fullName, String passwordHash, Set<RoleEntity> roles) {
+        this(id, email, null, fullName, passwordHash, roles);
+    }
+
+    public UserEntity(
+            String id,
+            String email,
+            String nickname,
+            String fullName,
+            String passwordHash,
+            Set<RoleEntity> roles
+    ) {
         this.id = id;
         this.email = email;
+        this.nickname = nickname;
         this.fullName = fullName;
         this.passwordHash = passwordHash;
         this.roles = roles;
@@ -53,6 +68,10 @@ public class UserEntity {
 
     public String getEmail() {
         return email;
+    }
+
+    public String getNickname() {
+        return nickname;
     }
 
     public String getFullName() {

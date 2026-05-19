@@ -49,11 +49,6 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
     }
 
     @Override
-    public IntegrationDtos.CalendarDraftView saveCalendarDraft(IntegrationDtos.CalendarDraftView draftView) {
-        return persistenceAdapter.saveCalendarDraft(draftView);
-    }
-
-    @Override
     public IntegrationDtos.MailDraftView sendMailDraft(
             IntegrationDtos.MailDraftView draft,
             String idempotencyKey,
@@ -121,11 +116,6 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Mail service request failed: " + smtpFailureDetail(ex), ex);
         }
-        return draft;
-    }
-
-    @Override
-    public IntegrationDtos.CalendarDraftView sendCalendarDraft(IntegrationDtos.CalendarDraftView draft, String idempotencyKey) {
         return draft;
     }
 

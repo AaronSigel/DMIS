@@ -5,6 +5,7 @@ export const queryKeys = {
     all: ["documents"] as const,
     list: (params: { section: string; page: number; size: number; archive?: boolean }) =>
       ["documents", params] as const,
+    search: (query: string) => ["documents", "search", query] as const,
     count: ["documents-count"] as const,
     card: (documentId: string | undefined) => ["document-card", documentId] as const,
   },

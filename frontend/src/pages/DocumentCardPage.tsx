@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   apiBaseUrl,
   apiCreateActionDraft,
@@ -62,6 +70,70 @@ function defaultMeetingRange() {
   const end = new Date(start);
   end.setHours(11, 0, 0, 0);
   return { start: toDateTimeLocal(start), end: toDateTimeLocal(end) };
+}
+
+type SearchNavigationState = {
+  searchHit?: {
+    chunkId?: string;
+    chunkText?: string;
+    query?: string;
+  };
+};
+
+function normalizeSearchText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function findBestSearchRange(
+  text: string,
+  snippet: string,
+  query: string,
+): [number, number] | null {
+  const normalizedSnippet = normalizeSearchText(snippet);
+  const normalizedQuery = normalizeSearchText(query);
+  const candidates = [
+    normalizedSnippet,
+    normalizedSnippet.slice(0, 220),
+    normalizedSnippet.slice(0, 120),
+    normalizedQuery,
+  ].filter((item) => item.length >= 3);
+
+  const lowerText = text.toLowerCase();
+  for (const candidate of candidates) {
+    const idx = lowerText.indexOf(candidate.toLowerCase());
+    if (idx >= 0) return [idx, idx + candidate.length];
+  }
+  return null;
+}
+
+function HighlightedDocumentText({
+  text,
+  snippet,
+  query,
+  markerRef,
+}: {
+  text: string;
+  snippet: string;
+  query: string;
+  markerRef: RefObject<HTMLElement>;
+}) {
+  const range = findBestSearchRange(text, snippet, query);
+  if (!range) return <>{text}</>;
+
+  const [start, end] = range;
+  const parts: ReactNode[] = [];
+  if (start > 0) parts.push(text.slice(0, start));
+  parts.push(
+    <mark
+      key="search-hit"
+      ref={markerRef}
+      className="rounded bg-[#fff3bf] px-0.5 text-text ring-1 ring-[#f2c94c]"
+    >
+      {text.slice(start, end)}
+    </mark>,
+  );
+  if (end < text.length) parts.push(text.slice(end));
+  return <>{parts}</>;
 }
 
 function DocumentPreview({
@@ -156,6 +228,7 @@ export function DocumentCardPage({
 }: DocumentCardPageProps) {
   const { documentId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [tagInput, setTagInput] = useState("");
   const [fullText, setFullText] = useState<string | null>(null);
@@ -169,6 +242,17 @@ export function DocumentCardPage({
   const [meetingEnd, setMeetingEnd] = useState("");
   const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
   const toast = useToast();
+  const searchMarkerRef = useRef<HTMLElement>(null);
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const navigationState = location.state as SearchNavigationState | null;
+  const searchTarget = {
+    chunkId: searchParams.get("chunk") ?? navigationState?.searchHit?.chunkId ?? "",
+    query: searchParams.get("q") ?? navigationState?.searchHit?.query ?? "",
+    snippet: navigationState?.searchHit?.chunkText ?? "",
+  };
+  const hasSearchTarget = Boolean(
+    searchTarget.chunkId || searchTarget.query || searchTarget.snippet,
+  );
 
   const docQuery = useQuery({
     queryKey: queryKeys.documents.card(documentId),
@@ -209,7 +293,7 @@ export function DocumentCardPage({
     }
   }
 
-  async function loadFullText() {
+  const loadFullText = useCallback(async () => {
     if (!documentId || !token) return;
     setFullTextLoading(true);
     try {
@@ -226,7 +310,17 @@ export function DocumentCardPage({
     } finally {
       setFullTextLoading(false);
     }
-  }
+  }, [documentId, token, onTokenRefresh, onSessionExpired, toast]);
+
+  useEffect(() => {
+    if (!hasSearchTarget || !documentId || !token || fullText || fullTextLoading) return;
+    void loadFullText();
+  }, [hasSearchTarget, documentId, token, fullText, fullTextLoading, loadFullText]);
+
+  useEffect(() => {
+    if (!hasSearchTarget || !searchMarkerRef.current) return;
+    searchMarkerRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [hasSearchTarget, fullText, doc?.extractedTextPreview]);
 
   const deleteDocumentMutation = useMutation({
     mutationFn: () => {
@@ -311,6 +405,11 @@ export function DocumentCardPage({
 
   const ct = doc.contentType ?? "";
   const isPlainText = ct.includes("text/plain");
+  const extractedTextToShow = fullText
+    ? fullText
+    : doc.extractedTextTruncated
+      ? `${doc.extractedTextPreview}…`
+      : doc.extractedTextPreview;
 
   function askInAi() {
     if (!doc) return;
@@ -388,13 +487,13 @@ export function DocumentCardPage({
               className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
               title="Открыть ассистента и вставить вопрос"
             >
-              Спросить AI
+              Спросить ассистента
             </button>
             <button
               type="button"
               onClick={openMeetingDraftForm}
               className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
-              title="Создать draft встречи по этому документу"
+              title="Создать черновик встречи по этому документу"
             >
               Создать встречу
             </button>
@@ -424,7 +523,7 @@ export function DocumentCardPage({
               <div>
                 <p className="m-0 text-sm font-semibold text-text">Создать встречу из документа</p>
                 <p className="m-0 text-[12px] text-muted">
-                  Draft пройдет существующий confirm/execute flow.
+                  Черновик пройдет стандартный поток подтверждения и выполнения.
                 </p>
               </div>
               <button
@@ -449,7 +548,7 @@ export function DocumentCardPage({
                 <input
                   value={meetingAttendees}
                   onChange={(e) => setMeetingAttendees(e.target.value)}
-                  placeholder="email или @username через запятую"
+                  placeholder="адреса почты или @имена через запятую"
                   className="rounded-md border border-border bg-surface px-2 py-1.5 text-[13px] text-text outline-none"
                 />
               </label>
@@ -479,7 +578,7 @@ export function DocumentCardPage({
                 disabled={createActionDraftMutation.isPending}
                 className="rounded-md border-0 bg-primary px-3 py-1.5 text-xs text-white disabled:opacity-50"
               >
-                Создать draft
+                Создать черновик
               </button>
             </div>
           </div>
@@ -512,7 +611,7 @@ export function DocumentCardPage({
           />
         </Section>
 
-        {(!isPlainText || doc.extractedTextTruncated) && (
+        {(hasSearchTarget || !isPlainText || doc.extractedTextTruncated) && (
           <Section
             label={`Извлеченный текст (${doc.extractedTextLength} символов${doc.extractedTextTruncated ? ", усечено" : ""})`}
           >
@@ -521,11 +620,16 @@ export function DocumentCardPage({
                 fullText ? "max-h-[360px] bg-success-soft" : "max-h-[180px] bg-surface-muted"
               }`}
             >
-              {fullText
-                ? fullText
-                : doc.extractedTextTruncated
-                  ? `${doc.extractedTextPreview}…`
-                  : doc.extractedTextPreview}
+              {hasSearchTarget ? (
+                <HighlightedDocumentText
+                  text={extractedTextToShow}
+                  snippet={searchTarget.snippet}
+                  query={searchTarget.query}
+                  markerRef={searchMarkerRef}
+                />
+              ) : (
+                extractedTextToShow
+              )}
             </pre>
             {!fullText && (
               <button

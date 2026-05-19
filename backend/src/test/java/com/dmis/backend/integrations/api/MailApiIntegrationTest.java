@@ -25,6 +25,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -74,6 +75,34 @@ class MailApiIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].subject", hasItem(subject)));
+    }
+
+    @Test
+    void sendDraft_removesDraftFromList() throws Exception {
+        String token = loginAndGetToken();
+        String subject = "SendMe-" + UUID.randomUUID();
+
+        String createJson = mockMvc.perform(post("/api/mail/drafts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content(String.format(
+                                "{\"to\":\"recipient@example.com\",\"subject\":\"%s\",\"body\":\"Body\"}",
+                                subject)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").isNotEmpty())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String draftId = objectMapper.readTree(createJson).get("id").asText();
+
+        mockMvc.perform(post("/api/mail/drafts/" + draftId + "/send")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/mail/drafts")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].id", not(hasItem(draftId))));
     }
 
     @Test

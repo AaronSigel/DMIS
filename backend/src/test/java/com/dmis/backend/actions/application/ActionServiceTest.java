@@ -53,7 +53,7 @@ class ActionServiceTest {
     @BeforeEach
     void setUp() {
         aiActionPort = new InMemoryAiActionPort();
-        AuditService auditService = new AuditService(new InMemoryAuditPort());
+        AuditService auditService = new AuditService(new InMemoryAuditPort(), new AclService(noopAccessPort()));
         integrationService = Mockito.mock(IntegrationService.class);
         documentUseCases = Mockito.mock(DocumentUseCases.class);
         userMentionResolver = Mockito.mock(UserMentionResolver.class);
@@ -290,6 +290,11 @@ class ActionServiceTest {
 
         @Override
         public java.util.List<AuditView> findAll() {
+            return java.util.List.of();
+        }
+
+        @Override
+        public java.util.List<AuditView> findByActorId(String actorId) {
             return java.util.List.of();
         }
     }

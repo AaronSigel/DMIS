@@ -26,6 +26,7 @@ import { useUiStore } from "../../shared/store/uiStore";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { smallBtnClass } from "../../shared/ui/smallBtnClass";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
+import { localizeProfile } from "../../shared/lib/localizeDomain";
 
 type AiPanelProps = {
   token: string;
@@ -426,6 +427,7 @@ export function AiPanel({
       toast.success("Черновик действия создан.");
     } catch (error) {
       if (error instanceof AssistantActionParseError) {
+        toast.info("Не удалось распознать действие — ассистент ответит в обычном режиме.");
         await sendRag(question, threadId);
         return;
       }
@@ -637,7 +639,9 @@ export function AiPanel({
         )}
         {threadDetail && (
           <div>
-            <p className="mb-2 mt-0 text-[11px] text-muted">Профиль: {ideologyProfileId}</p>
+            <p className="mb-2 mt-0 text-[11px] text-muted">
+              Профиль: {localizeProfile(ideologyProfileId)}
+            </p>
             <div className="grid gap-2">
               {threadDetail.messages.map((m) => {
                 return (
@@ -673,7 +677,7 @@ export function AiPanel({
             {selectedDocumentIds.length > 0 && (
               <div className="mt-2">
                 <p className="mb-1 mt-0 text-[11px] text-muted">
-                  Контекст RAG (выбранные документы для ответа)
+                  Контекст ответа (выбранные документы)
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {selectedDocumentIds.map((id) => (
@@ -808,7 +812,7 @@ export function AiPanel({
             className="rounded-lg border border-border bg-white px-[10px] py-2 text-xs text-text disabled:opacity-50"
             title="Остановить генерацию текущего ответа"
           >
-            Stop
+            Стоп
           </button>
           <button
             onClick={handleSubmit}
@@ -846,7 +850,7 @@ export function AiPanel({
               className="rounded-md border-0 bg-primary px-3 py-1 text-xs text-white"
               onClick={() => void createThread()}
             >
-              + Новый чат
+              + Новый диалог
             </button>
             <div
               className="grid gap-1.5 overflow-y-auto"

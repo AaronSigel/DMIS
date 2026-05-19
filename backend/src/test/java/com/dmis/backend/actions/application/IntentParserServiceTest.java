@@ -156,6 +156,23 @@ class IntentParserServiceTest {
     }
 
     @Test
+    void parseDraftResolvesUserMentionByNickname() {
+        when(intentParserPort.parse("send to analysist"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "send_email",
+                        Map.of("to", "@analysist", "subject", "Тема", "body", "Текст")
+                ));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(
+                new UserSummaryView("u-analyst", "analyst@example.com", "analysist", "Data Analyst")
+        ));
+
+        IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("send to analysist");
+
+        var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
+        assertEquals("analyst@example.com", entities.to());
+    }
+
+    @Test
     void parseDraftResolvesUserMentionsInCalendarAttendees() {
         when(intentParserPort.parse("create meeting with analyst"))
                 .thenReturn(new IntentParserPort.ParsedIntent(

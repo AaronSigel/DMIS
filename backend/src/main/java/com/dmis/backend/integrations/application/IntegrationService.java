@@ -128,14 +128,6 @@ public class IntegrationService {
         return draft;
     }
 
-    public IntegrationDtos.CalendarDraftView createCalendarDraft(UserView actor, String title, List<String> attendees, String startIso, String endIso) {
-        IntegrationDtos.CalendarDraftView draft = mailCalendarPort.saveCalendarDraft(
-                new IntegrationDtos.CalendarDraftView("event-" + UUID.randomUUID(), title, attendees, startIso, endIso, actor.id())
-        );
-        auditService.append(actor.id(), "calendar.draft.create", "event", draft.id(), "Calendar draft prepared");
-        return draft;
-    }
-
     /**
      * Непустой «Кому» должен быть разборимым RFC-5322 адресом (черновик не хранит заведомый мусор).
      */
@@ -167,7 +159,7 @@ public class IntegrationService {
         List<IntegrationDtos.MailAttachment> safeAttachments = attachments == null ? List.of() : attachments;
         try {
             IntegrationDtos.MailDraftView sent = mailCalendarPort.sendMailDraft(draft, idempotencyKey, safeAttachments, actor.email());
-            mailDraftPort.deleteById(draft.id());
+            deleteMailDraftAfterSend(actor, draft.id());
             auditService.append(actor.id(), "mail.send", "email", sent.id(), "Mail sent successfully");
             return sent;
         } catch (ResponseStatusException ex) {
@@ -178,30 +170,6 @@ public class IntegrationService {
             auditService.append(actor.id(), "mail.send.failed", "email", draft.id(),
                     "Mail sending failed: " + ex.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Mail sending failed", ex);
-        }
-    }
-
-    public IntegrationDtos.CalendarDraftView sendCalendarEvent(
-            UserView actor,
-            String title,
-            List<String> attendees,
-            String startIso,
-            String endIso,
-            String idempotencyKey
-    ) {
-        IntegrationDtos.CalendarDraftView draft = createCalendarDraft(actor, title, attendees, startIso, endIso);
-        try {
-            IntegrationDtos.CalendarDraftView sent = mailCalendarPort.sendCalendarDraft(draft, idempotencyKey);
-            auditService.append(actor.id(), "calendar.send", "event", sent.id(), "Calendar event sent successfully");
-            return sent;
-        } catch (ResponseStatusException ex) {
-            auditService.append(actor.id(), "calendar.send.failed", "event", draft.id(),
-                    "Calendar event sending failed: " + ex.getReason());
-            throw ex;
-        } catch (Exception ex) {
-            auditService.append(actor.id(), "calendar.send.failed", "event", draft.id(),
-                    "Calendar event sending failed: " + ex.getMessage());
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Calendar event sending failed", ex);
         }
     }
 
@@ -682,7 +650,7 @@ public class IntegrationService {
         String idempotencyKey = "send-draft:" + draftId;
         try {
             IntegrationDtos.MailDraftView sent = mailCalendarPort.sendMailDraft(view, idempotencyKey, attachments, actor.email());
-            mailDraftPort.deleteById(draftId);
+            deleteMailDraftAfterSend(actor, draftId);
             auditService.append(actor.id(), "mail.draft.send", "email", draftId, "Mail draft sent id=" + sent.id());
             return sent;
         } catch (ResponseStatusException ex) {
@@ -915,6 +883,16 @@ public class IntegrationService {
 
     private IntegrationDtos.MailDraftView toMailDraftView(MailDraftPort.MailDraftSummary e) {
         return new IntegrationDtos.MailDraftView(e.id(), e.recipient(), e.subject(), e.body(), e.createdBy());
+    }
+
+    /** Удаляет черновик после успешной SMTP-отправки; сбой очистки не отменяет отправку. */
+    private void deleteMailDraftAfterSend(UserView actor, String draftId) {
+        try {
+            mailDraftPort.deleteById(draftId);
+        } catch (Exception ex) {
+            auditService.append(actor.id(), "mail.draft.cleanup.failed", "email", draftId,
+                    "Mail draft cleanup failed: " + ex.getMessage());
+        }
     }
 
     private static String extractEmailAddress(String fromLine) {

@@ -5,18 +5,21 @@ const usersByEmail = {
     id: "u-admin",
     fullName: "System Admin",
     email: "admin@example.com",
+    nickname: "admin",
     roles: ["ADMIN"],
   },
   "analyst@example.com": {
     id: "u-analyst",
     fullName: "Data Analyst",
     email: "analyst@example.com",
+    nickname: "analyst",
     roles: ["USER"],
   },
   "user@example.com": {
     id: "u-user",
     fullName: "Demo User",
     email: "user@example.com",
+    nickname: "user",
     roles: ["USER"],
   },
 } as const;
@@ -181,7 +184,7 @@ export const handlers = [
         {
           id: "msg-ai-1",
           role: "ASSISTANT",
-          content: "Краткий ответ AI для подготовки письма.",
+          content: "Краткий ответ ИИ для подготовки письма.",
           documentIds: [],
         },
       ],
@@ -341,17 +344,26 @@ export const handlers = [
   }),
 
   http.get("*/users/search", ({ request }) => {
-    const q = new URL(request.url).searchParams.get("q")?.trim().toLowerCase() ?? "";
+    const q =
+      new URL(request.url).searchParams.get("q")?.trim().replace(/^@/, "").toLowerCase() ?? "";
     const pool = [
-      { id: "u-admin", email: "admin@example.com", fullName: "System Admin" },
-      { id: "u-analyst", email: "analyst@example.com", fullName: "Data Analyst" },
-      { id: "u-user", email: "user@example.com", fullName: "Demo User" },
+      { id: "u-admin", email: "admin@example.com", nickname: "admin", fullName: "System Admin" },
+      {
+        id: "u-analyst",
+        email: "analyst@example.com",
+        nickname: "analyst",
+        fullName: "Data Analyst",
+      },
+      { id: "u-user", email: "user@example.com", nickname: "user", fullName: "Demo User" },
     ];
     const filtered =
       q.length < 2
         ? []
         : pool.filter(
-            (u) => u.email.toLowerCase().includes(q) || u.fullName.toLowerCase().includes(q),
+            (u) =>
+              u.email.toLowerCase().includes(q) ||
+              u.nickname.toLowerCase().includes(q) ||
+              u.fullName.toLowerCase().includes(q),
           );
     return HttpResponse.json(filtered);
   }),

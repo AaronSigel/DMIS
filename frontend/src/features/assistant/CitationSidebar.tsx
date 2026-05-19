@@ -42,7 +42,9 @@ export function CitationSidebar({ citation, open, onClose }: CitationSidebarProp
           <p className="m-0 text-[11px] uppercase tracking-[0.06em] text-muted">Метаданные</p>
           <p className="mb-0 mt-1 text-xs text-text">Документ: {citation.documentId}</p>
           <p className="mb-0 mt-1 text-xs text-text">Чанк: {citation.chunkId}</p>
-          <p className="mb-0 mt-1 text-xs text-text">Скор: {citation.score.toFixed(3)}</p>
+          <p className="mb-0 mt-1 text-xs text-text">
+            Оценка совпадения: {citation.score.toFixed(3)}
+          </p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-primary bg-primary-soft p-3">

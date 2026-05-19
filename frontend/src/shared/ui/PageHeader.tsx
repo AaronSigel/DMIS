@@ -39,7 +39,7 @@ export function PageHeader({ title, subtitle, navigation, actions }: PageHeaderP
               desktopAiOpen ? "bg-primary text-white" : "bg-surface text-text"
             }`}
           >
-            AI
+            ИИ
           </span>
         </button>
       </div>

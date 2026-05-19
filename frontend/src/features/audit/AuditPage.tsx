@@ -4,9 +4,20 @@ import { apiListAudit } from "../../apiClient";
 import { queryKeys } from "../../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
 import { PageHeader } from "../../shared/ui/PageHeader";
+import {
+  localizeAuditAction,
+  localizeAuditDetails,
+  localizeResourceType,
+} from "../../shared/lib/localizeDomain";
 import type { AuditRecord } from "../../entities/audit";
 
-type User = { id: string; fullName: string; email: string; roles?: string[] };
+type User = {
+  id: string;
+  fullName: string;
+  email: string;
+  nickname?: string | null;
+  roles?: string[];
+};
 
 type AuditPageProps = {
   token: string;
@@ -98,11 +109,11 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
   return (
     <section className="flex h-full min-h-0 flex-col">
       <PageHeader
-        title={adminMode ? "Журнал аудита" : "Мои AI-действия"}
+        title={adminMode ? "Журнал аудита" : "Мои ИИ-действия"}
         subtitle={
           adminMode
             ? "Прозрачный журнал действий в системе с фильтрами и постраничным просмотром."
-            : "Лента ваших действий, выполненных через контролируемый AI-поток."
+            : "Лента ваших действий, выполненных через контролируемый поток ассистента."
         }
       />
 
@@ -114,7 +125,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
               setSearch(event.target.value);
               setPage(1);
             }}
-            placeholder="Поиск по actor/action/resource/details…"
+            placeholder="Поиск по пользователю, действию, ресурсу или деталям…"
             aria-label="Поиск по журналу аудита"
             className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
           />
@@ -130,7 +141,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
             <option value="">Все действия</option>
             {actionOptions.map((value) => (
               <option key={value} value={value}>
-                {value}
+                {localizeAuditAction(value)}
               </option>
             ))}
           </select>
@@ -146,7 +157,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
             <option value="">Все ресурсы</option>
             {resourceTypeOptions.map((value) => (
               <option key={value} value={value}>
-                {value}
+                {localizeResourceType(value)}
               </option>
             ))}
           </select>
@@ -184,16 +195,16 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
                         Время
                       </th>
                       <th className="border-b border-border px-3 py-2 font-semibold text-text">
-                        Actor
+                        Пользователь
                       </th>
                       <th className="border-b border-border px-3 py-2 font-semibold text-text">
-                        Action
+                        Действие
                       </th>
                       <th className="border-b border-border px-3 py-2 font-semibold text-text">
                         Ресурс
                       </th>
                       <th className="border-b border-border px-3 py-2 font-semibold text-text">
-                        Details
+                        Детали
                       </th>
                     </tr>
                   </thead>
@@ -207,16 +218,16 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
                           {record.actorId}
                         </td>
                         <td className="border-b border-border px-3 py-2 align-top text-text">
-                          {record.action}
+                          {localizeAuditAction(record.action)}
                         </td>
                         <td className="border-b border-border px-3 py-2 align-top text-text">
                           <div className="flex flex-col gap-0.5">
-                            <span>{record.resourceType}</span>
+                            <span>{localizeResourceType(record.resourceType)}</span>
                             <span className="text-xs text-muted">{record.resourceId}</span>
                           </div>
                         </td>
                         <td className="border-b border-border px-3 py-2 align-top text-text">
-                          {record.details || "(без деталей)"}
+                          {localizeAuditDetails(record.details) || "(без деталей)"}
                         </td>
                       </tr>
                     ))}

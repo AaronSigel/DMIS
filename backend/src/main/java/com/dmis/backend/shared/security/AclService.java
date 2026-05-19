@@ -92,12 +92,6 @@ public class AclService {
         return level.filter(l -> l == DocumentAccessLevel.WRITE || l == DocumentAccessLevel.OWNER).isPresent();
     }
 
-    public void requireAuditRead(UserView actor) {
-        if (!isAdmin(actor)) {
-            throw new ResponseStatusException(FORBIDDEN, "Only admin can read full audit");
-        }
-    }
-
     public void requireAdmin(UserView actor) {
         if (!isAdmin(actor)) {
             throw new ResponseStatusException(FORBIDDEN, "Admin only");

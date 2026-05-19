@@ -8,6 +8,7 @@ import {
 } from "../apiClient";
 import { queryKeys } from "../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../shared/lib/mapApiErrorToMessage";
+import { localizeStatus } from "../shared/lib/localizeDomain";
 import { PageHeader } from "../shared/ui/PageHeader";
 
 type AiAction = { id: string; intent: string; status: "DRAFT" | "CONFIRMED" | "EXECUTED" };
@@ -81,7 +82,7 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
         <div className="mb-2.5 grid grid-cols-2 gap-2.5">
           <Card title="Документы" value={String(docCount)} subtitle="Всего документов в системе" />
           <Card
-            title="AI-действия"
+            title="ИИ-действия"
             value={String(actionCount)}
             subtitle={`Выполнено: ${executedCount}`}
           />
@@ -97,17 +98,17 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
           />
           <Card
             title="Состояние системы"
-            value={systemHealth === "ok" ? "OK" : "DEGRADED"}
-            subtitle={`API: ${apiBaseUrl}`}
+            value={systemHealth === "ok" ? "норма" : "есть проблемы"}
+            subtitle={`Адрес сервера: ${apiBaseUrl}`}
           />
         </div>
         <div className="rounded-[10px] border border-border bg-white p-[14px]">
           <p className="mb-2 mt-0 text-[13px] font-semibold text-text">Операционный срез</p>
           <p className="mb-1.5 mt-0 text-xs text-muted">
-            Исполнение AI-действий:{" "}
+            Исполнение ИИ-действий:{" "}
             {actionCount === 0
               ? "данные отсутствуют"
-              : `${executedCount} из ${actionCount} в статусе EXECUTED`}
+              : `${executedCount} из ${actionCount} в статусе «${localizeStatus("EXECUTED")}»`}
             .
           </p>
           <p className="m-0 text-xs text-muted">

@@ -15,7 +15,7 @@ export function sectionTitle(s: string): string {
     memos: "Заметки",
     reports: "Отчеты",
     transcripts: "Транскрипты",
-    acl: "ACL",
+    acl: "Права доступа",
   };
   return map[s] ?? s;
 }

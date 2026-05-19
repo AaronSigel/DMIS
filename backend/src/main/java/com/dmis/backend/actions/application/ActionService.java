@@ -110,7 +110,11 @@ public class ActionService {
         );
         ActionDtos.AiActionView saved = aiActionPort.save(confirmed);
         auditService.append(actor.id(), "action.confirm", "ai_action", saved.id(), "Action confirmed");
-        return saved;
+        try {
+            return execute(actor, actionId);
+        } catch (Exception ex) {
+            return saved;
+        }
     }
 
     public ActionDtos.AiActionView execute(UserView actor, String actionId) {

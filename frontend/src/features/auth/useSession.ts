@@ -13,6 +13,7 @@ export type SessionUser = {
   id: string;
   fullName: string;
   email: string;
+  nickname?: string | null;
   roles?: string[];
 };
 

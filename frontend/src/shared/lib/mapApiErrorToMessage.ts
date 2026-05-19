@@ -13,5 +13,11 @@ export function mapApiErrorToMessage(message: string): string {
   if (normalized.includes("unauthorized")) {
     return "Сессия истекла. Войдите снова.";
   }
+  if (normalized.includes("request failed")) {
+    return "Запрос не выполнен. Повторите попытку позже.";
+  }
+  if (normalized.includes("not found")) {
+    return "Запрошенные данные не найдены.";
+  }
   return message || "Произошла ошибка. Попробуйте еще раз.";
 }

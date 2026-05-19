@@ -20,16 +20,6 @@ public final class IntegrationDtos {
     public record MailAttachment(String fileName, String contentType, byte[] content) {
     }
 
-    public record CalendarDraftView(
-            String id,
-            String title,
-            List<String> attendees,
-            String startIso,
-            String endIso,
-            String createdBy
-    ) {
-    }
-
     public record CalendarParticipantView(
             String userId,
             String email,

@@ -45,6 +45,7 @@ export type CalendarEventUpsertPayload = {
 export type UserSummary = {
   id: string;
   email: string;
+  nickname?: string | null;
   fullName: string;
 };
 

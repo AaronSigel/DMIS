@@ -8,4 +8,6 @@ public interface AuditPort {
     void append(AuditView auditView);
 
     List<AuditView> findAll();
+
+    List<AuditView> findByActorId(String actorId);
 }

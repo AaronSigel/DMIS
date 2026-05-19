@@ -33,7 +33,7 @@ describe("auth smoke", () => {
       expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
     );
     expect(screen.getByText("policy.txt")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /спросить ai/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /спросить ассистента/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /создать встречу/i })).toBeInTheDocument();
     expect(window.localStorage.getItem("dmis_token")).toBe("token-1");
   });
@@ -57,16 +57,16 @@ describe("auth smoke", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: /создать встречу/i }));
     await userEvent.type(
-      screen.getByPlaceholderText(/email или @username через запятую/i),
+      screen.getByPlaceholderText(/адреса почты или @имена через запятую/i),
       "@analyst",
     );
-    await userEvent.click(screen.getByRole("button", { name: /^создать draft$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^создать черновик$/i }));
 
     await waitFor(() => expect(screen.getByText(/черновик встречи создан/i)).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /открыть ассистента/i }));
 
     await waitFor(() =>
-      expect(screen.getByText("Краткий ответ AI для подготовки письма.")).toBeInTheDocument(),
+      expect(screen.getByText("Краткий ответ ИИ для подготовки письма.")).toBeInTheDocument(),
     );
     const assistantAside = screen
       .getAllByRole("complementary")
@@ -83,7 +83,7 @@ describe("auth smoke", () => {
     );
     await waitFor(() =>
       expect(
-        within(assistantAside as HTMLElement).getByText(/Действие: create_calendar_event/i),
+        within(assistantAside as HTMLElement).getByText(/Действие: создание встречи/i),
       ).toBeInTheDocument(),
     );
     await userEvent.click(
@@ -130,7 +130,7 @@ describe("auth smoke", () => {
 
     await waitFor(() =>
       expect(
-        within(assistantAside as HTMLElement).queryByText(/Действие: create_calendar_event/i),
+        within(assistantAside as HTMLElement).queryByText(/Действие: создание встречи/i),
       ).not.toBeInTheDocument(),
     );
   });
@@ -152,8 +152,9 @@ describe("auth smoke", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: /документы/i }).length).toBeGreaterThan(0),
     );
+    expect(screen.queryByRole("button", { name: /^дашборд$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /RAG-ассистент/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Мои AI-действия/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Мои ИИ-действия/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Интеграции/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /календарь/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /журнал аудита/i })).not.toBeInTheDocument();
@@ -176,7 +177,7 @@ describe("mail page", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("renders inbox list, opens detail, exposes reply via AI button", async () => {
+  it("renders inbox list, opens detail, exposes reply via assistant button", async () => {
     render(
       <MemoryRouter
         initialEntries={["/mail"]}
@@ -204,7 +205,7 @@ describe("mail page", () => {
     );
     expect(screen.getByText(/Нужно обсудить контракт на следующей неделе\./)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /ответить на письмо через AI-ассистента/i }),
+      screen.getByRole("button", { name: /ответить на письмо через ИИ-ассистента/i }),
     ).toBeInTheDocument();
   });
 });

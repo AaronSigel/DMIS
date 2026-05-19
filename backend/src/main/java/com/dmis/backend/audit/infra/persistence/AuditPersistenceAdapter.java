@@ -36,4 +36,9 @@ public class AuditPersistenceAdapter implements AuditPort {
     public List<AuditView> findAll() {
         return repository.findAll().stream().map(mapper::toAuditView).toList();
     }
+
+    @Override
+    public List<AuditView> findByActorId(String actorId) {
+        return repository.findByActorIdOrderByAtDesc(actorId).stream().map(mapper::toAuditView).toList();
+    }
 }

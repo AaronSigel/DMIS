@@ -34,6 +34,16 @@ public class UserMentionResolver {
         }
 
         List<UserSummaryView> users = userAccessPort.findAllSummaries();
+        List<UserSummaryView> nicknameMatches = users.stream()
+                .filter(user -> user.nickname() != null && user.nickname().equalsIgnoreCase(mention))
+                .toList();
+        if (nicknameMatches.size() == 1) {
+            return nicknameMatches.get(0).email();
+        }
+        if (nicknameMatches.size() > 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ambiguous user mention: " + trimmed);
+        }
+
         List<UserSummaryView> emailMatches = users.stream()
                 .filter(user -> localPart(user.email()).equalsIgnoreCase(mention) || user.email().equalsIgnoreCase(mention))
                 .toList();
