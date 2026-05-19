@@ -66,9 +66,4 @@ public class MailCalendarPersistenceAdapter implements MailCalendarPort {
     public IntegrationDtos.CalendarDraftView sendCalendarDraft(IntegrationDtos.CalendarDraftView draft, String idempotencyKey) {
         return draft;
     }
-
-    @Override
-    public IntegrationDtos.FreeBusyView getFreeBusy(String attendee, String startIso, String endIso) {
-        return new IntegrationDtos.FreeBusyView(attendee, List.of());
-    }
 }

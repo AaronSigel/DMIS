@@ -29,7 +29,7 @@ cd infra
 docker compose up -d --build
 ```
 
-Единая команда для полного стека (main + lightweight mail/calendar):
+Единая команда для полного стека (main + lightweight mail):
 
 ```bash
 cd infra
@@ -91,9 +91,8 @@ make clean-data
    curl -fsS "http://<vm-host>:8001/health"   # embeddings-service
    curl -fsS "http://<vm-host>:8000/health"   # stt-service
    ```
-5. Проверить lightweight mail/calendar:
+5. Проверить lightweight mail:
    - Mailpit UI: `http://<vm-host>:8025`
-   - Radicale: `http://<vm-host>:5232`
 6. Проверить observability endpoints:
    - Prometheus: `http://<vm-host>:9090`
    - Grafana: `http://<vm-host>:3000`
@@ -113,7 +112,7 @@ make clean-data
 2. Логи зависимостей backend:
    ```bash
    cd infra
-  docker compose logs --tail=200 postgres minio ai-service embeddings-service clamav mailpit radicale
+  docker compose logs --tail=200 postgres minio ai-service embeddings-service clamav mailpit
    ```
 3. Перезапуск проблемного сервиса:
    ```bash
@@ -124,7 +123,13 @@ make clean-data
 ## 5) MVP smoke (документ → AI → письмо)
 
 Короткий e2e-сценарий для финальной проверки ключевого MVP-пути после `up -d --build`.
-Демо-данные засеваются автоматически в профиле `demo` (`DmisBackendApplication.demoContentBootstrap`).
+Базовые demo-документы и история `thread-demo-1` засеваются автоматически в профиле `demo` (`DmisBackendApplication.demoContentBootstrap`). Для расширенного набора данных выполните из корня проекта:
+
+```bash
+make seed-demo
+```
+
+Расширенный seed добавляет реальные `.txt` файлы в MinIO, входящие письма `[DMIS seed]` в Mailpit, черновики писем, несколько событий календаря, треды ассистента и один draft AI-действия без выполнения.
 
 1. Открыть `http://<vm-host>:5173`, войти как `admin@example.com` / `demo`.
 2. Перейти в «Документы», нажать кнопку «Архив» — в списке должен остаться
@@ -137,5 +142,12 @@ make clean-data
    `@analyst`, нажать «Создать draft», затем «Подтвердить» и «Выполнить».
 6. Перейти в «Журнал аудита» (admin) — событие `send_email` со статусом
    `EXECUTED` должно быть в списке.
+
+Дополнительный чеклист после `make seed-demo`:
+
+1. В «Почте» видны входящие с темой `[DMIS seed]`, а в папке `DRAFT` — seed-черновики.
+2. В «Календаре» видны события `DMIS seed — planning sync`, `DMIS seed — archive review`, `DMIS seed — inbox triage`.
+3. В «Ассистенте» открыт `thread-demo-1` с USER/ASSISTANT историей, а в списке есть треды `[DMIS seed] ...`.
+4. В списке AI-действий есть draft `send_email` с темой `[DMIS seed] pending action`; он не должен быть выполнен seed-скриптом.
 
 Если какой-либо шаг падает, см. п.4 «Базовая диагностика».

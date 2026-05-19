@@ -1,6 +1,8 @@
 package com.dmis.backend;
 
 import com.dmis.backend.assistant.infra.persistence.entity.AssistantThreadEntity;
+import com.dmis.backend.assistant.infra.persistence.entity.AssistantMessageEntity;
+import com.dmis.backend.assistant.infra.persistence.repository.AssistantMessageJpaRepository;
 import com.dmis.backend.assistant.infra.persistence.repository.AssistantThreadJpaRepository;
 import com.dmis.backend.documents.infra.persistence.entity.DocumentEntity;
 import com.dmis.backend.documents.infra.persistence.repository.DocumentJpaRepository;
@@ -12,6 +14,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 import org.springframework.retry.annotation.EnableRetry;
 
 import java.time.Instant;
@@ -33,10 +36,12 @@ public class DmisBackendApplication {
      * повторном старте ничего не пишет, если данные уже есть.
      */
     @Bean
+    @Order(2)
     @Profile("demo")
     CommandLineRunner demoContentBootstrap(
             DocumentJpaRepository documents,
-            AssistantThreadJpaRepository threads
+            AssistantThreadJpaRepository threads,
+            AssistantMessageJpaRepository messages
     ) {
         return args -> {
             if (documents.count() == 0) {
@@ -120,7 +125,7 @@ public class DmisBackendApplication {
                         )
                 ));
             }
-            if (threads.count() == 0) {
+            if (!threads.existsById("thread-demo-1")) {
                 Instant now = Instant.now();
                 threads.save(new AssistantThreadEntity(
                         "thread-demo-1",
@@ -130,6 +135,27 @@ public class DmisBackendApplication {
                         "documents",
                         now,
                         now
+                ));
+            }
+            if (threads.existsById("thread-demo-1") && messages.findByThreadIdOrderByCreatedAtAsc("thread-demo-1").isEmpty()) {
+                Instant now = Instant.now();
+                messages.saveAll(List.of(
+                        new AssistantMessageEntity(
+                                "msg-demo-1",
+                                "thread-demo-1",
+                                "USER",
+                                "Найди, что важно в NDA с подрядчиком, и подготовь основу для письма аналитику.",
+                                "doc-demo-contract",
+                                now
+                        ),
+                        new AssistantMessageEntity(
+                                "msg-demo-2",
+                                "thread-demo-1",
+                                "ASSISTANT",
+                                "В демо-документе NDA указан срок действия 12 месяцев. Для проверки сценария можно создать письмо аналитику с просьбой подтвердить условия и сроки.",
+                                "doc-demo-contract",
+                                now.plusSeconds(1)
+                        )
                 ));
             }
         };

@@ -36,11 +36,6 @@ type AiPanelProps = {
   onClose?: () => void;
 };
 
-const SUGGESTIONS = [
-  "суммируй 3 последних контракта",
-  'найди документы с упоминанием "продление Acme"',
-];
-
 function renderMessageMarkdown(content: string) {
   const hasRawHtmlTag = /<\/?[a-z][\s\S]*>/i.test(content);
   const safeContent = hasRawHtmlTag ? DOMPurify.sanitize(content) : content;
@@ -627,24 +622,6 @@ export function AiPanel({
           >
             Диалоги
           </button>
-        </div>
-      </div>
-      <div className="shrink-0 px-4 pb-2 pt-2.5">
-        <p className="mb-2 mt-0 text-[10px] font-bold uppercase tracking-[0.07em] text-muted">
-          подсказки
-        </p>
-        <div className="flex flex-col gap-1.5">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                handleInputChange(s);
-              }}
-              className="rounded-lg border border-border bg-white px-3 py-[9px] text-left text-[13px] leading-[1.4] text-text"
-            >
-              {s}
-            </button>
-          ))}
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-2">

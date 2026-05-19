@@ -25,6 +25,4 @@ public interface MailCalendarPort {
     );
 
     IntegrationDtos.CalendarDraftView sendCalendarDraft(IntegrationDtos.CalendarDraftView draft, String idempotencyKey);
-
-    IntegrationDtos.FreeBusyView getFreeBusy(String attendee, String startIso, String endIso);
 }

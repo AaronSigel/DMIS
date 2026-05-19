@@ -156,6 +156,37 @@ class CalendarEventsIntegrationTest {
         jdbcTemplate.update("DELETE FROM calendar_events WHERE id = ?", id);
     }
 
+    @Test
+    void freeBusyUsesCalendarEventsFromDatabase() throws Exception {
+        String token = loginAndGetToken("analyst@example.com");
+
+        String body = mockMvc.perform(post("/api/calendar/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"title":"Busy window","attendees":["busy@example.com"],"startIso":"2026-08-01T09:00:00Z","endIso":"2026-08-01T10:00:00Z"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String id = objectMapper.readTree(body).get("id").asText();
+
+        mockMvc.perform(get("/api/calendar/free-busy")
+                        .queryParam("attendee", "busy@example.com")
+                        .queryParam("start", "2026-08-01T09:30:00Z")
+                        .queryParam("end", "2026-08-01T10:30:00Z")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attendee").value("busy@example.com"))
+                .andExpect(jsonPath("$.busySlots[0].startIso").value("2026-08-01T09:30:00Z"))
+                .andExpect(jsonPath("$.busySlots[0].endIso").value("2026-08-01T10:00:00Z"))
+                .andExpect(jsonPath("$.busySlots.length()").value(1));
+
+        jdbcTemplate.update("DELETE FROM calendar_events WHERE id = ?", id);
+    }
+
     private String loginAndGetToken(String email) throws Exception {
         String json = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

@@ -167,6 +167,7 @@ public class IntegrationService {
         List<IntegrationDtos.MailAttachment> safeAttachments = attachments == null ? List.of() : attachments;
         try {
             IntegrationDtos.MailDraftView sent = mailCalendarPort.sendMailDraft(draft, idempotencyKey, safeAttachments, actor.email());
+            mailDraftPort.deleteById(draft.id());
             auditService.append(actor.id(), "mail.send", "email", sent.id(), "Mail sent successfully");
             return sent;
         } catch (ResponseStatusException ex) {
@@ -206,7 +207,8 @@ public class IntegrationService {
 
     public IntegrationDtos.FreeBusyView freeBusy(UserView actor, String attendee, String startIso, String endIso) {
         auditService.append(actor.id(), "calendar.free_busy.read", "event", attendee, "Free/busy requested");
-        return mailCalendarPort.getFreeBusy(attendee, startIso, endIso);
+        validateIsoRange(startIso, endIso);
+        return new IntegrationDtos.FreeBusyView(attendee, busySlotsForAttendeeEmail(attendee, startIso, endIso));
     }
 
     public List<IntegrationDtos.CalendarEventView> listCalendarEvents(UserView actor, Optional<String> fromIso, Optional<String> toIso) {
@@ -452,19 +454,10 @@ public class IntegrationService {
             if (email == null || email.isBlank()) {
                 continue;
             }
-            IntegrationDtos.FreeBusyView fb = mailCalendarPort.getFreeBusy(email.trim(), request.fromIso(), request.toIso());
-            for (IntegrationDtos.BusySlot slot : fb.busySlots()) {
-                try {
-                    Instant s = Instant.parse(slot.startIso());
-                    Instant e = Instant.parse(slot.endIso());
-                    if (e.isAfter(from) && s.isBefore(to)) {
-                        busyRaw.add(new Instant[]{
-                                s.isBefore(from) ? from : s,
-                                e.isAfter(to) ? to : e
-                        });
-                    }
-                } catch (Exception ignored) {
-                }
+            for (IntegrationDtos.BusySlot slot : busySlotsForAttendeeEmail(email.trim(), request.fromIso(), request.toIso())) {
+                Instant s = Instant.parse(slot.startIso());
+                Instant e = Instant.parse(slot.endIso());
+                busyRaw.add(new Instant[]{s, e});
             }
         }
         List<Instant[]> merged = mergeBusyIntervals(busyRaw);
@@ -1080,6 +1073,47 @@ public class IntegrationService {
             }
         }
         return new ArrayList<>(uniq);
+    }
+
+    private List<IntegrationDtos.BusySlot> busySlotsForAttendeeEmail(String attendee, String rangeStartIso, String rangeEndIso) {
+        if (attendee == null || attendee.isBlank()) {
+            return List.of();
+        }
+        Instant rangeStart = Instant.parse(rangeStartIso);
+        Instant rangeEnd = Instant.parse(rangeEndIso);
+        String normalizedAttendee = attendee.trim().toLowerCase(Locale.ROOT);
+        List<IntegrationDtos.BusySlot> busySlots = new ArrayList<>();
+        for (CalendarEvent event : calendarEventPort.listAllOverlapping(rangeStartIso, rangeEndIso)) {
+            if (!calendarEventHasAttendeeEmail(event, normalizedAttendee)) {
+                continue;
+            }
+            try {
+                Instant eventStart = Instant.parse(event.startIso());
+                Instant eventEnd = Instant.parse(event.endIso());
+                if (!eventEnd.isAfter(eventStart)) {
+                    continue;
+                }
+                Instant clippedStart = eventStart.isBefore(rangeStart) ? rangeStart : eventStart;
+                Instant clippedEnd = eventEnd.isAfter(rangeEnd) ? rangeEnd : eventEnd;
+                if (clippedEnd.isAfter(clippedStart)) {
+                    busySlots.add(new IntegrationDtos.BusySlot(clippedStart.toString(), clippedEnd.toString()));
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return busySlots;
+    }
+
+    private static boolean calendarEventHasAttendeeEmail(CalendarEvent event, String normalizedAttendee) {
+        if (event.attendees() == null || event.attendees().isEmpty()) {
+            return false;
+        }
+        for (String attendee : event.attendees()) {
+            if (attendee != null && attendee.trim().toLowerCase(Locale.ROOT).equals(normalizedAttendee)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<Instant[]> mergeBusyIntervals(List<Instant[]> raw) {

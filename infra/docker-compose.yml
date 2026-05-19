@@ -35,11 +35,6 @@ services:
       # Mailpit API — используется backend для чтения писем.
       MAILPIT_BASE_URL: ${MAILPIT_BASE_URL:-http://mailpit:8025}
       MAILPIT_TIMEOUT_MS: ${MAILPIT_TIMEOUT_MS:-5000}
-      # CalDAV (Radicale) — используется backend для создания событий и free/busy.
-      CALDAV_BASE_URL: ${CALDAV_BASE_URL:-http://radicale:5232}
-      CALDAV_USERNAME: ${CALDAV_USERNAME:-}
-      CALDAV_PASSWORD: ${CALDAV_PASSWORD:-}
-      CALDAV_CALENDAR_PATH: ${CALDAV_CALENDAR_PATH:-/}
       # Шифрование секретов интеграций (например, IMAP пароль пользователя)
       INTEGRATIONS_CRYPTO_KEY: ${INTEGRATIONS_CRYPTO_KEY:-}
       # В compose по умолчанию включаем антивирусную проверку загрузок.
@@ -58,8 +53,6 @@ services:
         condition: service_healthy
       clamav:
         condition: service_healthy
-      radicale:
-        condition: service_started
     ports:
       - "8080:8080"
     healthcheck:
@@ -154,14 +147,6 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
-
-  radicale:
-    image: tomsquest/docker-radicale:3.3.1.0
-    environment:
-      RADICALE_AUTH_TYPE: none
-      RADICALE_SERVER_HOSTS: 0.0.0.0:5232
-    ports:
-      - "5232:5232"
 
   postgres:
     image: pgvector/pgvector:pg16

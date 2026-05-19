@@ -7,6 +7,7 @@ import com.dmis.backend.users.infra.persistence.repository.RoleJpaRepository;
 import com.dmis.backend.users.infra.persistence.repository.UserJpaRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.util.Set;
 
 @Component
+@Order(1)
 @Profile({"demo", "test"})
 public class DataBootstrap implements CommandLineRunner {
     private final RoleJpaRepository roleRepository;

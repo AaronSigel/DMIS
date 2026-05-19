@@ -46,7 +46,7 @@ class ActionExecutionIntegrationTest {
     private EmbeddingsPort embeddingsPort;
 
     @Test
-    void sendEmailIntentCreatesMailDraftOnExecute() throws Exception {
+    void sendEmailIntentDeletesTransientDraftOnExecute() throws Exception {
         String token = loginAndGetToken();
 
         String draftJson = mockMvc.perform(post("/api/actions/draft")
@@ -79,7 +79,13 @@ class ActionExecutionIntegrationTest {
         int mailDrafts = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM mail_drafts WHERE recipient = ?",
                 Integer.class, "recipient@example.com");
-        assertEquals(1, mailDrafts);
+        assertEquals(0, mailDrafts);
+
+        mockMvc.perform(get("/api/mail/messages")
+                        .queryParam("folder", "DRAFT")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
     }
 
     @Test
