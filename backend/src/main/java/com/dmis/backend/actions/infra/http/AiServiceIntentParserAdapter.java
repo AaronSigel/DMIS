@@ -23,7 +23,7 @@ public class AiServiceIntentParserAdapter implements IntentParserPort {
             - %s — найти свободные слоты для встречи
             Верни только структурированный JSON с полями intent и entities.
             Для %s entities: to, subject, body, опционально attachmentDocumentIds (массив id документов).
-            Для %s entities: title, attendees (массив email), startIso, endIso.
+            Для %s entities: title, attendees (опционально массив email; если не указаны — backend добавит организатора), startIso, endIso.
             Для %s entities: documentId, tags (массив строк).
             Для %s entities: eventId, опционально title, startIso, endIso.
             Для %s entities: eventId, опционально extraDocumentIds (массив id документов).

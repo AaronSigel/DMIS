@@ -68,6 +68,9 @@ public class ActionService {
         validateIntent(intent);
         validateEntitiesMatchIntent(intent, entities);
         ActionEntities resolvedEntities = resolveUserMentionsInEntities(entities);
+        if (ActionDtos.CREATE_CALENDAR_EVENT_INTENT.equals(intent) && resolvedEntities instanceof CreateCalendarEventEntities calendar) {
+            resolvedEntities = ensureOrganizerInAttendees(actor, calendar);
+        }
         ActionDtos.AiActionView action = new ActionDtos.AiActionView(
                 "act-" + UUID.randomUUID(),
                 intent,
@@ -285,6 +288,24 @@ public class ActionService {
                     e.slotMinutes()
             );
         };
+    }
+
+    private static CreateCalendarEventEntities ensureOrganizerInAttendees(UserView actor, CreateCalendarEventEntities entities) {
+        String organizerEmail = actor.email().trim();
+        boolean organizerPresent = entities.attendees().stream()
+                .anyMatch(email -> email.equalsIgnoreCase(organizerEmail));
+        if (organizerPresent) {
+            return entities;
+        }
+        List<String> attendees = new ArrayList<>(entities.attendees().size() + 1);
+        attendees.add(organizerEmail);
+        attendees.addAll(entities.attendees());
+        return new CreateCalendarEventEntities(
+                entities.title(),
+                List.copyOf(attendees),
+                entities.startIso(),
+                entities.endIso()
+        );
     }
 
     private static void validateIntent(String intent) {

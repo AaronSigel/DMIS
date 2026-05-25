@@ -1,4 +1,4 @@
-.PHONY: up down clean-data smoke seed-demo test build lint daily-summary e2e e2e-headed e2e-install
+.PHONY: up down clean-data smoke seed-demo test build lint daily-summary e2e e2e-headed e2e-install e2e-ai-context
 
 # Остановка стека: по умолчанию тома PostgreSQL/MinIO/Prometheus/Grafana сохраняются.
 # Удалить тома (полный сброс данных): make down CLEAN_DATA=1
@@ -40,3 +40,8 @@ e2e-headed:
 e2e-install:
 	npm run e2e:install
 	venv/bin/python -m playwright install chromium
+
+e2e-ai-context:
+	@$(MAKE) smoke
+	PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 API_BASE_URL=http://127.0.0.1:8080 CI=1 \
+		./node_modules/.bin/playwright test --config playwright.config.ts

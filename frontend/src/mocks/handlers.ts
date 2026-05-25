@@ -136,6 +136,10 @@ type AiActionMock = {
 
 let aiActions: AiActionMock[] = [];
 
+export const assistantMockState = {
+  linkedDocumentIds: [] as string[],
+};
+
 let mailAccount = {
   connected: true,
   imapHost: "imap.example.com",
@@ -150,6 +154,7 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as { email?: string };
     const user = buildUserByEmail(body.email ?? "admin@example.com");
     aiActions = [];
+    assistantMockState.linkedDocumentIds = [];
     return HttpResponse.json({
       token: "token-1",
       user,
@@ -188,9 +193,147 @@ export const handlers = [
           documentIds: [],
         },
       ],
-      linkedDocumentIds: [],
+      linkedDocumentIds: [...assistantMockState.linkedDocumentIds],
     }),
   ),
+  http.get("*/assistant/documents/status", ({ request }) => {
+    const url = new URL(request.url);
+    const ids = url.searchParams.getAll("ids");
+    return HttpResponse.json(
+      ids.map((documentId) => {
+        const isPending = assistantMockState.linkedDocumentIds.includes(documentId);
+        return {
+          documentId,
+          title: documentId === "doc-upload-1" ? "Upload.txt" : "Policy Doc",
+          fileName: documentId === "doc-upload-1" ? "upload.txt" : "policy.txt",
+          status: isPending ? "PENDING" : "INDEXED",
+          indexedChunkCount: isPending ? 0 : 1,
+          extractedTextLength: isPending ? 120 : 12,
+          indexedAt: isPending ? null : "2026-01-01T00:00:00Z",
+          diagnosticCode: isPending ? "INDEX_PENDING" : "OK",
+          diagnosticMessage: isPending
+            ? "Документ ещё индексируется. Повторите запрос после завершения индексации."
+            : null,
+        };
+      }),
+    );
+  }),
+  http.post("*/assistant/threads/:threadId/uploads", async () => {
+    assistantMockState.linkedDocumentIds = [
+      ...new Set([...assistantMockState.linkedDocumentIds, "doc-upload-1"]),
+    ];
+    return HttpResponse.json({
+      id: "doc-upload-1",
+      title: "Upload.txt",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
+  }),
+  http.post("*/assistant/threads/:threadId/documents", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { documentId?: string };
+    const documentId = String(body.documentId ?? "").trim();
+    if (documentId) {
+      assistantMockState.linkedDocumentIds = [
+        ...new Set([...assistantMockState.linkedDocumentIds, documentId]),
+      ];
+    }
+    return HttpResponse.json(null, { status: 204 });
+  }),
+  http.delete("*/assistant/threads/:threadId/documents/:documentId", ({ params }) => {
+    const documentId = String(params.documentId ?? "");
+    assistantMockState.linkedDocumentIds = assistantMockState.linkedDocumentIds.filter(
+      (id) => id !== documentId,
+    );
+    return HttpResponse.json(null, { status: 204 });
+  }),
+  http.post("*/assistant/threads/:threadId/submit", async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      text?: string;
+      documentIds?: string[];
+      knowledgeSourceIds?: string[];
+      ideologyProfileId?: string;
+      stream?: boolean;
+    };
+    const text = String(body.text ?? "").toLowerCase();
+    const threadId = String(params.threadId ?? "thread-1");
+
+    if (text.includes("событ") || text.includes("встреч") || text.includes("календар")) {
+      const created: AiActionMock = {
+        id: `act-${Math.random().toString(36).slice(2, 9)}`,
+        intent: "create_calendar_event",
+        entities: {
+          type: "create_calendar_event",
+          title: "Обсуждение схемотехники",
+          attendees: ["analyst@example.com"],
+          startIso: "2026-05-09T12:00:00Z",
+          endIso: "2026-05-09T13:00:00Z",
+        },
+        actorId: "u-admin",
+        status: "DRAFT",
+        confirmedBy: null,
+      };
+      aiActions = [...aiActions, created];
+      return HttpResponse.json({
+        route: "CONTROLLED_ACTION",
+        traceId: "trace-mock",
+        action: created,
+        status: "OK",
+      });
+    }
+
+    if (text.includes("письм") || text.includes("@manager")) {
+      const created: AiActionMock = {
+        id: `act-${Math.random().toString(36).slice(2, 9)}`,
+        intent: "send_email",
+        entities: {
+          type: "send_email",
+          to: "manager@example.com",
+          subject: "Документ для ознакомления",
+          body: "Коллеги, направляю документ из DMIS.",
+          attachmentDocumentIds: body.documentIds ?? assistantMockState.linkedDocumentIds,
+        },
+        actorId: "u-admin",
+        status: "DRAFT",
+        confirmedBy: null,
+      };
+      aiActions = [...aiActions, created];
+      return HttpResponse.json({
+        route: "CONTROLLED_ACTION",
+        traceId: "trace-mock",
+        action: created,
+        status: "OK",
+      });
+    }
+
+    if (text.includes("summary") || text.includes("кратко")) {
+      return HttpResponse.json({
+        route: "DOCUMENT_SUMMARY",
+        traceId: "trace-mock",
+        streamUrl: "/api/rag/answer-with-sources/stream",
+        streamPayload: {
+          question: body.text,
+          threadId,
+          documentIds: body.documentIds ?? assistantMockState.linkedDocumentIds,
+          knowledgeSourceIds: body.knowledgeSourceIds ?? ["documents"],
+          ideologyProfileId: body.ideologyProfileId ?? "balanced",
+        },
+        status: "OK",
+      });
+    }
+
+    return HttpResponse.json({
+      route: "DOCUMENT_QA",
+      traceId: "trace-mock",
+      streamUrl: "/api/rag/answer-with-sources/stream",
+      streamPayload: {
+        question: body.text,
+        threadId,
+        documentIds: body.documentIds ?? assistantMockState.linkedDocumentIds,
+        knowledgeSourceIds: body.knowledgeSourceIds ?? ["documents"],
+        ideologyProfileId: body.ideologyProfileId ?? "balanced",
+      },
+      status: "OK",
+    });
+  }),
   http.post("*/assistant/actions/parse", async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as { text?: string };
     const text = String(body.text ?? "").toLowerCase();
@@ -214,17 +357,38 @@ export const handlers = [
     }
     return HttpResponse.json({ message: "Unsupported intent: none" }, { status: 400 });
   }),
-  http.post(
-    "*/rag/answer-with-sources/stream",
-    () =>
-      new HttpResponse('data: {"delta":"RAG ответ"}\n\n', {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      }),
-  ),
+  http.post("*/rag/answer-with-sources/stream", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      question?: string;
+      documentIds?: string[];
+    };
+    const hasDocumentIds = Array.isArray(body.documentIds) && body.documentIds.length > 0;
+    const donePayload = JSON.stringify({
+      done: true,
+      status: "OK",
+      answer: "Summary по загруженному документу.",
+      sources: hasDocumentIds
+        ? [
+            {
+              documentId: body.documentIds?.[0] ?? "doc-upload-1",
+              documentTitle: "Upload.txt",
+              chunkId: "c-1",
+              chunkText: "sample",
+              score: 1,
+            },
+          ]
+        : [],
+      contextStatus: "OK",
+      contextDiagnosticCode: "OK",
+    });
+    return new HttpResponse(`data: {"delta":"Summary по документу"}\n\ndata: ${donePayload}\n\n`, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }),
   http.get("*/actions", () => HttpResponse.json(aiActions)),
   http.post("*/actions/draft", async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as {

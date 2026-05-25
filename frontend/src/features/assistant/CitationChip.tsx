@@ -24,6 +24,7 @@ export function CitationChip({ citation, onClick }: CitationChipProps) {
   return (
     <button
       type="button"
+      data-testid="assistant-source"
       onClick={() => onClick?.(citation)}
       title={buildTitle(citation)}
       aria-label={`Источник ${citation.index}: ${citation.documentTitle}`}

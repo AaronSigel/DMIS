@@ -69,6 +69,22 @@ public class AssistantController {
         );
     }
 
+    @PostMapping("/threads/{threadId}/submit")
+    public AssistantDtos.SubmitRequestResult submitRequest(
+            @PathVariable("threadId") String threadId,
+            @Valid @RequestBody SubmitRequest request
+    ) {
+        return assistantService.submitRequest(
+                currentUserProvider.currentUser(),
+                threadId,
+                request.text(),
+                request.documentIds(),
+                request.knowledgeSourceIds(),
+                request.ideologyProfileId(),
+                request.stream() == null || request.stream()
+        );
+    }
+
     @PostMapping("/actions/parse")
     public ActionDtos.AiActionView parseActionDraft(@Valid @RequestBody ParseActionRequest request) {
         return assistantService.parseActionDraft(currentUserProvider.currentUser(), request.text(), request.documentIds());
@@ -95,6 +111,11 @@ public class AssistantController {
         );
     }
 
+    @GetMapping("/documents/status")
+    public List<AssistantDtos.AssistantDocumentStatusView> documentStatuses(@RequestParam("ids") List<String> ids) {
+        return assistantService.documentStatuses(currentUserProvider.currentUser(), ids);
+    }
+
     @GetMapping("/documents/mentions")
     public List<AssistantDtos.MentionDocumentView> mentions(
             @RequestParam(value = "q", required = false) String query,
@@ -106,6 +127,21 @@ public class AssistantController {
     @GetMapping("/preferences")
     public AssistantDtos.AssistantPreferencesView preferences() {
         return assistantService.preferences(currentUserProvider.currentUser());
+    }
+
+    @GetMapping("/tools")
+    public List<AssistantDtos.AiToolDefinitionView> listTools() {
+        return assistantService.listTools(currentUserProvider.currentUser());
+    }
+
+    @PostMapping("/tools/call")
+    public AssistantDtos.AiToolCallResultView callTool(@Valid @RequestBody ToolCallRequest request) {
+        return assistantService.callTool(
+                currentUserProvider.currentUser(),
+                request.name(),
+                request.arguments(),
+                request.traceId()
+        );
     }
 
     @PutMapping("/preferences")
@@ -128,6 +164,15 @@ public class AssistantController {
     ) {
     }
 
+    public record SubmitRequest(
+            @NotBlank String text,
+            List<String> documentIds,
+            List<String> knowledgeSourceIds,
+            String ideologyProfileId,
+            Boolean stream
+    ) {
+    }
+
     public record LinkDocumentRequest(@NotBlank String documentId) {
     }
 
@@ -138,5 +183,12 @@ public class AssistantController {
     }
 
     public record ParseActionRequest(@NotBlank String text, List<String> documentIds) {
+    }
+
+    public record ToolCallRequest(
+            @NotBlank String name,
+            java.util.Map<String, Object> arguments,
+            String traceId
+    ) {
     }
 }

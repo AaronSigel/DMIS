@@ -6,6 +6,7 @@ import com.dmis.backend.assistant.infra.persistence.repository.AssistantMessageJ
 import com.dmis.backend.assistant.infra.persistence.repository.AssistantThreadJpaRepository;
 import com.dmis.backend.documents.infra.persistence.entity.DocumentEntity;
 import com.dmis.backend.documents.infra.persistence.repository.DocumentJpaRepository;
+import com.dmis.backend.assistant.application.AssistantContextProperties;
 import com.dmis.backend.platform.config.JwtProperties;
 import com.dmis.backend.platform.config.StorageProperties;
 import org.springframework.boot.CommandLineRunner;
@@ -22,7 +23,7 @@ import java.util.List;
 
 @SpringBootApplication
 @EnableRetry
-@EnableConfigurationProperties({JwtProperties.class, StorageProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, StorageProperties.class, AssistantContextProperties.class})
 public class DmisBackendApplication {
 
     public static void main(String[] args) {

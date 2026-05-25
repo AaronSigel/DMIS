@@ -28,3 +28,19 @@ export const MentionDocumentSchema = z.object({
 });
 
 export const MentionDocumentListSchema = z.array(MentionDocumentSchema);
+
+export const AssistantDocumentStatusViewSchema = z.object({
+  documentId: z.string(),
+  title: z.string(),
+  fileName: z.string(),
+  status: z.string(),
+  indexedChunkCount: z.number(),
+  extractedTextLength: z.number(),
+  indexedAt: z.string().nullable(),
+  diagnosticCode: z.string().nullable().optional(),
+  diagnosticMessage: z.string().nullable().optional(),
+});
+
+export const AssistantDocumentStatusListSchema = z.array(AssistantDocumentStatusViewSchema);
+
+export type AssistantDocumentStatusView = z.infer<typeof AssistantDocumentStatusViewSchema>;

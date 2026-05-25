@@ -5,8 +5,11 @@ import com.dmis.backend.search.application.port.ChunkRerankPort;
 import com.dmis.backend.search.application.port.LlmChatPort;
 import com.dmis.backend.search.application.dto.SearchDtos;
 import com.dmis.backend.audit.application.AuditService;
+import com.dmis.backend.assistant.application.AssistantLlmToolLoopService;
+import com.dmis.backend.assistant.application.KnowledgeSourcePolicy;
 import com.dmis.backend.shared.model.UserView;
 import com.dmis.backend.shared.security.AclService;
+import org.springframework.beans.factory.annotation.Autowired;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -17,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,7 +35,8 @@ public class SearchService {
     private static final String RAG_SYSTEM_PROMPT = """
             Ты корпоративный ассистент системы документооборота.
             Отвечай только на основании предоставленного контекста.
-            Если в контексте недостаточно данных, скажи это явно и не выдумывай факты.
+            Если в контексте недостаточно данных или вопрос не связан с документами, скажи об этом явно и не выдумывай факты.
+            Не отвечай на вопросы о погоде, новостях и других темах вне контекста документов.
             Формулируй ответ в деловом стиле и, когда возможно, ссылайся на источники по их порядку: [1], [2], [3].
             """;
     private static final String RAG_STRICT_PROFILE_PROMPT = """
@@ -43,6 +48,15 @@ public class SearchService {
             Ты корпоративный ассистент системы документооборота.
             Отвечай на основе контекста, но допускай краткие рекомендации по следующим шагам.
             Если данных недостаточно, явно отмечай ограничения.
+            """;
+    private static final String SUMMARY_SYSTEM_PROMPT = """
+            Ты корпоративный ассистент системы документооборота.
+            Сделай краткое содержание только на основании переданного текста документа.
+            Укажи ключевые факты, фразы, коды, номера и темы, явно присутствующие в тексте.
+            Если в документе упомянуты функции системы (почта, календарь, ассистент и т.д.) — перечисли их.
+            Для коротких документов перескажи имеющийся текст целиком; не отказывайся из-за краткости.
+            Никогда не отвечай, что текст «пуст» или «недостаточен», если в контексте есть хотя бы одно предложение.
+            Не добавляй сведения, которых нет в документе.
             """;
 
     private final ChunkSearchPort chunkSearchPort;
@@ -63,6 +77,8 @@ public class SearchService {
     private final Counter rerankSkippedCounter;
     private final Counter cacheHitsCounter;
     private final SemanticCacheService semanticCacheService;
+    private final boolean llmLoopEnabled;
+    private final AssistantLlmToolLoopService toolLoopService;
 
     public SearchService(
             ChunkSearchPort chunkSearchPort,
@@ -77,7 +93,9 @@ public class SearchService {
             @Value("${search.rag.max-context-chunks:3}") int maxContextChunks,
             @Value("${search.rag.max-context-chars:4000}") int maxContextChars,
             @Value("${search.rag.max-tokens:0}") int ragMaxTokens,
-            @Value("${search.rag.rerank.min-candidates:3}") int rerankMinCandidates
+            @Value("${search.rag.rerank.min-candidates:3}") int rerankMinCandidates,
+            @Value("${assistant.tools.llm-loop-enabled:false}") boolean llmLoopEnabled,
+            @Autowired(required = false) AssistantLlmToolLoopService toolLoopService
     ) {
         this.chunkSearchPort = chunkSearchPort;
         this.chunkRerankPort = chunkRerankPort;
@@ -97,6 +115,8 @@ public class SearchService {
         this.rerankSkippedCounter = meterRegistry.counter("rag.rerank.skipped");
         this.cacheHitsCounter = meterRegistry.counter("rag.cache.hits");
         this.semanticCacheService = semanticCacheService;
+        this.llmLoopEnabled = llmLoopEnabled;
+        this.toolLoopService = toolLoopService;
     }
 
     @Cacheable(
@@ -239,6 +259,9 @@ public class SearchService {
     }
 
     public PreparedAnswer prepareAnswer(UserView actor, String question, String ragEventName, AnswerOptions options) {
+        if (KnowledgeSourcePolicy.unsupportedOnly(options.knowledgeSourceIds())) {
+            return prepareUnsupportedKnowledgeSourceAnswer(actor, question, ragEventName);
+        }
         SearchDtos.SearchOnlyResponse searchResponse = search(actor, question, options.documentIds());
         ContextSelection contextSelection = selectContext(searchResponse.hits());
         String status = contextSelection.contextChunks().isEmpty() ? STATUS_NO_CONTEXT : STATUS_OK;
@@ -283,100 +306,37 @@ public class SearchService {
         return new PreparedAnswer(question, status, fallbackAnswer, contextSelection.sources(), contextSelection.contextChunks(), pipeline, resolveSystemPrompt(options.ideologyProfileId()), ragId);
     }
 
+    private PreparedAnswer prepareUnsupportedKnowledgeSourceAnswer(UserView actor, String question, String ragEventName) {
+        String ragId = "rag-" + UUID.randomUUID();
+        auditService.append(
+                actor.id(),
+                ragEventName + ".knowledge_source_skipped",
+                "rag",
+                ragId,
+                "sources=unsupported"
+        );
+        SearchDtos.AnswerPipelineMeta pipeline = new SearchDtos.AnswerPipelineMeta(
+                0, 0, maxContextChunks, maxContextChars, 0, 0, 0, 0, false, 0L, 0L, null, 0L
+        );
+        return new PreparedAnswer(
+                question,
+                KnowledgeSourcePolicy.STATUS_KNOWLEDGE_SOURCE_UNSUPPORTED,
+                KnowledgeSourcePolicy.unsupportedMessage(),
+                List.of(),
+                List.of(),
+                pipeline,
+                RAG_SYSTEM_PROMPT,
+                ragId
+        );
+    }
+
     public SearchDtos.AnswerWithSourcesResponse answer(UserView actor, String question) {
         return answer(actor, question, new AnswerOptions(List.of(), List.of("documents"), "balanced"));
     }
 
     public SearchDtos.AnswerWithSourcesResponse answer(UserView actor, String question, AnswerOptions options) {
         PreparedAnswer prepared = prepareAnswer(actor, question, "rag.answer", options);
-        if (STATUS_NO_CONTEXT.equals(prepared.status())) {
-            auditService.append(
-                    actor.id(),
-                    "rag.answer.response",
-                    "rag",
-                    prepared.ragId(),
-                    "status=" + prepared.status() + ", llmLatencyMs=0, totalLatencyMs=" + prepared.pipeline().totalLatencyMs()
-            );
-            return new SearchDtos.AnswerWithSourcesResponse(
-                    question,
-                    prepared.status(),
-                    prepared.fallbackAnswer(),
-                    prepared.sources(),
-                    prepared.pipeline()
-            );
-        }
-
-        // Проверяем semantic cache
-        List<String> contextChunkIds = prepared.sources().stream()
-                .map(SearchDtos.RagSourceView::chunkId)
-                .toList();
-
-        Optional<SemanticCacheService.CachedAnswer> cachedAnswer = semanticCacheService.findSimilarAnswer(question, contextChunkIds);
-        if (cachedAnswer.isPresent()) {
-            cacheHitsCounter.increment();
-            SemanticCacheService.CachedAnswer cached = cachedAnswer.get();
-
-            auditService.append(
-                    actor.id(),
-                    "rag.answer.cache_hit",
-                    "rag",
-                    prepared.ragId(),
-                    "cachedId=" + cached.id() + ", accessCount=" + cached.accessCount()
-            );
-
-            SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), 0L);
-            ragTotalTimer.record(pipeline.totalLatencyMs(), java.util.concurrent.TimeUnit.MILLISECONDS);
-
-            return new SearchDtos.AnswerWithSourcesResponse(
-                    question,
-                    STATUS_OK,
-                    cached.answer(),
-                    cached.sources(),
-                    pipeline
-            );
-        }
-
-        long llmStartedAtMs = System.currentTimeMillis();
-        LlmChatPort.ChatResponse llm = llmChatPort.chat(new LlmChatPort.ChatRequest(
-                question,
-                prepared.contextChunks(),
-                prepared.systemPrompt(),
-                null,
-                resolveMaxTokens(),
-                null
-        ));
-        long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
-        ragLlmTimer.record(llmLatencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
-        SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
-        ragTotalTimer.record(pipeline.totalLatencyMs(), java.util.concurrent.TimeUnit.MILLISECONDS);
-
-        // Сохраняем в semantic cache
-        semanticCacheService.cacheAnswer(
-                question,
-                contextChunkIds,
-                llm.answer(),
-                llm.provider(),
-                llm.model(),
-                prepared.sources()
-        );
-
-        auditService.append(
-                actor.id(),
-                "rag.answer.llm",
-                "rag",
-                prepared.ragId(),
-                "provider=" + llm.provider() + ", model=" + llm.model() + ", latencyMs=" + llmLatencyMs
-        );
-        auditService.append(
-                actor.id(),
-                "rag.answer.response",
-                "rag",
-                prepared.ragId(),
-                "status=" + STATUS_OK + ", provider=" + llm.provider() + ", model=" + llm.model()
-                        + ", totalLatencyMs=" + pipeline.totalLatencyMs()
-        );
-
-        return new SearchDtos.AnswerWithSourcesResponse(question, STATUS_OK, llm.answer(), prepared.sources(), pipeline);
+        return completePreparedAnswer(actor, prepared);
     }
 
     private SearchDtos.AnswerPipelineMeta withLlmLatency(SearchDtos.AnswerPipelineMeta base, long llmLatencyMs) {
@@ -397,7 +357,22 @@ public class SearchService {
         );
     }
 
+    public String resolveSystemPromptForProfile(String ideologyProfileId) {
+        return resolveSystemPrompt(ideologyProfileId);
+    }
+
+    public String resolveSummarySystemPrompt() {
+        return SUMMARY_SYSTEM_PROMPT;
+    }
+
     private String resolveSystemPrompt(String ideologyProfileId) {
+        return resolveSystemPrompt(ideologyProfileId, null);
+    }
+
+    private String resolveSystemPrompt(String ideologyProfileId, String override) {
+        if (override != null && !override.isBlank()) {
+            return override;
+        }
         if (ideologyProfileId == null) {
             return RAG_SYSTEM_PROMPT;
         }
@@ -453,6 +428,188 @@ public class SearchService {
         return new ContextSelection(sources, contextChunks, usedChars, trimmed);
     }
 
+    public SearchDtos.SearchOnlyResponse searchInDocuments(UserView actor, String query, List<String> documentIds) {
+        return search(actor, query, documentIds == null ? List.of() : documentIds);
+    }
+
+    public PreparedAnswer prepareAnswerFromContext(
+            UserView actor,
+            String question,
+            List<String> contextChunks,
+            List<SearchDtos.RagSourceView> sources,
+            String ragEventName,
+            AnswerOptions options
+    ) {
+        List<String> safeChunks = contextChunks == null ? List.of() : contextChunks;
+        List<SearchDtos.RagSourceView> safeSources = sources == null ? List.of() : sources;
+        if (!safeChunks.isEmpty() && isOffTopicDocumentQuestion(question, safeChunks)) {
+            String refusal = "В документе нет информации для ответа на этот вопрос.";
+            SearchDtos.AnswerPipelineMeta pipeline = new SearchDtos.AnswerPipelineMeta(
+                    retrievalTopK,
+                    rerankTopN,
+                    maxContextChunks,
+                    maxContextChars,
+                    safeSources.size(),
+                    safeSources.size(),
+                    safeSources.size(),
+                    safeChunks.stream().mapToInt(String::length).sum(),
+                    false,
+                    0L,
+                    0L,
+                    null,
+                    0L
+            );
+            String ragId = "rag-" + UUID.randomUUID();
+            auditService.append(
+                    actor.id(),
+                    ragEventName + ".request",
+                    "rag",
+                    ragId,
+                    "question=" + question + ", offTopic=true, preparedContext=true"
+            );
+            return new PreparedAnswer(
+                    question,
+                    STATUS_NO_CONTEXT,
+                    refusal,
+                    safeSources,
+                    safeChunks,
+                    pipeline,
+                    resolveSystemPrompt(options == null ? null : options.ideologyProfileId(), options == null ? null : options.systemPromptOverride()),
+                    ragId
+            );
+        }
+        int usedChars = safeChunks.stream().mapToInt(String::length).sum();
+        String status = safeChunks.isEmpty() ? STATUS_NO_CONTEXT : STATUS_OK;
+        String fallbackAnswer = STATUS_NO_CONTEXT.equals(status) ? NO_CONTEXT_ANSWER : null;
+        SearchDtos.AnswerPipelineMeta pipeline = new SearchDtos.AnswerPipelineMeta(
+                retrievalTopK,
+                rerankTopN,
+                maxContextChunks,
+                maxContextChars,
+                safeSources.size(),
+                safeSources.size(),
+                safeSources.size(),
+                usedChars,
+                false,
+                0L,
+                0L,
+                null,
+                0L
+        );
+        String ragId = "rag-" + UUID.randomUUID();
+        auditService.append(
+                actor.id(),
+                ragEventName + ".request",
+                "rag",
+                ragId,
+                "question=" + question + ", chunks=" + safeChunks.size() + ", preparedContext=true"
+        );
+        return new PreparedAnswer(
+                question,
+                status,
+                fallbackAnswer,
+                safeSources,
+                safeChunks,
+                pipeline,
+                resolveSystemPrompt(options == null ? null : options.ideologyProfileId(), options == null ? null : options.systemPromptOverride()),
+                ragId
+        );
+    }
+
+    public SearchDtos.AnswerWithSourcesResponse answerWithPreparedContext(
+            UserView actor,
+            String question,
+            List<String> contextChunks,
+            List<SearchDtos.RagSourceView> sources,
+            AnswerOptions options,
+            String ragEventName
+    ) {
+        PreparedAnswer prepared = prepareAnswerFromContext(actor, question, contextChunks, sources, ragEventName, options);
+        return completePreparedAnswer(actor, prepared);
+    }
+
+    public SearchDtos.AnswerWithSourcesResponse completePreparedAnswer(UserView actor, PreparedAnswer prepared) {
+        if (!STATUS_OK.equals(prepared.status())) {
+            auditService.append(
+                    actor.id(),
+                    "rag.answer.response",
+                    "rag",
+                    prepared.ragId(),
+                    "status=" + prepared.status() + ", llmLatencyMs=0, totalLatencyMs=" + prepared.pipeline().totalLatencyMs()
+            );
+            return new SearchDtos.AnswerWithSourcesResponse(
+                    prepared.query(),
+                    prepared.status(),
+                    prepared.fallbackAnswer(),
+                    prepared.sources(),
+                    prepared.pipeline()
+            );
+        }
+
+        List<String> contextChunkIds = prepared.sources().stream()
+                .map(SearchDtos.RagSourceView::chunkId)
+                .toList();
+
+        Optional<SemanticCacheService.CachedAnswer> cachedAnswer = semanticCacheService.findSimilarAnswer(
+                prepared.query(),
+                contextChunkIds
+        );
+        if (cachedAnswer.isPresent()) {
+            cacheHitsCounter.increment();
+            SemanticCacheService.CachedAnswer cached = cachedAnswer.get();
+            auditService.append(
+                    actor.id(),
+                    "rag.answer.cache_hit",
+                    "rag",
+                    prepared.ragId(),
+                    "cachedId=" + cached.id() + ", accessCount=" + cached.accessCount()
+            );
+            SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), 0L);
+            ragTotalTimer.record(pipeline.totalLatencyMs(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            return new SearchDtos.AnswerWithSourcesResponse(
+                    prepared.query(),
+                    STATUS_OK,
+                    cached.answer(),
+                    cached.sources(),
+                    pipeline
+            );
+        }
+
+        long llmStartedAtMs = System.currentTimeMillis();
+        LlmChatPort.ChatResponse llm = resolveLlmResponse(actor, prepared);
+        long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
+        ragLlmTimer.record(llmLatencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
+        ragTotalTimer.record(pipeline.totalLatencyMs(), java.util.concurrent.TimeUnit.MILLISECONDS);
+
+        semanticCacheService.cacheAnswer(
+                prepared.query(),
+                contextChunkIds,
+                llm.answer(),
+                llm.provider(),
+                llm.model(),
+                prepared.sources()
+        );
+
+        auditService.append(
+                actor.id(),
+                "rag.answer.llm",
+                "rag",
+                prepared.ragId(),
+                "provider=" + llm.provider() + ", model=" + llm.model() + ", latencyMs=" + llmLatencyMs
+        );
+        auditService.append(
+                actor.id(),
+                "rag.answer.response",
+                "rag",
+                prepared.ragId(),
+                "status=" + STATUS_OK + ", provider=" + llm.provider() + ", model=" + llm.model()
+                        + ", totalLatencyMs=" + pipeline.totalLatencyMs()
+        );
+
+        return new SearchDtos.AnswerWithSourcesResponse(prepared.query(), STATUS_OK, llm.answer(), prepared.sources(), pipeline);
+    }
+
     public record PreparedAnswer(
             String query,
             String status,
@@ -468,8 +625,12 @@ public class SearchService {
     public record AnswerOptions(
             List<String> documentIds,
             List<String> knowledgeSourceIds,
-            String ideologyProfileId
+            String ideologyProfileId,
+            String systemPromptOverride
     ) {
+        public AnswerOptions(List<String> documentIds, List<String> knowledgeSourceIds, String ideologyProfileId) {
+            this(documentIds, knowledgeSourceIds, ideologyProfileId, null);
+        }
     }
 
     private record RerankResult(Map<String, Double> scores, boolean failed) {
@@ -488,5 +649,44 @@ public class SearchService {
      */
     public Integer resolveMaxTokens() {
         return ragMaxTokens > 0 ? ragMaxTokens : null;
+    }
+
+    public boolean llmToolLoopEnabled() {
+        return llmLoopEnabled && toolLoopService != null;
+    }
+
+    private static boolean isOffTopicDocumentQuestion(String question, List<String> contextChunks) {
+        if (question == null || question.isBlank() || contextChunks == null || contextChunks.isEmpty()) {
+            return false;
+        }
+        String normalizedQuestion = question.toLowerCase(Locale.ROOT);
+        String context = String.join("\n", contextChunks).toLowerCase(Locale.ROOT);
+        if (normalizedQuestion.contains("погод") && !context.contains("погод")) {
+            return true;
+        }
+        if (normalizedQuestion.contains("weather") && !context.contains("weather")) {
+            return true;
+        }
+        return false;
+    }
+
+    public LlmChatPort.ChatResponse resolveLlmResponse(UserView actor, PreparedAnswer prepared) {
+        if (llmLoopEnabled && toolLoopService != null) {
+            return toolLoopService.completeWithTools(
+                    actor,
+                    prepared.query(),
+                    prepared.contextChunks(),
+                    prepared.systemPrompt(),
+                    prepared.ragId()
+            );
+        }
+        return llmChatPort.chat(new LlmChatPort.ChatRequest(
+                prepared.query(),
+                prepared.contextChunks(),
+                prepared.systemPrompt(),
+                null,
+                resolveMaxTokens(),
+                prepared.ragId()
+        ));
     }
 }

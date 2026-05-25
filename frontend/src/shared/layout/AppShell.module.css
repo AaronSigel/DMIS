@@ -13,8 +13,21 @@
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--assistant-width);
 }
 
+.sidebarWrap {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .sidebar {
   width: var(--sidebar-width);
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.assistantWrap {
+  position: relative;
   min-width: 0;
   overflow: hidden;
 }
@@ -25,8 +38,14 @@
 }
 
 .assistant {
+  width: var(--assistant-width);
   min-width: 0;
+  height: 100%;
   overflow: hidden;
+}
+
+.resizeHandle {
+  display: none;
 }
 
 .menuButton {
@@ -78,16 +97,21 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .assistant {
+  .assistantWrap {
     display: none;
   }
 
-  .sidebar {
+  .sidebarWrap {
     position: fixed;
     inset: 0 auto 0 0;
     z-index: 40;
+    width: auto;
     transform: translateX(-105%);
     transition: transform 150ms ease-out;
+  }
+
+  .sidebar {
+    width: var(--sidebar-width);
   }
 
   .main {
@@ -102,5 +126,33 @@
   .menuButton,
   .mobileAssistantOverlay {
     display: none;
+  }
+
+  .resizeHandle {
+    display: block;
+    position: absolute;
+    top: 0;
+    z-index: 5;
+    width: 6px;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .resizeHandle:hover,
+  .resizeHandle:focus-visible {
+    background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  }
+
+  .resizeHandleSidebar {
+    right: -3px;
+  }
+
+  .resizeHandleAssistant {
+    left: -3px;
   }
 }

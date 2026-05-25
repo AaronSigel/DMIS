@@ -33,14 +33,32 @@ function renderValue(value: unknown): string {
   return String(value);
 }
 
+function fieldTestId(label: string): string | undefined {
+  switch (label) {
+    case "Кому":
+      return "action-recipient";
+    case "Тема":
+      return "action-subject";
+    case "Текст":
+      return "action-body";
+    default:
+      return undefined;
+  }
+}
+
 function renderKnownIntentFields(intent: string, entities: ActionCardEntities) {
   if (intent === "send_email") {
-    const email = entities as SendEmailEntities;
-    return [
+    const email = entities as SendEmailEntities & { attachmentDocumentIds?: string[] };
+    const fields = [
       { label: "Кому", value: email.to },
       { label: "Тема", value: email.subject },
       { label: "Текст", value: email.body },
     ];
+    const attachments = email.attachmentDocumentIds ?? [];
+    if (attachments.length > 0) {
+      fields.push({ label: "Вложения", value: attachments.join(", ") });
+    }
+    return fields;
   }
 
   if (intent === "create_calendar_event") {
@@ -190,14 +208,26 @@ export function ActionCard({
   const fields = renderKnownIntentFields(intent, entities);
 
   return (
-    <div className="rounded-lg border border-border bg-white px-[10px] py-2">
+    <div
+      data-testid="action-draft-card"
+      data-action-id={id}
+      className="rounded-lg border border-border bg-white px-[10px] py-2"
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="m-0 text-[11px] text-muted">Действие: {localizeIntent(intent)}</p>
-        <StatusBadge status={localStatus} />
+        <span data-testid="action-status">
+          <StatusBadge status={localStatus} />
+        </span>
       </div>
       <div className="grid gap-1.5">
         {fields.map((field) => (
-          <div key={`${id}-${field.label}`} className="rounded-md bg-surface px-2 py-1.5">
+          <div
+            key={`${id}-${field.label}`}
+            data-testid={
+              field.label === "Вложения" ? "action-attachment" : fieldTestId(field.label)
+            }
+            className="rounded-md bg-surface px-2 py-1.5"
+          >
             <p className="m-0 text-[10px] uppercase tracking-[0.06em] text-muted">{field.label}</p>
             <p className="m-0 break-words text-[12px] text-text">{renderValue(field.value)}</p>
           </div>
@@ -228,6 +258,7 @@ export function ActionCard({
         <div className="mt-2 flex justify-end">
           <button
             type="button"
+            data-testid="action-confirm-button"
             onClick={() => setConfirmOpen(true)}
             className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white"
           >

@@ -29,6 +29,7 @@ export function PageHeader({ title, subtitle, navigation, actions }: PageHeaderP
         {actions}
         <button
           type="button"
+          data-testid="assistant-open-button"
           onClick={() => openAiWithQuery()}
           aria-label={desktopAiOpen ? "Ассистент открыт" : "Открыть ассистента"}
           title={desktopAiOpen ? "Ассистент открыт" : "Открыть ассистента"}

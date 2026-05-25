@@ -236,6 +236,8 @@ export function WorkspacePage({
   const desktopAiOpen = useUiStore((state) => state.desktopAiOpen);
   const closeMobileAi = useUiStore((state) => state.closeMobileAi);
   const closeDesktopAi = useUiStore((state) => state.closeDesktopAi);
+  const sidebarWidth = useUiStore((state) => state.sidebarWidth);
+  const assistantWidth = useUiStore((state) => state.assistantWidth);
   const navigate = useNavigate();
   const defaultSection = isAdmin(user) ? "dashboard" : "documents";
   const section = location.pathname.split("/")[1] || defaultSection;
@@ -421,7 +423,7 @@ export function WorkspacePage({
     <Sidebar
       user={user}
       docCount={docCount}
-      width={220}
+      width={sidebarWidth}
       navSearchQuery={navSearchQuery}
       onNavSearchChange={setNavSearchQuery}
       onNavSearchEnter={handleNavSearchEnter}
@@ -515,7 +517,7 @@ export function WorkspacePage({
   const assistant = (
     <AiPanel
       token={token}
-      width={320}
+      width={assistantWidth}
       height="100%"
       onSessionExpired={onSessionExpired}
       onTokenRefresh={onTokenRefresh}

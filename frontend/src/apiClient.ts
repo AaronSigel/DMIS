@@ -17,9 +17,12 @@ import type {
 import type { AuditRecord } from "./entities/audit";
 import type { SearchOnlyResponse } from "./entities/search";
 import {
+  AssistantDocumentStatusListSchema,
   AssistantThreadDetailViewSchema,
   AssistantThreadViewSchema,
   MentionDocumentListSchema,
+  MentionDocumentSchema,
+  type AssistantDocumentStatusView,
 } from "./shared/api/schemas/assistant";
 import {
   DocumentMetaSchema,
@@ -325,9 +328,59 @@ export async function apiSendAssistantMessage(
   await parseAuthenticatedJson<unknown>(response, onUnauthorized);
 }
 
+export type AssistantSubmitResult = {
+  route: string;
+  traceId?: string;
+  action?: ActionView;
+  streamUrl?: string | null;
+  streamPayload?: AssistantStreamPayload | null;
+  status?: string;
+  diagnosticCode?: string | null;
+  message?: string | null;
+  contextDocuments?: unknown;
+};
+
+export async function apiSubmitAssistantRequest(
+  threadId: string,
+  text: string,
+  documentIds: string[],
+  knowledgeSourceIds: string[],
+  ideologyProfileId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<AssistantSubmitResult> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/assistant/threads/${threadId}/submit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        documentIds,
+        knowledgeSourceIds,
+        ideologyProfileId,
+        stream: true,
+      }),
+    },
+    onNewToken,
+  );
+  if (response.status === 401 || response.status === 403) {
+    onUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  const payload = await parseAuthenticatedJson<AssistantSubmitResult>(response, onUnauthorized);
+  if (payload.action) {
+    payload.action = ActionViewSchema.parse(payload.action);
+  }
+  return payload;
+}
+
 /**
  * Ошибка парсинга intent/entities для action-flow ассистента.
- * Используется для безопасного fallback в обычный RAG-ответ.
+ * @deprecated Используйте unified submit endpoint.
  */
 export class AssistantActionParseError extends Error {
   constructor(message: string) {
@@ -338,8 +391,7 @@ export class AssistantActionParseError extends Error {
 
 /**
  * Пытается распознать пользовательскую команду как AI-действие.
- * Для 400/422 возвращает специализированную ошибку, чтобы UI мог
- * перейти в fallback-сценарий RAG без показа ошибки пользователю.
+ * @deprecated Используйте apiSubmitAssistantRequest.
  */
 export async function apiParseAssistantAction(
   text: string,
@@ -379,17 +431,26 @@ export type AssistantStreamPayload = {
 };
 
 export type AssistantStreamDoneEvent = {
+  type?: string;
   done?: boolean;
   answer?: string;
   status?: string;
+  diagnosticCode?: string;
+  message?: string;
   /** Массив источников из backend `RagSourceView` (см. SSE done-payload). Нормализуется выше по стеку. */
   sources?: unknown;
   /** Метрики пайплайна (retrieval/rerank/llm) — пробрасываем как есть. */
   pipeline?: unknown;
+  contextStatus?: string;
+  contextDiagnosticCode?: string;
+  contextDocuments?: unknown;
 };
 
 type AssistantStreamDeltaEvent = {
+  type?: string;
   delta?: string;
+  diagnosticCode?: string;
+  message?: string;
 };
 
 type AssistantStreamCallbacks = {
@@ -457,10 +518,27 @@ export async function apiStreamAssistantAnswer(
 
     try {
       const parsed = JSON.parse(raw) as AssistantStreamDeltaEvent & AssistantStreamDoneEvent;
-      if (typeof parsed.delta === "string" && parsed.delta.length > 0) {
-        callbacks.onDelta(parsed.delta);
+      const eventType = parsed.type;
+      const delta =
+        typeof parsed.delta === "string" && parsed.delta.length > 0 ? parsed.delta : undefined;
+
+      if (delta && (eventType === "token" || eventType === undefined || !parsed.done)) {
+        callbacks.onDelta(delta);
       }
-      if (parsed.done) {
+      if (eventType === "diagnostic" || eventType === "error") {
+        const diagnosticCode = parsed.diagnosticCode ?? parsed.status;
+        if (diagnosticCode) {
+          callbacks.onDone?.({
+            done: true,
+            type: eventType,
+            status: parsed.status ?? "NO_CONTEXT",
+            contextDiagnosticCode: diagnosticCode,
+            answer: parsed.message ?? "",
+          });
+          doneEventSent = true;
+        }
+      }
+      if (parsed.done || eventType === "done") {
         doneEventSent = true;
         callbacks.onDone?.(parsed);
       }
@@ -517,12 +595,26 @@ export async function apiLinkAssistantThreadDocument(
   await parseAuthenticatedJson<unknown>(response, onUnauthorized);
 }
 
+export async function apiUnlinkAssistantThreadDocument(
+  threadId: string,
+  documentId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/assistant/threads/${threadId}/documents/${documentId}`,
+    { method: "DELETE" },
+    onNewToken,
+  );
+  await parseAuthenticatedJson<unknown>(response, onUnauthorized);
+}
+
 export async function apiUploadAssistantThreadAttachment(
   threadId: string,
   file: File,
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
-): Promise<void> {
+): Promise<{ id: string; title: string }> {
   const form = new FormData();
   form.append("file", file);
   const response = await fetchWithAuth(
@@ -530,7 +622,26 @@ export async function apiUploadAssistantThreadAttachment(
     { method: "POST", body: form },
     onNewToken,
   );
-  await parseAuthenticatedJson<unknown>(response, onUnauthorized);
+  const payload = await parseAuthenticatedSchema(response, MentionDocumentSchema, onUnauthorized);
+  return { id: payload.id, title: payload.title };
+}
+
+export async function apiGetAssistantDocumentStatuses(
+  documentIds: string[],
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<AssistantDocumentStatusView[]> {
+  if (!documentIds.length) return [];
+  const params = new URLSearchParams();
+  for (const id of documentIds) {
+    params.append("ids", id);
+  }
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/assistant/documents/status?${params.toString()}`,
+    { method: "GET" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, AssistantDocumentStatusListSchema, onUnauthorized);
 }
 
 export async function apiGetDocumentTitle(

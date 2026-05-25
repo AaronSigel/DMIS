@@ -1,9 +1,13 @@
 package com.dmis.backend.search.api;
 
+import com.dmis.backend.documents.application.port.DocumentMalwareScanPort;
+import com.dmis.backend.integrations.application.port.ObjectStoragePort;
 import com.dmis.backend.search.application.port.ChunkRerankPort;
 import com.dmis.backend.search.application.port.ChunkSearchPort;
 import com.dmis.backend.search.application.port.LlmChatPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -11,6 +15,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -26,7 +32,10 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -38,6 +47,8 @@ class SearchControllerIntegrationTest {
     private MockMvc mockMvc;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @MockBean
     private ChunkSearchPort chunkSearchPort;
@@ -45,6 +56,25 @@ class SearchControllerIntegrationTest {
     private ChunkRerankPort chunkRerankPort;
     @MockBean
     private LlmChatPort llmChatPort;
+    @MockBean
+    private ObjectStoragePort objectStoragePort;
+    @MockBean
+    private DocumentMalwareScanPort malwareScanPort;
+
+    private String pendingDocumentId;
+
+    @BeforeEach
+    void setUpMocks() {
+        when(malwareScanPort.scan(anyString(), any())).thenReturn(DocumentMalwareScanPort.ScanVerdict.CLEAN);
+    }
+
+    @AfterEach
+    void cleanUpPendingDocument() {
+        if (pendingDocumentId != null) {
+            jdbcTemplate.update("DELETE FROM documents WHERE id = ?", pendingDocumentId);
+            pendingDocumentId = null;
+        }
+    }
 
     @Test
     void ragStreamDoneEventContainsAnswerAndSources() throws Exception {
@@ -176,6 +206,115 @@ class SearchControllerIntegrationTest {
 
         assertTrue(response.contains("\"answer\":\"Ответ [1]\""));
         assertTrue(response.contains("\"sources\":[{\"documentId\":\"doc-1\""));
+    }
+
+    @Test
+    void ragStreamPendingDocumentReturnsIndexPendingDiagnosticWithoutLlm() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/pending.txt");
+
+        String token = loginAndGetToken();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "pending.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "pending document body".getBytes(StandardCharsets.UTF_8)
+        );
+        String uploadJson = mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+        String documentId = objectMapper.readTree(uploadJson).get("id").asText();
+        pendingDocumentId = documentId;
+
+        MvcResult asyncResult = mockMvc.perform(post("/api/rag/answer-with-sources/stream")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"Сделай summary","documentIds":["%s"]}
+                                """.formatted(documentId)))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        asyncResult.getAsyncResult(5_000);
+        assertEquals(200, asyncResult.getResponse().getStatus());
+
+        String body = asyncResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(body.contains("\"done\":true"));
+        assertTrue(body.contains("\"status\":\"INDEX_PENDING\""));
+        assertTrue(body.contains("\"contextStatus\":\"INDEX_PENDING\""));
+        assertTrue(body.contains("\"contextDiagnosticCode\":\"INDEX_PENDING\""));
+        assertTrue(body.contains("индексируется"));
+        verify(llmChatPort, never()).chatStream(any());
+        verify(llmChatPort, never()).chat(any());
+    }
+
+    @Test
+    void ragStreamUsesLinkedDocumentsWhenDocumentIdsEmpty() throws Exception {
+        when(objectStoragePort.store(anyString(), any(), any())).thenReturn("minio://test-bucket/linked-thread.txt");
+
+        String token = loginAndGetToken();
+        String threadJson = mockMvc.perform(post("/api/assistant/threads")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"stream-link-test\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+        String threadId = objectMapper.readTree(threadJson).get("id").asText();
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "linked-thread.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "linked thread document body".getBytes(StandardCharsets.UTF_8)
+        );
+        String uploadJson = mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+        String documentId = objectMapper.readTree(uploadJson).get("id").asText();
+        pendingDocumentId = documentId;
+
+        mockMvc.perform(post("/api/assistant/threads/" + threadId + "/documents")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"documentId\":\"" + documentId + "\"}"))
+                .andExpect(status().isOk());
+
+        MvcResult asyncResult = mockMvc.perform(post("/api/rag/answer-with-sources/stream")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"Сделай summary","threadId":"%s","documentIds":[],"knowledgeSourceIds":["documents"],"ideologyProfileId":"balanced"}
+                                """.formatted(threadId)))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        asyncResult.getAsyncResult(5_000);
+        assertEquals(200, asyncResult.getResponse().getStatus());
+
+        String body = asyncResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertTrue(body.contains("\"done\":true"));
+        assertTrue(body.contains("\"status\":\"INDEX_PENDING\""));
+        assertTrue(body.contains("\"contextDiagnosticCode\":\"INDEX_PENDING\""));
+        verify(llmChatPort, never()).chatStream(any());
+        verify(llmChatPort, never()).chat(any());
+    }
+
+    @Test
+    void ragStreamRejectsInaccessibleThread() throws Exception {
+        String token = loginAndGetToken();
+
+        mockMvc.perform(post("/api/rag/answer-with-sources/stream")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"test\",\"threadId\":\"missing-thread-id\"}"))
+                .andExpect(status().isNotFound());
     }
 
     private String loginAndGetToken() throws Exception {

@@ -776,24 +776,26 @@ export function DocTable({
           </div>
         )}
 
-        {docs.map((doc, i) => (
-          <DocRow
-            key={doc.id}
-            doc={doc}
-            cols={cols}
-            last={i === docs.length - 1}
-            selected={selectedIds.includes(doc.id)}
-            token={token}
-            isAdmin={isAdminUser}
-            onSessionExpired={onSessionExpired}
-            onTokenRefresh={onTokenRefresh}
-            onToggleSelect={() => toggleSelect(doc.id)}
-            onRowNavigate={() => navigate(`/documents/${doc.id}`)}
-            onOpenRename={setRenameDoc}
-            onDeleteDocument={(id) => deleteMutation.mutateAsync(id)}
-            onNavigateAudit={() => navigate("/audit")}
-          />
-        ))}
+        <div data-testid="document-list">
+          {docs.map((doc, i) => (
+            <DocRow
+              key={doc.id}
+              doc={doc}
+              cols={cols}
+              last={i === docs.length - 1}
+              selected={selectedIds.includes(doc.id)}
+              token={token}
+              isAdmin={isAdminUser}
+              onSessionExpired={onSessionExpired}
+              onTokenRefresh={onTokenRefresh}
+              onToggleSelect={() => toggleSelect(doc.id)}
+              onRowNavigate={() => navigate(`/documents/${doc.id}`)}
+              onOpenRename={setRenameDoc}
+              onDeleteDocument={(id) => deleteMutation.mutateAsync(id)}
+              onNavigateAudit={() => navigate("/audit")}
+            />
+          ))}
+        </div>
 
         <RenameDocumentModal
           open={renameDoc !== null}
@@ -1042,6 +1044,7 @@ function DocRow({
   return (
     <div
       role="row"
+      data-testid="document-row"
       tabIndex={0}
       aria-label={`Документ: ${doc.title}. Enter — открыть карточку; Shift+F10 или контекстное меню — действия.`}
       className="grid cursor-pointer items-center outline-none"
@@ -1088,7 +1091,9 @@ function DocRow({
       </div>
       <div className="flex items-center gap-2 overflow-hidden py-[11px]">
         <span className="shrink-0 text-sm">{docIcon(doc)}</span>
-        <span className="truncate text-sm font-medium text-text">{doc.title}</span>
+        <span data-testid="document-title" className="truncate text-sm font-medium text-text">
+          {doc.title}
+        </span>
       </div>
 
       <div className="flex items-center gap-1.5 py-[11px]">
@@ -1100,7 +1105,7 @@ function DocRow({
         {doc.updatedAt ? timeAgo(doc.updatedAt) : "—"}
       </div>
 
-      <div className="py-[11px]">
+      <div className="py-[11px]" data-testid="document-index-status">
         <StatusBadge status={doc.status} />
       </div>
 

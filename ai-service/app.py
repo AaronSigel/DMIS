@@ -22,6 +22,23 @@ SUGGEST_MEETING_SLOTS_INTENT = "suggest_meeting_slots"
 Provider = Literal["openrouter", "local"]
 
 
+class ToolDefinition(BaseModel):
+    name: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    inputSchema: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolCall(BaseModel):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    argumentsJson: str = ""
+
+
+class ToolResultMessage(BaseModel):
+    toolCallId: str = Field(min_length=1)
+    content: str = ""
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1)
     contextChunks: list[str] = Field(default_factory=list)
@@ -29,12 +46,15 @@ class ChatRequest(BaseModel):
     temperature: float | None = None
     maxTokens: int | None = None
     traceId: str | None = None
+    tools: list[ToolDefinition] = Field(default_factory=list)
+    toolResults: list[ToolResultMessage] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
-    answer: str = Field(min_length=1)
+    answer: str = ""
     model: str
     provider: Provider
+    toolCalls: list[ToolCall] | None = None
 
 
 class StructuredChatRequest(BaseModel):
@@ -79,7 +99,7 @@ def _openrouter_headers() -> dict[str, str]:
     return headers
 
 
-def _build_messages(req: ChatRequest) -> list[dict[str, str]]:
+def _build_messages(req: ChatRequest) -> list[dict[str, Any]]:
     system = req.systemPrompt or (
         "Ты корпоративный помощник системы документооборота. "
         "Отвечай строго на основании предоставленного контекста. "
@@ -92,10 +112,58 @@ def _build_messages(req: ChatRequest) -> list[dict[str, str]]:
     user = req.question.strip()
     if context:
         user = f"Вопрос:\n{user}\n\nКонтекст:\n{context}"
-    return [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+    for tool_result in req.toolResults:
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_result.toolCallId,
+                "content": tool_result.content,
+            }
+        )
+    return messages
+
+
+def _openrouter_tools(req: ChatRequest) -> list[dict[str, Any]] | None:
+    if not req.tools:
+        return None
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.inputSchema or {"type": "object", "properties": {}},
+            },
+        }
+        for tool in req.tools
+    ]
+
+
+def _parse_tool_calls(message: dict[str, Any]) -> list[ToolCall]:
+    raw_calls = message.get("tool_calls") or []
+    parsed: list[ToolCall] = []
+    for call in raw_calls:
+        function = call.get("function") or {}
+        name = str(function.get("name") or "").strip()
+        if not name:
+            continue
+        arguments = function.get("arguments")
+        if isinstance(arguments, dict):
+            arguments_json = json.dumps(arguments, ensure_ascii=False)
+        else:
+            arguments_json = str(arguments or "")
+        parsed.append(
+            ToolCall(
+                id=str(call.get("id") or f"call-{len(parsed) + 1}"),
+                name=name,
+                argumentsJson=arguments_json,
+            )
+        )
+    return parsed
 
 
 def _extract_json_object(raw: str) -> dict[str, Any]:
@@ -122,7 +190,7 @@ def _default_structured_system_prompt() -> str:
         f"- {SUGGEST_MEETING_SLOTS_INTENT} — найти свободные слоты для встречи\n"
         "Верни только структурированный JSON с полями intent и entities.\n"
         f"Для {SEND_EMAIL_INTENT} entities: to, subject, body, опционально attachmentDocumentIds (массив id документов).\n"
-        f"Для {CREATE_CALENDAR_EVENT_INTENT} entities: title, attendees (массив email), startIso, endIso.\n"
+        f"Для {CREATE_CALENDAR_EVENT_INTENT} entities: title, attendees (опционально массив email; если не указаны — backend добавит организатора), startIso, endIso.\n"
         f"Для {UPDATE_DOCUMENT_TAGS_INTENT} entities: documentId, tags (массив строк).\n"
         f"Для {RESCHEDULE_CALENDAR_EVENT_INTENT} entities: eventId, опционально title, startIso, endIso.\n"
         f"Для {PREPARE_MEETING_AGENDA_INTENT} entities: eventId, опционально extraDocumentIds (массив id документов).\n"
@@ -228,6 +296,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 "model": model,
                 "messages": _build_messages(req),
             }
+            tools = _openrouter_tools(req)
+            if tools:
+                payload["tools"] = tools
+                payload["tool_choice"] = "auto"
             if req.temperature is not None:
                 payload["temperature"] = req.temperature
             if req.maxTokens is not None:
@@ -241,14 +313,30 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 )
                 r.raise_for_status()
                 data = r.json()
-                content = (
-                    (((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
-                ).strip()
+                message = (((data.get("choices") or [{}])[0]).get("message") or {})
+                tool_calls = _parse_tool_calls(message)
+                content = (message.get("content") or "").strip()
+                if tool_calls:
+                    return ChatResponse(answer=content, model=model, provider=provider, toolCalls=tool_calls)
                 if not content:
                     raise RuntimeError("Empty completion")
                 return ChatResponse(answer=content, model=model, provider=provider)
 
         if provider == "local":
+            if req.tools and not req.toolResults:
+                first_tool = req.tools[0]
+                return ChatResponse(
+                    answer="",
+                    model=model,
+                    provider=provider,
+                    toolCalls=[
+                        ToolCall(
+                            id="call-local-1",
+                            name=first_tool.name,
+                            argumentsJson=json.dumps({"query": req.question.strip()}, ensure_ascii=False),
+                        )
+                    ],
+                )
             # Minimal local implementation (MVP): provide a deterministic answer based on top context.
             # This keeps the contract stable; replace with a real local model runtime later.
             if not req.contextChunks:

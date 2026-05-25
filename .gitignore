@@ -31,7 +31,8 @@ frontend/core.*
 /frontend/playwright-report/*
 /frontend/test-results/*
 /scripts/*
-/e2e/*
+/playwright/.auth/
+/tmp/dmis-playwright-agent-run/
 .mcp.json
 .claude/
 .vscode/*

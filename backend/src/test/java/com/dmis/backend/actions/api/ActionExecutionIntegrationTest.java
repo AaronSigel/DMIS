@@ -64,7 +64,7 @@ class ActionExecutionIntegrationTest {
         mockMvc.perform(post("/api/actions/{id}/confirm", actionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+                .andExpect(jsonPath("$.status").value("EXECUTED"));
 
         mockMvc.perform(post("/api/actions/{id}/execute", actionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -105,7 +105,8 @@ class ActionExecutionIntegrationTest {
 
         mockMvc.perform(post("/api/actions/{id}/confirm", actionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EXECUTED"));
 
         mockMvc.perform(post("/api/actions/{id}/execute", actionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))

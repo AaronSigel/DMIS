@@ -16,6 +16,9 @@ public class TikaTextExtractionAdapter implements TextExtractionPort {
             if (content == null || content.length == 0) {
                 return "";
             }
+            if (fileName != null && fileName.toLowerCase().endsWith(".bin")) {
+                return "";
+            }
             return tika.parseToString(new ByteArrayInputStream(content));
         } catch (Exception e) {
             throw new IllegalStateException("Text extraction failed for " + fileName, e);

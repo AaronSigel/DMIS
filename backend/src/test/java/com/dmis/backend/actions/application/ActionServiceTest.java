@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -73,6 +74,40 @@ class ActionServiceTest {
     }
 
     @Test
+    void draftCalendarEventAddsOrganizerWhenAttendeesEmpty() {
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "create_calendar_event",
+                new CreateCalendarEventEntities(
+                        "Standup",
+                        List.of(),
+                        "2026-05-10T09:00:00Z",
+                        "2026-05-10T09:30:00Z"
+                )
+        );
+
+        var entities = (CreateCalendarEventEntities) draft.entities();
+        assertEquals(List.of("owner@example.com"), entities.attendees());
+    }
+
+    @Test
+    void draftCalendarEventDoesNotDuplicateOrganizerAttendee() {
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "create_calendar_event",
+                new CreateCalendarEventEntities(
+                        "Standup",
+                        List.of("owner@example.com", "a@b.com"),
+                        "2026-05-10T09:00:00Z",
+                        "2026-05-10T09:30:00Z"
+                )
+        );
+
+        var entities = (CreateCalendarEventEntities) draft.entities();
+        assertEquals(List.of("owner@example.com", "a@b.com"), entities.attendees());
+    }
+
+    @Test
     void executeRequiresConfirmedState() {
         ActionDtos.AiActionView draft = actionService.draft(
                 owner,
@@ -85,6 +120,16 @@ class ActionServiceTest {
 
     @Test
     void executeChecksActorAcl() {
+        doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Mail service unavailable"))
+                .when(integrationService)
+                .sendMail(
+                        eq(owner),
+                        eq("a@b.c"),
+                        eq("Subj"),
+                        eq("Body"),
+                        anyString(),
+                        eq(List.of())
+                );
         ActionDtos.AiActionView draft = actionService.draft(
                 owner,
                 "send_email",
@@ -164,7 +209,6 @@ class ActionServiceTest {
                         "2026-05-10T09:30:00Z"
                 )
         );
-        actionService.confirm(owner, draft.id());
         doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Calendar service unavailable"))
                 .when(integrationService)
                 .createCalendarEvent(
@@ -177,13 +221,15 @@ class ActionServiceTest {
                         eq(EventCreationSource.AI_ACTION),
                         isNull()
                 );
+        ActionDtos.AiActionView confirmed = actionService.confirm(owner, draft.id());
+        assertEquals(ActionStatus.CONFIRMED, confirmed.status());
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> actionService.execute(owner, draft.id()));
 
         assertEquals(HttpStatus.BAD_GATEWAY, exception.getStatusCode());
         assertTrue(exception.getReason().contains("Calendar service unavailable"));
         assertEquals(ActionStatus.CONFIRMED, aiActionPort.findById(draft.id()).orElseThrow().status());
-        verify(integrationService).createCalendarEvent(
+        verify(integrationService, times(2)).createCalendarEvent(
                 eq(owner),
                 eq("Standup"),
                 anyList(),

@@ -1,5 +1,6 @@
 package com.dmis.backend.search.application;
 
+import com.dmis.backend.assistant.application.KnowledgeSourcePolicy;
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.audit.application.dto.AuditView;
 import com.dmis.backend.audit.application.port.AuditPort;
@@ -23,6 +24,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SearchServiceTest {
@@ -49,7 +51,9 @@ class SearchServiceTest {
                 3,
                 4000,
                 0,
-                0
+                0,
+                false,
+                null
         );
 
         SearchDtos.SearchOnlyResponse response = service.search(admin(), "policy");
@@ -82,7 +86,9 @@ class SearchServiceTest {
                 3,
                 4000,
                 0,
-                0
+                0,
+                false,
+                null
         );
 
         SearchDtos.SearchOnlyResponse response = service.search(admin(), "policy");
@@ -121,7 +127,9 @@ class SearchServiceTest {
                 3,
                 4000,
                 0,
-                3
+                3,
+                false,
+                null
         );
 
         SearchDtos.SearchOnlyResponse response = service.search(admin(), "q");
@@ -155,7 +163,9 @@ class SearchServiceTest {
                 3,
                 4000,
                 0,
-                0
+                0,
+                false,
+                null
         );
 
         SearchDtos.AnswerWithSourcesResponse response = service.answer(admin(), "policy");
@@ -189,7 +199,9 @@ class SearchServiceTest {
                 3,
                 4000,
                 0,
-                3
+                3,
+                false,
+                null
         );
 
         SearchDtos.AnswerWithSourcesResponse response = service.answer(admin(), "missing");
@@ -199,6 +211,100 @@ class SearchServiceTest {
         assertEquals(0, response.sources().size());
         assertTrue(llm.contextChunks().isEmpty());
         assertEquals(null, response.pipeline().llmLatencyMs());
+    }
+
+    @Test
+    void searchInDocumentsDelegatesToSearchWithDocumentFilter() {
+        SemanticCacheService noopCache = Mockito.mock(SemanticCacheService.class);
+        SearchService service = new SearchService(
+                (actorId, isAdmin, query, limit, documentIds) -> List.of(
+                        new ChunkSearchPort.ChunkHit("doc-1", "Doc 1", "c-1", "alpha", 0.9)
+                ),
+                (query, candidates) -> List.of(new ChunkRerankPort.RerankScore("c-1", 0.9)),
+                new AclService(noopAccessPort()),
+                new FakeLlmChatPort(),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
+                new SimpleMeterRegistry(),
+                noopCache,
+                10,
+                5,
+                3,
+                4000,
+                0,
+                3,
+                false,
+                null
+        );
+        SearchDtos.SearchOnlyResponse response = service.searchInDocuments(admin(), "alpha", List.of("doc-1"));
+        assertEquals("OK", response.status());
+        assertEquals(1, response.hits().size());
+    }
+
+    @Test
+    void prepareAnswerSkipsDocumentSearchWhenKnowledgeSourceUnsupported() {
+        SemanticCacheService noopCache = Mockito.mock(SemanticCacheService.class);
+        java.util.concurrent.atomic.AtomicBoolean searchCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
+        SearchService service = new SearchService(
+                (actorId, isAdmin, query, limit, documentIds) -> {
+                    searchCalled.set(true);
+                    return List.of();
+                },
+                (query, candidates) -> List.of(),
+                new AclService(noopAccessPort()),
+                new FakeLlmChatPort(),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
+                new SimpleMeterRegistry(),
+                noopCache,
+                10,
+                5,
+                3,
+                4000,
+                0,
+                0,
+                false,
+                null
+        );
+        SearchService.PreparedAnswer prepared = service.prepareAnswer(
+                admin(),
+                "policy",
+                "rag.answer",
+                new SearchService.AnswerOptions(List.of(), List.of("mail"), "balanced")
+        );
+        assertEquals(KnowledgeSourcePolicy.STATUS_KNOWLEDGE_SOURCE_UNSUPPORTED, prepared.status());
+        assertTrue(prepared.fallbackAnswer().contains("documents"));
+        assertFalse(searchCalled.get());
+    }
+
+    @Test
+    void prepareAnswerFromContextRejectsOffTopicWeatherQuestionWithoutLlm() {
+        SemanticCacheService noopCache = Mockito.mock(SemanticCacheService.class);
+        SearchService service = new SearchService(
+                (actorId, isAdmin, query, limit, documentIds) -> List.of(),
+                (query, candidates) -> List.of(),
+                new AclService(noopAccessPort()),
+                new FakeLlmChatPort(),
+                new AuditService(new NoopAuditPort(), new AclService(noopAccessPort())),
+                new SimpleMeterRegistry(),
+                noopCache,
+                10,
+                5,
+                3,
+                4000,
+                0,
+                0,
+                false,
+                null
+        );
+        SearchService.PreparedAnswer prepared = service.prepareAnswerFromContext(
+                admin(),
+                "Какая завтра погода в Стокгольме?",
+                List.of("Проект DMIS предназначен для документооборота."),
+                List.of(new SearchDtos.RagSourceView("doc-1", "Doc", "c-1", "context", 1.0)),
+                "rag.answer",
+                new SearchService.AnswerOptions(List.of("doc-1"), List.of("documents"), "balanced")
+        );
+        assertEquals("NO_CONTEXT", prepared.status());
+        assertTrue(prepared.fallbackAnswer().contains("нет информации"));
     }
 
     private static UserView admin() {

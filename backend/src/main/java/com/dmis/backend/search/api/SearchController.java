@@ -1,6 +1,8 @@
 package com.dmis.backend.search.api;
 
+import com.dmis.backend.assistant.application.AssistantRagOrchestrator;
 import com.dmis.backend.assistant.application.AssistantService;
+import com.dmis.backend.assistant.application.dto.AssistantDtos;
 import com.dmis.backend.audit.application.AuditService;
 import com.dmis.backend.platform.security.CurrentUserProvider;
 import com.dmis.backend.search.application.RagStreamEventParser;
@@ -27,6 +29,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -39,6 +42,7 @@ public class SearchController {
     private final LlmChatPort llmChatPort;
     private final AuditService auditService;
     private final AssistantService assistantService;
+    private final AssistantRagOrchestrator assistantRagOrchestrator;
     private final RagStreamEventParser ragStreamEventParser;
     private final ObjectMapper objectMapper;
     private final TaskExecutor ragStreamExecutor;
@@ -52,6 +56,7 @@ public class SearchController {
             LlmChatPort llmChatPort,
             AuditService auditService,
             AssistantService assistantService,
+            AssistantRagOrchestrator assistantRagOrchestrator,
             RagStreamEventParser ragStreamEventParser,
             ObjectMapper objectMapper,
             @Qualifier("ragStreamExecutor") TaskExecutor ragStreamExecutor,
@@ -64,6 +69,7 @@ public class SearchController {
         this.llmChatPort = llmChatPort;
         this.auditService = auditService;
         this.assistantService = assistantService;
+        this.assistantRagOrchestrator = assistantRagOrchestrator;
         this.ragStreamEventParser = ragStreamEventParser;
         this.objectMapper = objectMapper;
         this.ragStreamExecutor = ragStreamExecutor;
@@ -79,39 +85,64 @@ public class SearchController {
 
     @PostMapping({"/rag/answer-with-sources", "/rag/answer"})
     public SearchDtos.AnswerWithSourcesResponse answer(@Valid @RequestBody RagRequest request) {
-        return searchService.answer(
-                currentUserProvider.currentUser(),
+        var actor = currentUserProvider.currentUser();
+        assistantService.requireAccessibleThread(actor, request.threadId());
+        return assistantRagOrchestrator.orchestrate(
+                actor,
+                request.threadId(),
                 request.question(),
-                new SearchService.AnswerOptions(request.documentIds(), request.knowledgeSourceIds(), request.ideologyProfileId())
-        );
+                request.documentIds(),
+                request.knowledgeSourceIds(),
+                request.ideologyProfileId(),
+                "rag.answer"
+        ).response();
     }
 
     @PostMapping(value = "/rag/answer-with-sources/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter answerStream(@Valid @RequestBody RagRequest request) {
         var actor = currentUserProvider.currentUser();
+        assistantService.requireAccessibleThread(actor, request.threadId());
         String question = request.question();
 
-        SearchService.PreparedAnswer prepared = searchService.prepareAnswer(
+        AssistantRagOrchestrator.RagStreamPlan streamPlan = assistantRagOrchestrator.prepareStream(
                 actor,
+                request.threadId(),
                 question,
-                "rag.answer.stream",
-                new SearchService.AnswerOptions(request.documentIds(), request.knowledgeSourceIds(), request.ideologyProfileId())
+                request.documentIds(),
+                request.knowledgeSourceIds(),
+                request.ideologyProfileId(),
+                "rag.answer.stream"
         );
+        SearchService.PreparedAnswer prepared = streamPlan.preparedAnswer();
+        String messageId = "msg-" + UUID.randomUUID();
         if (!"OK".equals(prepared.status())) {
             SseEmitter emitter = new SseEmitter(0L);
             try {
-                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(new StreamDeltaPayload(prepared.fallbackAnswer()))));
-                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
-                        new StreamDonePayload(
-                                true,
-                                prepared.status(),
-                                prepared.fallbackAnswer(),
-                                null,
-                                null,
-                                prepared.sources(),
-                                prepared.pipeline()
-                        )
-                )));
+                auditService.append(actor.id(), "assistant.stream.started", "rag", prepared.ragId(), "messageId=" + messageId);
+                sendStartEvent(emitter, messageId);
+                if (prepared.fallbackAnswer() != null && !prepared.fallbackAnswer().isBlank()) {
+                    sendTokenEvent(emitter, prepared.fallbackAnswer());
+                }
+                sendDiagnosticEvent(emitter, prepared.status(), streamPlan.contextDiagnosticCode(), prepared.fallbackAnswer());
+                sendDoneEvent(
+                        emitter,
+                        prepared.status(),
+                        prepared.fallbackAnswer(),
+                        null,
+                        null,
+                        prepared.sources(),
+                        prepared.pipeline(),
+                        streamPlan.contextStatus(),
+                        streamPlan.contextDiagnosticCode(),
+                        streamPlan.contextDocuments()
+                );
+                auditService.append(
+                        actor.id(),
+                        "assistant.stream.completed",
+                        "rag",
+                        prepared.ragId(),
+                        "status=" + prepared.status() + ", messageId=" + messageId
+                );
                 auditService.append(
                         actor.id(),
                         "rag.answer.stream.response",
@@ -124,13 +155,13 @@ public class SearchController {
                         request.threadId(),
                         question,
                         prepared.fallbackAnswer(),
-                        request.documentIds(),
+                        streamPlan.effectiveDocumentIds(),
                         request.knowledgeSourceIds(),
                         request.ideologyProfileId()
                 );
                 emitter.complete();
             } catch (Exception e) {
-                emitter.completeWithError(e);
+                completeStreamWithError(emitter, messageId, prepared.ragId(), actor.id(), e);
             }
             return emitter;
         }
@@ -142,6 +173,7 @@ public class SearchController {
             String model = null;
             String finalStatus = "OK";
             boolean messagesPersisted = false;
+            boolean doneEventSent = false;
             long llmStartedAtMs = System.currentTimeMillis();
             AtomicBoolean streamClosed = new AtomicBoolean(false);
             AtomicReference<ScheduledFuture<?>> heartbeatTaskRef = new AtomicReference<>();
@@ -167,79 +199,176 @@ public class SearchController {
                 }
             }, Duration.ofMillis(Math.max(ragHeartbeatIntervalMs, 1_000L)));
             heartbeatTaskRef.set(heartbeatTask);
-            try (InputStream stream = llmChatPort.chatStream(new LlmChatPort.ChatRequest(
-                    question,
-                    prepared.contextChunks(),
-                    prepared.systemPrompt(),
-                    null,
-                    searchService.resolveMaxTokens(),
-                    null
-            ))) {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-                    String line;
-                    while (!streamClosed.get() && (line = reader.readLine()) != null) {
-                        if (!line.startsWith("data:")) {
-                            continue;
-                        }
-                        String json = line.substring("data:".length()).trim();
-                        if (json.isEmpty()) {
-                            continue;
-                        }
-                        try {
-                            RagStreamEventParser.ParsedEvent parsed = ragStreamEventParser.parse(json);
-                            if (parsed.delta() != null) {
-                                fullAnswer.append(parsed.delta());
-                            }
-                            if (parsed.done()) {
-                                provider = parsed.provider();
-                                model = parsed.model();
-                                long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
-                                SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
-                                auditService.append(
-                                        actor.id(),
-                                        "rag.answer.stream.llm",
-                                        "rag",
-                                        prepared.ragId(),
-                                        "provider=" + provider + ", model=" + model + ", latencyMs=" + llmLatencyMs
-                                );
-                                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
-                                        new StreamDonePayload(
-                                                true,
+            try {
+                auditService.append(actor.id(), "assistant.stream.started", "rag", prepared.ragId(), "messageId=" + messageId);
+                sendStartEvent(emitter, messageId);
+
+                if (searchService.llmToolLoopEnabled()) {
+                    LlmChatPort.ChatResponse llm = searchService.resolveLlmResponse(actor, prepared);
+                    fullAnswer.append(llm.answer());
+                    provider = llm.provider();
+                    model = llm.model();
+                    long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
+                    SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
+                    auditService.append(
+                            actor.id(),
+                            "rag.answer.stream.llm",
+                            "rag",
+                            prepared.ragId(),
+                            "provider=" + provider + ", model=" + model + ", latencyMs=" + llmLatencyMs + ", toolLoop=true"
+                    );
+                    sendTokenEvent(emitter, llm.answer());
+                    sendDoneEvent(
+                            emitter,
+                            "OK",
+                            fullAnswer.toString(),
+                            provider,
+                            model,
+                            prepared.sources(),
+                            pipeline,
+                            streamPlan.contextStatus(),
+                            streamPlan.contextDiagnosticCode(),
+                            streamPlan.contextDocuments()
+                    );
+                    doneEventSent = true;
+                    assistantService.appendStreamMessages(
+                            actor,
+                            request.threadId(),
+                            question,
+                            fullAnswer.toString(),
+                            streamPlan.effectiveDocumentIds(),
+                            request.knowledgeSourceIds(),
+                            request.ideologyProfileId()
+                    );
+                    messagesPersisted = true;
+                } else {
+                    try (InputStream stream = llmChatPort.chatStream(new LlmChatPort.ChatRequest(
+                            question,
+                            prepared.contextChunks(),
+                            prepared.systemPrompt(),
+                            null,
+                            searchService.resolveMaxTokens(),
+                            null
+                    ))) {
+                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                            String line;
+                            while (!streamClosed.get() && (line = reader.readLine()) != null) {
+                                if (!line.startsWith("data:")) {
+                                    continue;
+                                }
+                                String json = line.substring("data:".length()).trim();
+                                if (json.isEmpty()) {
+                                    continue;
+                                }
+                                try {
+                                    RagStreamEventParser.ParsedEvent parsed = ragStreamEventParser.parse(json);
+                                    if (parsed.error() != null) {
+                                        sendErrorEvent(emitter, "LLM_STREAM_FAILED", parsed.error());
+                                        finalStatus = "ERROR";
+                                        break;
+                                    }
+                                    if (parsed.delta() != null) {
+                                        fullAnswer.append(parsed.delta());
+                                        sendTokenEvent(emitter, parsed.delta());
+                                    }
+                                    if (parsed.done()) {
+                                        provider = parsed.provider();
+                                        model = parsed.model();
+                                        long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
+                                        SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
+                                        auditService.append(
+                                                actor.id(),
+                                                "rag.answer.stream.llm",
+                                                "rag",
+                                                prepared.ragId(),
+                                                "provider=" + provider + ", model=" + model + ", latencyMs=" + llmLatencyMs
+                                        );
+                                        sendDoneEvent(
+                                                emitter,
                                                 "OK",
                                                 fullAnswer.toString(),
                                                 provider,
                                                 model,
                                                 prepared.sources(),
-                                                pipeline
-                                        )
-                                )));
-                                if (!messagesPersisted) {
-                                    assistantService.appendStreamMessages(
-                                            actor,
-                                            request.threadId(),
-                                            question,
-                                            fullAnswer.toString(),
-                                            request.documentIds(),
-                                            request.knowledgeSourceIds(),
-                                            request.ideologyProfileId()
-                                    );
-                                    messagesPersisted = true;
+                                                pipeline,
+                                                streamPlan.contextStatus(),
+                                                streamPlan.contextDiagnosticCode(),
+                                                streamPlan.contextDocuments()
+                                        );
+                                        doneEventSent = true;
+                                        if (!messagesPersisted && !fullAnswer.isEmpty()) {
+                                            assistantService.appendStreamMessages(
+                                                    actor,
+                                                    request.threadId(),
+                                                    question,
+                                                    fullAnswer.toString(),
+                                                    streamPlan.effectiveDocumentIds(),
+                                                    request.knowledgeSourceIds(),
+                                                    request.ideologyProfileId()
+                                            );
+                                            messagesPersisted = true;
+                                        }
+                                    }
+                                } catch (Exception ignored) {
+                                    // Streaming must be best-effort; malformed JSON should not break the connection.
                                 }
-                                continue;
                             }
-                        } catch (Exception ignored) {
-                            // Streaming must be best-effort; malformed JSON should not break the connection.
                         }
-                        emitter.send(SseEmitter.event().data(json));
                     }
                 }
+
+                if (!doneEventSent && !streamClosed.get()) {
+                    long llmLatencyMs = System.currentTimeMillis() - llmStartedAtMs;
+                    SearchDtos.AnswerPipelineMeta pipeline = withLlmLatency(prepared.pipeline(), llmLatencyMs);
+                    String answer = fullAnswer.toString();
+                    sendDoneEvent(
+                            emitter,
+                            answer.isBlank() ? "NO_CONTEXT" : "OK",
+                            answer,
+                            provider,
+                            model,
+                            prepared.sources(),
+                            pipeline,
+                            streamPlan.contextStatus(),
+                            streamPlan.contextDiagnosticCode(),
+                            streamPlan.contextDocuments()
+                    );
+                    doneEventSent = true;
+                    if (!messagesPersisted && !answer.isBlank()) {
+                        assistantService.appendStreamMessages(
+                                actor,
+                                request.threadId(),
+                                question,
+                                answer,
+                                streamPlan.effectiveDocumentIds(),
+                                request.knowledgeSourceIds(),
+                                request.ideologyProfileId()
+                        );
+                        messagesPersisted = true;
+                    }
+                }
+
                 if (!streamClosed.get()) {
                     emitter.complete();
                 }
+                auditService.append(
+                        actor.id(),
+                        "assistant.stream.completed",
+                        "rag",
+                        prepared.ragId(),
+                        "status=" + finalStatus + ", messageId=" + messageId + ", answerChars=" + fullAnswer.length()
+                );
             } catch (Exception e) {
                 finalStatus = "ERROR";
+                auditService.append(
+                        actor.id(),
+                        "assistant.stream.failed",
+                        "rag",
+                        prepared.ragId(),
+                        "messageId=" + messageId + ", error=" + e.getMessage()
+                );
                 if (!streamClosed.get()) {
-                    emitter.completeWithError(e);
+                    completeStreamWithError(emitter, messageId, prepared.ragId(), actor.id(), e);
                 }
             } finally {
                 closeStream.run();
@@ -255,6 +384,74 @@ public class SearchController {
         return emitter;
     }
 
+    private void sendStartEvent(SseEmitter emitter, String messageId) throws java.io.IOException {
+        emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(new StreamStartPayload(messageId))));
+    }
+
+    private void sendTokenEvent(SseEmitter emitter, String delta) throws java.io.IOException {
+        emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(new StreamTokenPayload(delta))));
+    }
+
+    private void sendDiagnosticEvent(
+            SseEmitter emitter,
+            String status,
+            String diagnosticCode,
+            String message
+    ) throws java.io.IOException {
+        emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
+                new StreamDiagnosticPayload(status, diagnosticCode, message)
+        )));
+    }
+
+    private void sendErrorEvent(SseEmitter emitter, String diagnosticCode, String message) throws java.io.IOException {
+        emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
+                new StreamErrorPayload(diagnosticCode, message)
+        )));
+    }
+
+    private void sendDoneEvent(
+            SseEmitter emitter,
+            String status,
+            String answer,
+            String provider,
+            String model,
+            List<SearchDtos.RagSourceView> sources,
+            SearchDtos.AnswerPipelineMeta pipeline,
+            String contextStatus,
+            String contextDiagnosticCode,
+            List<AssistantDtos.AssistantDocumentStatusView> contextDocuments
+    ) throws java.io.IOException {
+        emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
+                new StreamDonePayload(
+                        true,
+                        status,
+                        answer,
+                        provider,
+                        model,
+                        sources,
+                        pipeline,
+                        contextStatus,
+                        contextDiagnosticCode,
+                        contextDocuments
+                )
+        )));
+    }
+
+    private void completeStreamWithError(SseEmitter emitter, String messageId, String ragId, String actorId, Exception error) {
+        try {
+            sendErrorEvent(emitter, "LLM_STREAM_FAILED", error.getMessage() == null ? "Stream failed" : error.getMessage());
+            sendDoneEvent(emitter, "ERROR", "", null, null, List.of(), emptyPipeline(), "ERROR", "LLM_STREAM_FAILED", List.of());
+            auditService.append(actorId, "assistant.stream.failed", "rag", ragId, "messageId=" + messageId + ", error=" + error.getMessage());
+            emitter.complete();
+        } catch (Exception ignored) {
+            emitter.completeWithError(error);
+        }
+    }
+
+    private SearchDtos.AnswerPipelineMeta emptyPipeline() {
+        return new SearchDtos.AnswerPipelineMeta(0, 0, 0, 0, 0, 0, 0, 0, false, 0L, 0L, 0L, 0L);
+    }
+
     public record SearchRequest(@NotBlank String query) {
     }
 
@@ -267,18 +464,57 @@ public class SearchController {
     ) {
     }
 
-    private record StreamDeltaPayload(String delta) {
+    private record StreamStartPayload(String type, String messageId) {
+        private StreamStartPayload(String messageId) {
+            this("start", messageId);
+        }
+    }
+
+    private record StreamTokenPayload(String type, String delta) {
+        private StreamTokenPayload(String delta) {
+            this("token", delta);
+        }
+    }
+
+    private record StreamDiagnosticPayload(String type, String status, String diagnosticCode, String message) {
+        private StreamDiagnosticPayload(String status, String diagnosticCode, String message) {
+            this("diagnostic", status, diagnosticCode, message);
+        }
+    }
+
+    private record StreamErrorPayload(String type, String status, String diagnosticCode, String message) {
+        private StreamErrorPayload(String diagnosticCode, String message) {
+            this("error", "ERROR", diagnosticCode, message);
+        }
     }
 
     private record StreamDonePayload(
+            String type,
             boolean done,
             String status,
             String answer,
             String provider,
             String model,
             List<SearchDtos.RagSourceView> sources,
-            SearchDtos.AnswerPipelineMeta pipeline
+            SearchDtos.AnswerPipelineMeta pipeline,
+            String contextStatus,
+            String contextDiagnosticCode,
+            List<AssistantDtos.AssistantDocumentStatusView> contextDocuments
     ) {
+        private StreamDonePayload(
+                boolean done,
+                String status,
+                String answer,
+                String provider,
+                String model,
+                List<SearchDtos.RagSourceView> sources,
+                SearchDtos.AnswerPipelineMeta pipeline,
+                String contextStatus,
+                String contextDiagnosticCode,
+                List<AssistantDtos.AssistantDocumentStatusView> contextDocuments
+        ) {
+            this("done", done, status, answer, provider, model, sources, pipeline, contextStatus, contextDiagnosticCode, contextDocuments);
+        }
     }
 
     private SearchDtos.AnswerPipelineMeta withLlmLatency(SearchDtos.AnswerPipelineMeta base, long llmLatencyMs) {

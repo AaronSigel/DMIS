@@ -53,7 +53,12 @@ public class AiServiceHttpAdapter implements LlmChatPort {
                 HttpRetryHelper::retryOnServerErrorOrTransient
         );
 
-        if (response == null || response.answer() == null || response.answer().isBlank()) {
+        if (response == null) {
+            throw new IllegalStateException("AI service returned empty response");
+        }
+        boolean hasAnswer = response.answer() != null && !response.answer().isBlank();
+        boolean hasToolCalls = response.toolCalls() != null && !response.toolCalls().isEmpty();
+        if (!hasAnswer && !hasToolCalls) {
             throw new IllegalStateException("AI service returned empty response");
         }
         return response;

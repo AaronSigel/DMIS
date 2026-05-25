@@ -3,11 +3,18 @@ import userEvent from "@testing-library/user-event";
 import { BrowserRouter, MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { documentStatusLabel } from "./features/assistant/AiPanel";
+import { useUiStore } from "./shared/store/uiStore";
 
 describe("auth smoke", () => {
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
+    useUiStore.setState({
+      desktopAiOpen: false,
+      assistantQuery: "",
+      pendingLinkedDocumentIds: [],
+    });
   });
 
   it("signs in and opens document card", async () => {
@@ -55,15 +62,16 @@ describe("auth smoke", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("button", { name: /создать встречу/i }));
+    await userEvent.click(screen.getByTitle("Создать встречу по этому документу"));
     await userEvent.type(
       screen.getByPlaceholderText(/адреса почты или @имена через запятую/i),
       "@analyst",
     );
-    await userEvent.click(screen.getByRole("button", { name: /^создать черновик$/i }));
+    const submitMeetingButtons = screen.getAllByRole("button", { name: /^создать встречу$/i });
+    await userEvent.click(submitMeetingButtons[submitMeetingButtons.length - 1]!);
 
-    await waitFor(() => expect(screen.getByText(/черновик встречи создан/i)).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: /открыть ассистента/i }));
+    await waitFor(() => expect(screen.getByText(/встреча создана/i)).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
 
     await waitFor(() =>
       expect(screen.getByText("Краткий ответ ИИ для подготовки письма.")).toBeInTheDocument(),
@@ -108,7 +116,7 @@ describe("auth smoke", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("button", { name: /открыть ассистента/i }));
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
 
     let assistantAside: HTMLElement | undefined;
     await waitFor(() => {
@@ -344,5 +352,45 @@ describe("doc table url filters", () => {
       const params = new URLSearchParams(window.location.search);
       expect(params.get("archive")).toBeNull();
     });
+  });
+});
+
+describe("assistant document context", () => {
+  it("maps backend document statuses to UI labels", () => {
+    expect(
+      documentStatusLabel({
+        documentId: "doc-1",
+        title: "Policy Doc",
+        fileName: "policy.txt",
+        status: "PENDING",
+        indexedChunkCount: 0,
+        extractedTextLength: 120,
+        indexedAt: null,
+      }),
+    ).toBe("Индексируется");
+
+    expect(
+      documentStatusLabel({
+        documentId: "doc-1",
+        title: "Policy Doc",
+        fileName: "policy.txt",
+        status: "INDEXED",
+        indexedChunkCount: 2,
+        extractedTextLength: 120,
+        indexedAt: "2026-01-01T00:00:00Z",
+      }),
+    ).toBe("Готов");
+
+    expect(
+      documentStatusLabel({
+        documentId: "doc-1",
+        title: "Policy Doc",
+        fileName: "policy.txt",
+        status: "FAILED",
+        indexedChunkCount: 0,
+        extractedTextLength: 120,
+        indexedAt: null,
+      }),
+    ).toBe("Ошибка индексации");
   });
 });

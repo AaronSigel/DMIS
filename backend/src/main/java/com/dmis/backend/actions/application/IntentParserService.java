@@ -74,7 +74,7 @@ public class IntentParserService {
                 );
                 case ActionDtos.CREATE_CALENDAR_EVENT_INTENT -> new ActionDtos.CreateCalendarEventEntities(
                         requiredString(entities, "title"),
-                        requiredStringList(entities, "attendees").stream()
+                        optionalStringList(entities, "attendees").stream()
                                 .map(userMentionResolver::resolve)
                                 .toList(),
                         requiredString(entities, "startIso"),
@@ -241,6 +241,23 @@ public class IntentParserService {
      * Опциональный массив ID документов для вложений; отсутствие ключа или {@code null} — пустой список.
      */
     private static List<String> optionalDocumentIdList(Map<String, Object> source, String key) {
+        Object value = source.get(key);
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List<?> list)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Entity field must be array: " + key);
+        }
+        List<String> normalized = list.stream()
+                .map(item -> item == null ? "" : String.valueOf(item).trim())
+                .toList();
+        if (normalized.stream().anyMatch(String::isBlank)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Entity array must contain non-blank values: " + key);
+        }
+        return normalized;
+    }
+
+    private static List<String> optionalStringList(Map<String, Object> source, String key) {
         Object value = source.get(key);
         if (value == null) {
             return List.of();

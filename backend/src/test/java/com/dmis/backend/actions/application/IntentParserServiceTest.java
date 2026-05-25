@@ -195,6 +195,25 @@ class IntentParserServiceTest {
     }
 
     @Test
+    void parseDraftAllowsEmptyCalendarAttendees() {
+        when(intentParserPort.parse("create meeting"))
+                .thenReturn(new IntentParserPort.ParsedIntent(
+                        "create_calendar_event",
+                        Map.of(
+                                "title", "Standup",
+                                "attendees", List.of(),
+                                "startIso", "2026-05-10T09:00:00Z",
+                                "endIso", "2026-05-10T09:30:00Z"
+                        )
+                ));
+
+        IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("create meeting");
+
+        var entities = (com.dmis.backend.actions.application.dto.ActionDtos.CreateCalendarEventEntities) parsed.entities();
+        assertEquals(List.of(), entities.attendees());
+    }
+
+    @Test
     void parseDraftRejectsUnknownUserMention() {
         when(intentParserPort.parse("send to unknown"))
                 .thenReturn(new IntentParserPort.ParsedIntent(

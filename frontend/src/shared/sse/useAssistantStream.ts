@@ -50,7 +50,9 @@ export function useAssistantStream(options: UseAssistantStreamOptions) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [streamSources, setStreamSources] = useState<Citation[]>([]);
+  const [streamContextDiagnostic, setStreamContextDiagnostic] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [streamPipeline, setStreamPipeline] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const stopStream = useCallback(() => {
@@ -62,7 +64,9 @@ export function useAssistantStream(options: UseAssistantStreamOptions) {
   const resetStream = useCallback(() => {
     setStreamText("");
     setStreamSources([]);
+    setStreamContextDiagnostic(null);
     setStreamError(null);
+    setStreamPipeline(null);
   }, []);
 
   /**
@@ -79,7 +83,9 @@ export function useAssistantStream(options: UseAssistantStreamOptions) {
       stopStream();
       setStreamText("");
       setStreamSources([]);
+      setStreamContextDiagnostic(null);
       setStreamError(null);
+      setStreamPipeline(null);
       setIsStreaming(true);
 
       const controller = new AbortController();
@@ -94,7 +100,26 @@ export function useAssistantStream(options: UseAssistantStreamOptions) {
               setStreamText((prev) => prev + delta);
             },
             onDone: async (event: AssistantStreamDoneEvent) => {
+              if (event.type === "error" || event.status === "ERROR") {
+                setStreamError(event.message ?? event.diagnosticCode ?? "Ошибка потокового ответа");
+              }
               setStreamSources(parseSources(event.sources));
+              const diagnosticCode =
+                event.contextDiagnosticCode ?? event.contextStatus ?? event.status;
+              if (diagnosticCode && diagnosticCode !== "OK") {
+                setStreamContextDiagnostic(diagnosticCode);
+              } else {
+                setStreamContextDiagnostic(null);
+              }
+              if (event.pipeline != null) {
+                setStreamPipeline(
+                  typeof event.pipeline === "string"
+                    ? event.pipeline
+                    : JSON.stringify(event.pipeline),
+                );
+              } else {
+                setStreamPipeline(null);
+              }
               await onDone?.();
             },
             onError: (error) => {
@@ -121,16 +146,32 @@ export function useAssistantStream(options: UseAssistantStreamOptions) {
     [options.onTokenRefresh, options.onUnauthorized, stopStream],
   );
 
+  const showStaticResponse = useCallback(
+    (answer: string, diagnosticCode?: string | null) => {
+      stopStream();
+      resetStream();
+      setStreamText(answer);
+      if (diagnosticCode && diagnosticCode !== "OK") {
+        setStreamContextDiagnostic(diagnosticCode);
+      }
+      setIsStreaming(false);
+    },
+    [resetStream, stopStream],
+  );
+
   useEffect(() => () => stopStream(), [stopStream]);
 
   return {
     isStreaming,
     streamText,
     streamSources,
+    streamContextDiagnostic,
     streamError,
+    streamPipeline,
     startStream,
     stopStream,
     resetStream,
     clearStreamText,
+    showStaticResponse,
   };
 }

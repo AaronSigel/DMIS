@@ -11,7 +11,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   apiBaseUrl,
-  apiCreateActionDraft,
+  apiCreateCalendarEvent,
   apiDeleteDocument,
   apiUpdateDocument,
   fetchWithAuth,
@@ -241,6 +241,7 @@ export function DocumentCardPage({
   const [meetingStart, setMeetingStart] = useState("");
   const [meetingEnd, setMeetingEnd] = useState("");
   const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
+  const addPendingLinkedDocuments = useUiStore((state) => state.addPendingLinkedDocuments);
   const toast = useToast();
   const searchMarkerRef = useRef<HTMLElement>(null);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -334,12 +335,16 @@ export function DocumentCardPage({
     },
   });
 
-  const createActionDraftMutation = useMutation({
-    mutationFn: async (payload: { intent: string; entities: Record<string, unknown> }) =>
-      apiCreateActionDraft(payload, onSessionExpired, onTokenRefresh),
+  const createCalendarEventMutation = useMutation({
+    mutationFn: async (payload: {
+      title: string;
+      attendees: string[];
+      startIso: string;
+      endIso: string;
+    }) => apiCreateCalendarEvent(payload, onSessionExpired, onTokenRefresh),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["assistant-actions"] });
-      toast.success("Черновик встречи создан.");
+      await queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      toast.success("Встреча создана.");
     },
   });
 
@@ -413,6 +418,7 @@ export function DocumentCardPage({
 
   function askInAi() {
     if (!doc) return;
+    addPendingLinkedDocuments([doc.id]);
     const base = (doc.fileName || doc.title || "").trim();
     const tokenHead = base.split(".")[0] ?? "";
     const token = tokenHead.trim().replace(/\s+/g, "_").slice(0, 32);
@@ -446,22 +452,16 @@ export function DocumentCardPage({
       return;
     }
     try {
-      await createActionDraftMutation.mutateAsync({
-        intent: "create_calendar_event",
-        entities: {
-          type: "create_calendar_event",
-          title: meetingTitle.trim(),
-          attendees,
-          startIso,
-          endIso,
-        },
+      await createCalendarEventMutation.mutateAsync({
+        title: meetingTitle.trim(),
+        attendees,
+        startIso,
+        endIso,
       });
       setMeetingDraftOpen(false);
     } catch (e) {
       toast.error(
-        e instanceof Error
-          ? mapApiErrorToMessage(e.message)
-          : "Не удалось создать черновик встречи",
+        e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось создать встречу",
       );
     }
   }
@@ -493,7 +493,7 @@ export function DocumentCardPage({
               type="button"
               onClick={openMeetingDraftForm}
               className="rounded-md border border-border bg-white px-3 py-1 text-xs text-text"
-              title="Создать черновик встречи по этому документу"
+              title="Создать встречу по этому документу"
             >
               Создать встречу
             </button>
@@ -511,7 +511,9 @@ export function DocumentCardPage({
             >
               Удалить
             </button>
-            <StatusBadge status={doc.status} />
+            <span data-testid="document-index-status">
+              <StatusBadge status={doc.status} />
+            </span>
           </>
         }
       />
@@ -522,9 +524,7 @@ export function DocumentCardPage({
             <div className="mb-2 flex items-center justify-between gap-2">
               <div>
                 <p className="m-0 text-sm font-semibold text-text">Создать встречу из документа</p>
-                <p className="m-0 text-[12px] text-muted">
-                  Черновик пройдет стандартный поток подтверждения и выполнения.
-                </p>
+                <p className="m-0 text-[12px] text-muted">Встреча будет создана в календаре.</p>
               </div>
               <button
                 type="button"
@@ -575,10 +575,10 @@ export function DocumentCardPage({
               <button
                 type="button"
                 onClick={() => void createMeetingDraftFromDocument()}
-                disabled={createActionDraftMutation.isPending}
+                disabled={createCalendarEventMutation.isPending}
                 className="rounded-md border-0 bg-primary px-3 py-1.5 text-xs text-white disabled:opacity-50"
               >
-                Создать черновик
+                Создать встречу
               </button>
             </div>
           </div>
@@ -616,6 +616,7 @@ export function DocumentCardPage({
             label={`Извлеченный текст (${doc.extractedTextLength} символов${doc.extractedTextTruncated ? ", усечено" : ""})`}
           >
             <pre
+              data-testid="document-extracted-text-preview"
               className={`m-0 overflow-auto whitespace-pre-wrap break-words rounded-lg p-2.5 text-xs ${
                 fullText ? "max-h-[360px] bg-success-soft" : "max-h-[180px] bg-surface-muted"
               }`}

@@ -4,21 +4,25 @@ import DOMPurify from "dompurify";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import {
-  AssistantActionParseError,
   apiBaseUrl,
   apiCreateAssistantThread,
   apiDeleteAssistantThread,
   apiGetDocumentTitle,
+  apiGetAssistantDocumentStatuses,
   apiGetAssistantThreadDetail,
   apiLinkAssistantThreadDocument,
   apiListAssistantThreads,
   apiMentionDocuments,
-  apiParseAssistantAction,
+  apiSubmitAssistantRequest,
+  apiUnlinkAssistantThreadDocument,
   apiUploadAssistantThreadAttachment,
   fetchWithAuth,
   parseAuthenticatedJson,
+  type AssistantStreamPayload,
 } from "../../apiClient";
+import type { AssistantDocumentStatusView } from "../../shared/api/schemas/assistant";
 import { ActionCard } from "../actions/ActionCard";
+import { CitationChip } from "./CitationChip";
 import type { ActionView } from "../../shared/api/schemas/action";
 import { queryKeys } from "../../shared/api/queryClient";
 import { useAssistantStream } from "../../shared/sse/useAssistantStream";
@@ -27,6 +31,36 @@ import { useToast } from "../../shared/ui/ToastProvider";
 import { smallBtnClass } from "../../shared/ui/smallBtnClass";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
 import { localizeProfile } from "../../shared/lib/localizeDomain";
+
+const STATUS_POLL_INTERVAL_MS = 1500;
+const STATUS_POLL_MAX_MS = 60_000;
+
+export function documentStatusLabel(status: AssistantDocumentStatusView | undefined): string {
+  if (!status) return "Документ не привязан";
+  if (status.extractedTextLength === 0) return "Текст не извлечён";
+  if (status.status === "PENDING") return "Индексируется";
+  if (status.status === "FAILED") return "Ошибка индексации";
+  if (status.status === "INDEXED" && status.indexedChunkCount > 0) return "Готов";
+  return status.status;
+}
+
+function contextDiagnosticMessage(code: string | null | undefined): string | null {
+  if (!code || code === "OK") return null;
+  switch (code) {
+    case "INDEX_PENDING":
+      return "Документ ещё индексируется. Summary будет доступно после завершения обработки.";
+    case "INDEX_FAILED":
+      return "Документ не был проиндексирован.";
+    case "NO_DOCUMENT_SELECTED":
+      return "Выберите документ или дождитесь привязки загруженного файла.";
+    case "TEXT_NOT_EXTRACTED":
+      return "Текст документа не извлечён.";
+    case "NO_CHUNKS":
+      return "Файл пустой или не содержит значимого текста для обработки.";
+    default:
+      return code;
+  }
+}
 
 type AiPanelProps = {
   token: string;
@@ -83,10 +117,14 @@ export function AiPanel({
   type MentionDoc = { id: string; title: string };
   const assistantQuery = useUiStore((state) => state.assistantQuery);
   const setAssistantQuery = useUiStore((state) => state.setAssistantQuery);
+  const consumePendingLinkedDocuments = useUiStore((state) => state.consumePendingLinkedDocuments);
   const [inputValue, setInputValue] = useState(assistantQuery);
   const queryClient = useQueryClient();
   const [activeThreadId, setActiveThreadId] = useState("");
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
+  const [documentStatuses, setDocumentStatuses] = useState<
+    Record<string, AssistantDocumentStatusView>
+  >({});
   const [mentionCandidates, setMentionCandidates] = useState<MentionDoc[]>([]);
   const [mentionTerm, setMentionTerm] = useState("");
   const [documentTitles, setDocumentTitles] = useState<Record<string, string>>({});
@@ -165,6 +203,65 @@ export function AiPanel({
         : ["documents"],
     );
   }, [threadDetailQuery.data]);
+
+  useEffect(() => {
+    const pending = consumePendingLinkedDocuments();
+    if (pending.length) {
+      setSelectedDocumentIds((prev) => [...new Set([...prev, ...pending])]);
+    }
+  }, [consumePendingLinkedDocuments]);
+
+  useEffect(() => {
+    if (!selectedDocumentIds.length || !token) return;
+
+    let cancelled = false;
+    let elapsedMs = 0;
+
+    const refreshStatuses = async (): Promise<AssistantDocumentStatusView[]> => {
+      try {
+        const statuses = await apiGetAssistantDocumentStatuses(
+          selectedDocumentIds,
+          onSessionExpired,
+          onTokenRefresh,
+        );
+        if (cancelled) return statuses;
+        setDocumentStatuses((prev) => {
+          const next = { ...prev };
+          for (const status of statuses) {
+            next[status.documentId] = status;
+          }
+          return next;
+        });
+        return statuses;
+      } catch {
+        return [];
+      }
+    };
+
+    void refreshStatuses();
+    const timer = window.setInterval(() => {
+      elapsedMs += STATUS_POLL_INTERVAL_MS;
+      void refreshStatuses().then((statuses) => {
+        if (cancelled) return;
+        if (elapsedMs >= STATUS_POLL_MAX_MS) {
+          window.clearInterval(timer);
+          return;
+        }
+        const allTerminal = selectedDocumentIds.every((id) => {
+          const status = statuses.find((item) => item.documentId === id);
+          return status?.status === "INDEXED" || status?.status === "FAILED";
+        });
+        if (allTerminal) {
+          window.clearInterval(timer);
+        }
+      });
+    }, STATUS_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [onSessionExpired, onTokenRefresh, selectedDocumentIds, token]);
 
   useEffect(() => {
     void hydrateDocumentTitles(selectedDocumentIds).catch(() => {});
@@ -256,11 +353,28 @@ export function AiPanel({
     },
   });
 
-  const uploadAttachmentMutation = useMutation({
-    mutationFn: async ({ threadId, file }: { threadId: string; file: File }) => {
-      await apiUploadAssistantThreadAttachment(threadId, file, onSessionExpired, onTokenRefresh);
+  const unlinkDocumentMutation = useMutation({
+    mutationFn: async ({ threadId, documentId }: { threadId: string; documentId: string }) => {
+      await apiUnlinkAssistantThreadDocument(
+        threadId,
+        documentId,
+        onSessionExpired,
+        onTokenRefresh,
+      );
     },
     onSuccess: async (_data, vars) => {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.assistant.threadDetail(vars.threadId),
+      });
+    },
+  });
+
+  const uploadAttachmentMutation = useMutation({
+    mutationFn: async ({ threadId, file }: { threadId: string; file: File }) =>
+      apiUploadAssistantThreadAttachment(threadId, file, onSessionExpired, onTokenRefresh),
+    onSuccess: async (uploaded, vars) => {
+      setSelectedDocumentIds((prev) => [...new Set([...prev, uploaded.id])]);
+      setDocumentTitles((prev) => ({ ...prev, [uploaded.id]: uploaded.title }));
       await queryClient.invalidateQueries({
         queryKey: queryKeys.assistant.threadDetail(vars.threadId),
       });
@@ -356,18 +470,23 @@ export function AiPanel({
     return createThread();
   }
 
-  async function sendRag(question: string, existingThreadId?: string) {
-    if (!question.trim() || !token) return;
+  async function sendRag(
+    question: string,
+    existingThreadId?: string,
+    payloadOverride?: AssistantStreamPayload,
+  ) {
+    if (!question.trim() && !payloadOverride) return;
     try {
-      const threadId = existingThreadId ?? (await ensureThreadId());
+      const threadId = existingThreadId ?? payloadOverride?.threadId ?? (await ensureThreadId());
+      const payload: AssistantStreamPayload = payloadOverride ?? {
+        question,
+        threadId,
+        documentIds: selectedDocumentIds,
+        knowledgeSourceIds,
+        ideologyProfileId,
+      };
       await assistantStream.startStream({
-        payload: {
-          question,
-          threadId,
-          documentIds: selectedDocumentIds,
-          knowledgeSourceIds,
-          ideologyProfileId,
-        },
+        payload,
         onDone: async () => {
           await queryClient.invalidateQueries({
             queryKey: queryKeys.assistant.threadDetail(threadId),
@@ -407,14 +526,18 @@ export function AiPanel({
   async function sendAssistantInput(question: string) {
     if (!question.trim() || !token) return;
     const threadId = await ensureThreadId();
-    try {
-      const action = await apiParseAssistantAction(
-        question,
-        selectedDocumentIds,
-        onSessionExpired,
-        onTokenRefresh,
-      );
-      appendActionToThread(threadId, action);
+    const result = await apiSubmitAssistantRequest(
+      threadId,
+      question,
+      selectedDocumentIds,
+      knowledgeSourceIds,
+      ideologyProfileId,
+      onSessionExpired,
+      onTokenRefresh,
+    );
+
+    if (result.action) {
+      appendActionToThread(threadId, result.action);
       await queryClient.invalidateQueries({
         queryKey: queryKeys.assistant.threadDetail(threadId),
       });
@@ -425,14 +548,28 @@ export function AiPanel({
       setMentionActiveIndex(-1);
       setMentionTerm("");
       toast.success("Черновик действия создан.");
-    } catch (error) {
-      if (error instanceof AssistantActionParseError) {
-        toast.info("Не удалось распознать действие — ассистент ответит в обычном режиме.");
-        await sendRag(question, threadId);
-        return;
-      }
-      throw error;
+      return;
     }
+
+    if (result.diagnosticCode && result.diagnosticCode !== "OK" && !result.streamPayload) {
+      assistantStream.showStaticResponse(
+        result.message ?? contextDiagnosticMessage(result.diagnosticCode) ?? result.diagnosticCode,
+        result.diagnosticCode,
+      );
+      setInputValue("");
+      setAssistantQuery("");
+      setMentionCandidates([]);
+      setMentionActiveIndex(-1);
+      setMentionTerm("");
+      return;
+    }
+
+    if (result.streamPayload) {
+      await sendRag(question, threadId, result.streamPayload);
+      return;
+    }
+
+    await sendRag(question, threadId);
   }
 
   function handleInputChange(nextValue: string) {
@@ -601,6 +738,7 @@ export function AiPanel({
 
   return (
     <aside
+      data-testid="assistant-panel"
       className="relative flex shrink-0 flex-col border-l border-border bg-surface"
       style={{ width, height }}
     >
@@ -647,6 +785,7 @@ export function AiPanel({
                 return (
                   <div
                     key={m.id}
+                    data-testid={m.role === "ASSISTANT" ? "assistant-answer" : undefined}
                     className="rounded-lg border border-border bg-white px-[10px] py-2"
                   >
                     <p className="mb-1 mt-0 text-[11px] text-muted">
@@ -657,7 +796,11 @@ export function AiPanel({
                 );
               })}
               {(assistantStream.isStreaming || assistantStream.streamText) && (
-                <div className="rounded-lg border border-border bg-white px-[10px] py-2">
+                <div
+                  data-testid="assistant-answer"
+                  data-assistant-streaming={assistantStream.isStreaming ? "true" : "false"}
+                  className="rounded-lg border border-border bg-white px-[10px] py-2"
+                >
                   <p className="mb-1 mt-0 text-[11px] text-muted">Ассистент</p>
                   {renderMessageMarkdown(assistantStream.streamText || "…")}
                 </div>
@@ -675,26 +818,81 @@ export function AiPanel({
               ))}
             </div>
             {selectedDocumentIds.length > 0 && (
-              <div className="mt-2">
-                <p className="mb-1 mt-0 text-[11px] text-muted">
-                  Контекст ответа (выбранные документы)
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedDocumentIds.map((id) => (
-                    <button
-                      key={id}
-                      type="button"
-                      title="Убрать документ из контекста ответа"
-                      aria-label={`Убрать из контекста: ${documentTitles[id] ?? id}`}
-                      className="rounded-md border border-border bg-white px-2 py-[2px] text-[11px] text-text"
-                      onClick={() =>
-                        setSelectedDocumentIds((prev) => prev.filter((docId) => docId !== id))
-                      }
-                    >
-                      {documentTitles[id] ?? id} ×
-                    </button>
-                  ))}
+              <div className="mt-2" data-testid="assistant-linked-documents">
+                <p className="mb-1 mt-0 text-[11px] text-muted">Документы в контексте</p>
+                <div className="grid gap-1.5">
+                  {selectedDocumentIds.map((id) => {
+                    const status = documentStatuses[id];
+                    return (
+                      <div
+                        key={id}
+                        data-testid="assistant-linked-document-item"
+                        className="rounded-md border border-border bg-white px-2 py-1.5 text-[11px] text-text"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate">{documentTitles[id] ?? id}</span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              data-testid="assistant-document-summary-button"
+                              title="Краткое summary файла"
+                              aria-label={`Summary: ${documentTitles[id] ?? id}`}
+                              className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text"
+                              onClick={() => void sendRag("Сделай краткое summary этого файла")}
+                            >
+                              Summary
+                            </button>
+                            <button
+                              type="button"
+                              title="Убрать документ из контекста ответа"
+                              aria-label={`Убрать из контекста: ${documentTitles[id] ?? id}`}
+                              className="shrink-0 border-none bg-transparent text-muted"
+                              onClick={() => {
+                                setSelectedDocumentIds((prev) =>
+                                  prev.filter((docId) => docId !== id),
+                                );
+                                if (activeThreadId) {
+                                  void unlinkDocumentMutation.mutateAsync({
+                                    threadId: activeThreadId,
+                                    documentId: id,
+                                  });
+                                }
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                        <p
+                          data-testid="assistant-document-status"
+                          className="mb-0 mt-0.5 text-[10px] text-muted"
+                        >
+                          Статус: {documentStatusLabel(status)}
+                          {status ? ` · чанков: ${status.indexedChunkCount}` : ""}
+                          {status ? ` · текст: ${status.extractedTextLength} симв.` : ""}
+                          {status?.diagnosticMessage ? ` · ${status.diagnosticMessage}` : ""}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
+            )}
+            {contextDiagnosticMessage(assistantStream.streamContextDiagnostic) && (
+              <p data-testid="assistant-context-status" className="mt-2 text-[12px] text-warning">
+                {contextDiagnosticMessage(assistantStream.streamContextDiagnostic)}
+              </p>
+            )}
+            {assistantStream.streamError && (
+              <p data-testid="assistant-error" className="mt-2 text-[12px] text-danger">
+                {assistantStream.streamError}
+              </p>
+            )}
+            {assistantStream.streamSources.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {assistantStream.streamSources.map((citation) => (
+                  <CitationChip key={`${citation.chunkId}-${citation.index}`} citation={citation} />
+                ))}
               </div>
             )}
           </div>
@@ -726,6 +924,7 @@ export function AiPanel({
         )}
         <div className="flex flex-wrap items-stretch gap-1.5">
           <input
+            data-testid="assistant-message-input"
             value={inputValue}
             onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={(e) => {
@@ -796,6 +995,7 @@ export function AiPanel({
           <input
             ref={uploadRef}
             type="file"
+            data-testid="assistant-upload-input"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -815,6 +1015,7 @@ export function AiPanel({
             Стоп
           </button>
           <button
+            data-testid="assistant-send-button"
             onClick={handleSubmit}
             disabled={!inputValue.trim() || blocksUserSend || !token}
             aria-label="Отправить вопрос ассистенту"
@@ -847,6 +1048,7 @@ export function AiPanel({
             </div>
             <button
               type="button"
+              data-testid="assistant-thread-create-button"
               className="rounded-md border-0 bg-primary px-3 py-1 text-xs text-white"
               onClick={() => void createThread()}
             >

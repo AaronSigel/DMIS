@@ -84,10 +84,13 @@ public final class ActionDtos {
 
     public record CreateCalendarEventEntities(
             @NotBlank String title,
-            @NotEmpty List<@NotBlank @EmailOrUserMention String> attendees,
+            List<@NotBlank @EmailOrUserMention String> attendees,
             @NotBlank String startIso,
             @NotBlank String endIso
     ) implements ActionEntities {
+        public CreateCalendarEventEntities {
+            attendees = attendees == null ? List.of() : List.copyOf(attendees);
+        }
         @AssertTrue(message = "endIso должен быть позже startIso, оба значения должны быть в ISO-8601 формате")
         public boolean hasValidIsoRange() {
             try {

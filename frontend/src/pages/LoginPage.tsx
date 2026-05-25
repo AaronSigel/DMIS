@@ -71,6 +71,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <form onSubmit={submit} className="flex flex-col gap-2.5">
           <input
             type="email"
+            data-testid="login-email-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Электронная почта"
@@ -80,6 +81,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           />
           <input
             type="password"
+            data-testid="login-password-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Пароль"
@@ -90,6 +92,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           {error && <p className="m-0 text-[13px] text-danger">{error}</p>}
           <button
             type="submit"
+            data-testid="login-submit-button"
             disabled={!email || !password || submitting}
             className="mt-1 rounded-lg border-0 bg-primary px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
