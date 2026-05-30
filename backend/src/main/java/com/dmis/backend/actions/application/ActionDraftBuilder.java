@@ -10,9 +10,11 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -81,6 +83,68 @@ public class ActionDraftBuilder {
         );
     }
 
+    public ActionDraftBuildResult tryBuildSendEmail(
+            String userText,
+            List<String> selectedDocumentIds,
+            List<String> linkedDocumentIds
+    ) {
+        String text = userText == null ? "" : userText.trim();
+        if (text.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User text is required");
+        }
+
+        List<String> missing = new ArrayList<>();
+        Map<String, Object> partial = new LinkedHashMap<>();
+        List<String> attachments = mergeDocumentIds(selectedDocumentIds, linkedDocumentIds);
+        if (!attachments.isEmpty()) {
+            partial.put("attachmentDocumentIds", attachments);
+        }
+
+        String recipientMention = extractRecipientMention(text);
+        if (recipientMention == null) {
+            recipientMention = inferRecipientFromText(text);
+        }
+        if (recipientMention == null) {
+            missing.add("to");
+        } else {
+            partial.put("to", userMentionResolver.resolve(recipientMention));
+        }
+
+        java.util.Optional<String> explicitSubject = extractSubject(text);
+        String subject = explicitSubject.orElse(
+                !attachments.isEmpty() || recipientMention != null ? DEFAULT_SUBJECT : null
+        );
+        if (subject == null || subject.isBlank()) {
+            missing.add("subject");
+        } else {
+            partial.put("subject", subject);
+        }
+
+        java.util.Optional<String> explicitBody = extractBody(text);
+        String body = explicitBody.orElse(
+                !attachments.isEmpty() || recipientMention != null ? DEFAULT_BODY : null
+        );
+        if (body == null || body.isBlank()) {
+            missing.add("body");
+        } else {
+            partial.put("body", body);
+        }
+
+        if (!missing.isEmpty()) {
+            return ActionDraftBuildResult.clarification(ActionDtos.SEND_EMAIL_INTENT, partial, missing);
+        }
+
+        return ActionDraftBuildResult.complete(
+                ActionDtos.SEND_EMAIL_INTENT,
+                new ActionDtos.SendEmailEntities(
+                        (String) partial.get("to"),
+                        (String) partial.get("subject"),
+                        (String) partial.get("body"),
+                        attachments
+                )
+        );
+    }
+
     public boolean supportsSendEmail(String userText) {
         String text = userText == null ? "" : userText.toLowerCase(Locale.ROOT);
         return text.contains("письм") || text.contains("email") || text.contains("mail");
@@ -130,6 +194,58 @@ public class ActionDraftBuilder {
         return new ActionDtos.CreateCalendarEventEntities(title, attendees, startIso, endIso);
     }
 
+    public ActionDraftBuildResult tryBuildCreateCalendarEvent(String userText, String organizerEmail) {
+        String text = userText == null ? "" : userText.trim();
+        if (text.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User text is required");
+        }
+        if (organizerEmail == null || organizerEmail.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Organizer email is required");
+        }
+
+        List<String> missing = new ArrayList<>();
+        Map<String, Object> partial = new LinkedHashMap<>();
+
+        String title = extractMeetingTitle(text).orElse(DEFAULT_MEETING_TITLE);
+        title = stripTrailingQuotes(title);
+        partial.put("title", title);
+
+        LocalDate date = extractMeetingDate(text);
+        LocalTime startTime = extractStartTime(text).orElse(DEFAULT_START_TIME);
+        int durationMinutes = extractDurationMinutes(text).orElse(DEFAULT_DURATION_MINUTES);
+
+        if (date == null) {
+            missing.add("startAt");
+        }
+
+        List<String> attendees = extractAttendeeMentions(text).stream()
+                .map(userMentionResolver::resolve)
+                .distinct()
+                .toList();
+        if (attendees.isEmpty()) {
+            attendees = List.of(organizerEmail.trim());
+        }
+        partial.put("participants", attendees);
+
+        if (!missing.isEmpty()) {
+            return ActionDraftBuildResult.clarification(
+                    ActionDtos.CREATE_CALENDAR_EVENT_INTENT,
+                    partial,
+                    missing
+            );
+        }
+
+        LocalDateTime start = LocalDateTime.of(date, startTime);
+        LocalDateTime end = start.plusMinutes(durationMinutes);
+        String startIso = start.toInstant(ZoneOffset.UTC).toString();
+        String endIso = end.toInstant(ZoneOffset.UTC).toString();
+
+        return ActionDraftBuildResult.complete(
+                ActionDtos.CREATE_CALENDAR_EVENT_INTENT,
+                new ActionDtos.CreateCalendarEventEntities(title, attendees, startIso, endIso)
+        );
+    }
+
     private static String extractRecipientMention(String text) {
         Matcher matcher = MENTION_PATTERN.matcher(text);
         if (matcher.find()) {
@@ -156,6 +272,11 @@ public class ActionDraftBuilder {
     }
 
     private static java.util.Optional<String> extractMeetingTitle(String text) {
+        Matcher byPreposition = Pattern.compile("(?iu)(?:встреч(?:у|а|е)?|meeting|event)\\s+по\\s+(.+)$")
+                .matcher(text.trim());
+        if (byPreposition.find()) {
+            return java.util.Optional.of(byPreposition.group(1).trim());
+        }
         Matcher matcher = Pattern.compile("(?iu)тем(?:ой|а|у)?\\s*[-–—:]\\s*(.+)$").matcher(text.trim());
         if (matcher.find()) {
             return java.util.Optional.of(matcher.group(1).trim());

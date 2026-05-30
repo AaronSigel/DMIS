@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiConfirmAction, apiExecuteAction, apiGetDocumentTags } from "../../apiClient";
+import { apiConfirmAction, apiGetDocumentTags, apiGetDocumentTitle } from "../../apiClient";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { StatusBadge } from "../../shared/ui/StatusBadge";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
@@ -24,13 +24,29 @@ type ActionCardProps = {
   entities: ActionCardEntities;
   onSessionExpired?: () => void;
   onTokenRefresh?: (token: string) => void;
+  onStatusChange?: (status: ActionStatus) => void;
 };
+
+function formatIsoDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).format(date);
+}
 
 function renderValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(", ");
   if (value === null || value === undefined) return "—";
   if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
+  const str = String(value);
+  if (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T/.test(str)) return formatIsoDateTime(str);
+  return str;
 }
 
 function fieldTestId(label: string): string | undefined {
@@ -46,7 +62,11 @@ function fieldTestId(label: string): string | undefined {
   }
 }
 
-function renderKnownIntentFields(intent: string, entities: ActionCardEntities) {
+function renderKnownIntentFields(
+  intent: string,
+  entities: ActionCardEntities,
+  documentTitle?: string,
+) {
   if (intent === "send_email") {
     const email = entities as SendEmailEntities & { attachmentDocumentIds?: string[] };
     const fields = [
@@ -74,7 +94,7 @@ function renderKnownIntentFields(intent: string, entities: ActionCardEntities) {
   if (intent === "update_document_tags") {
     const tags = entities as UpdateDocumentTagsEntities;
     return [
-      { label: "Документ", value: tags.documentId },
+      { label: "Документ", value: documentTitle || tags.documentId },
       { label: "Теги", value: tags.tags },
     ];
   }
@@ -120,20 +140,25 @@ export function ActionCard({
   entities,
   onSessionExpired,
   onTokenRefresh,
+  onStatusChange,
 }: ActionCardProps) {
   const toast = useToast();
   const [localStatus, setLocalStatus] = useState(status);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmPending, setConfirmPending] = useState(false);
-  const [executePending, setExecutePending] = useState(false);
   const [actionError, setActionError] = useState("");
   const [currentTags, setCurrentTags] = useState<string[] | null>(null);
   const [tagsLoading, setTagsLoading] = useState(false);
   const [tagsError, setTagsError] = useState("");
+  const [documentTitle, setDocumentTitle] = useState<string>("");
 
   useEffect(() => {
     setLocalStatus(status);
   }, [status]);
+
+  useEffect(() => {
+    onStatusChange?.(localStatus);
+  }, [localStatus, onStatusChange]);
 
   const updateTagsEntities =
     intent === "update_document_tags" ? (entities as UpdateDocumentTagsEntities) : null;
@@ -155,6 +180,13 @@ export function ActionCard({
         setTagsError(message);
       })
       .finally(() => setTagsLoading(false));
+  }, [documentId, intent, onSessionExpired, onTokenRefresh]);
+
+  useEffect(() => {
+    if (intent !== "update_document_tags" || !documentId) return;
+    void apiGetDocumentTitle(documentId, onSessionExpired ?? (() => {}), onTokenRefresh)
+      .then((result) => setDocumentTitle(result.title))
+      .catch(() => setDocumentTitle(""));
   }, [documentId, intent, onSessionExpired, onTokenRefresh]);
 
   const tagDiff = useMemo(() => {
@@ -189,23 +221,7 @@ export function ActionCard({
     }
   }
 
-  async function handleExecuteAction() {
-    setExecutePending(true);
-    setActionError("");
-    try {
-      const executed = await apiExecuteAction(id, onSessionExpired ?? (() => {}), onTokenRefresh);
-      setLocalStatus(executed.status);
-      toast.success("Действие выполнено.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось выполнить действие";
-      setActionError(message);
-      toast.error(message);
-    } finally {
-      setExecutePending(false);
-    }
-  }
-
-  const fields = renderKnownIntentFields(intent, entities);
+  const fields = renderKnownIntentFields(intent, entities, documentTitle);
 
   return (
     <div
@@ -263,18 +279,6 @@ export function ActionCard({
             className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white"
           >
             Подтвердить
-          </button>
-        </div>
-      )}
-      {localStatus === "CONFIRMED" && (
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={() => void handleExecuteAction()}
-            disabled={executePending}
-            className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white disabled:opacity-50"
-          >
-            {executePending ? "Выполнение…" : "Выполнить"}
           </button>
         </div>
       )}

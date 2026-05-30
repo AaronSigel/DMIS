@@ -77,6 +77,7 @@ public class ActionService {
                 resolvedEntities,
                 actor.id(),
                 ActionStatus.DRAFT,
+                null,
                 null
         );
         ActionDtos.AiActionView saved = aiActionPort.save(action);
@@ -109,14 +110,33 @@ public class ActionService {
                 action.entities(),
                 action.actorId(),
                 ActionStatus.CONFIRMED,
-                actor.id()
+                actor.id(),
+                null
         );
         ActionDtos.AiActionView saved = aiActionPort.save(confirmed);
         auditService.append(actor.id(), "action.confirm", "ai_action", saved.id(), "Action confirmed");
         try {
             return execute(actor, actionId);
         } catch (Exception ex) {
-            return saved;
+            // Reset to DRAFT so user can retry confirmation
+            ActionDtos.AiActionView rolledBack = new ActionDtos.AiActionView(
+                    action.id(),
+                    action.intent(),
+                    action.entities(),
+                    action.actorId(),
+                    ActionStatus.DRAFT,
+                    null,
+                    null
+            );
+            try {
+                aiActionPort.save(rolledBack);
+                auditService.append(actor.id(), "action.confirm.rollback", "ai_action", action.id(),
+                        "Execution failed, status reset to DRAFT");
+            } catch (Exception rollbackEx) {
+                rollbackEx.addSuppressed(ex);
+                throw rollbackEx;
+            }
+            throw ex;
         }
     }
 
@@ -133,14 +153,15 @@ public class ActionService {
             throw new ResponseStatusException(FORBIDDEN, "No permission to execute action");
         }
         try {
-            dispatch(actor, action);
+            String result = dispatch(actor, action);
             ActionDtos.AiActionView executed = new ActionDtos.AiActionView(
                     action.id(),
                     action.intent(),
                     action.entities(),
                     action.actorId(),
                     ActionStatus.EXECUTED,
-                    action.confirmedBy()
+                    action.confirmedBy(),
+                    result
             );
             ActionDtos.AiActionView saved = aiActionPort.save(executed);
             auditService.append(actor.id(), "action.execute", "ai_action", saved.id(), "Action executed successfully");
@@ -157,89 +178,82 @@ public class ActionService {
         }
     }
 
-    private void dispatch(UserView actor, ActionDtos.AiActionView action) {
+    private String dispatch(UserView actor, ActionDtos.AiActionView action) {
         validateIntent(action.intent());
         validateEntitiesMatchIntent(action.intent(), action.entities());
         try {
-            switch (action.intent()) {
+            return switch (action.intent()) {
                 case ActionDtos.SEND_EMAIL_INTENT -> {
                     SendEmailEntities entities = (SendEmailEntities) action.entities();
                     List<IntegrationDtos.MailAttachment> attachments = resolveMailAttachments(actor, entities);
-                    integrationService.sendMail(
-                            actor,
-                            entities.to(),
-                            entities.subject(),
-                            entities.body(),
-                            integrationIdempotencyKey(action.id()),
-                            attachments
-                    );
+                    integrationService.sendMail(actor, entities.to(), entities.subject(), entities.body(),
+                            integrationIdempotencyKey(action.id()), attachments);
+                    yield null;
                 }
                 case ActionDtos.CREATE_CALENDAR_EVENT_INTENT -> {
                     CreateCalendarEventEntities entities = (CreateCalendarEventEntities) action.entities();
-                    integrationService.createCalendarEvent(
-                            actor,
-                            entities.title(),
-                            entities.attendees(),
-                            entities.startIso(),
-                            entities.endIso(),
-                            "",
-                            EventCreationSource.AI_ACTION,
-                            null
-                    );
+                    integrationService.createCalendarEvent(actor, entities.title(), entities.attendees(),
+                            entities.startIso(), entities.endIso(), "", EventCreationSource.AI_ACTION, null);
+                    yield null;
                 }
                 case ActionDtos.RESCHEDULE_CALENDAR_EVENT_INTENT -> {
                     RescheduleCalendarEventEntities entities = (RescheduleCalendarEventEntities) action.entities();
                     IntegrationDtos.CalendarEventView existing = integrationService.getCalendarEvent(actor, entities.eventId());
                     String title = entities.title() != null && !entities.title().isBlank()
-                            ? entities.title()
-                            : existing.title();
-                    integrationService.updateCalendarEvent(
-                            actor,
-                            entities.eventId(),
-                            title,
-                            existing.attendees(),
-                            entities.startIso(),
-                            entities.endIso(),
-                            existing.description()
-                    );
+                            ? entities.title() : existing.title();
+                    integrationService.updateCalendarEvent(actor, entities.eventId(), title,
+                            existing.attendees(), entities.startIso(), entities.endIso(), existing.description());
+                    yield null;
                 }
                 case ActionDtos.PREPARE_MEETING_AGENDA_INTENT -> {
                     PrepareMeetingAgendaEntities entities = (PrepareMeetingAgendaEntities) action.entities();
                     integrationService.prepareMeetingAgendaDraft(actor, entities.eventId(), entities.extraDocumentIds());
+                    yield null;
                 }
                 case ActionDtos.SUGGEST_MEETING_SLOTS_INTENT -> {
                     SuggestMeetingSlotsEntities entities = (SuggestMeetingSlotsEntities) action.entities();
                     IntegrationDtos.AvailabilityResponse av = integrationService.calendarAvailability(
                             actor,
                             new IntegrationDtos.AvailabilityRequest(
-                                    entities.attendeeEmails(),
-                                    entities.fromIso(),
-                                    entities.toIso(),
-                                    entities.slotMinutes()
+                                    entities.attendeeEmails(), entities.fromIso(), entities.toIso(), entities.slotMinutes()
                             )
                     );
                     auditService.append(actor.id(), "calendar.slots.suggested", "ai_action", action.id(),
                             "Suggested slots: " + av.slots());
+                    yield formatSlots(av.slots());
                 }
                 case ActionDtos.UPDATE_DOCUMENT_TAGS_INTENT -> {
                     UpdateDocumentTagsEntities entities = (UpdateDocumentTagsEntities) action.entities();
-                    documentUseCases.patch(
-                            actor,
-                            entities.documentId(),
-                            new DocumentDtos.PatchDocumentRequest(
-                                    entities.tags(),
-                                    null,
-                                    null
-                            )
-                    );
+                    documentUseCases.patch(actor, entities.documentId(),
+                            new DocumentDtos.PatchDocumentRequest(entities.tags(), null, null));
+                    yield null;
                 }
                 default -> throw new ResponseStatusException(BAD_REQUEST, "Unsupported intent: " + action.intent());
-            }
+            };
         } catch (ResponseStatusException ex) {
             throw ex;
         } catch (Exception ex) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "Dispatch failed for intent '" + action.intent() + "': " + ex.getMessage(), ex);
+        }
+    }
+
+    private static String formatSlots(List<IntegrationDtos.SuggestedSlot> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return "Свободных слотов не найдено.";
+        }
+        return slots.stream()
+                .map(s -> formatIso(s.startIso()) + " – " + formatIso(s.endIso()))
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    private static String formatIso(String iso) {
+        try {
+            java.time.Instant instant = java.time.Instant.parse(iso);
+            return java.time.ZonedDateTime.ofInstant(instant, java.time.ZoneOffset.UTC)
+                    .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM HH:mm"));
+        } catch (Exception e) {
+            return iso;
         }
     }
 

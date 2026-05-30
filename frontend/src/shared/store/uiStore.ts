@@ -78,14 +78,43 @@ const initialAssistantWidth = readStoredWidth(
   (value) => clampAssistantWidth(value, initialSidebarWidth),
 );
 
+export type AssistantWorkspaceModule = "documents" | "mail" | "calendar" | "workspace";
+
+export type AssistantContextObject =
+  | { type: "DOCUMENT"; id: string; title?: string }
+  | { type: "FOLDER"; id?: string; label?: string }
+  | null;
+
+export type AssistantContextSnapshot = {
+  module: AssistantWorkspaceModule;
+  object: AssistantContextObject;
+};
+
+const DEFAULT_ASSISTANT_CONTEXT: AssistantContextSnapshot = {
+  module: "workspace",
+  object: null,
+};
+
+function pathnameToAssistantModule(pathname: string): AssistantWorkspaceModule {
+  const section = pathname.split("/").filter(Boolean)[0];
+  if (section === "documents") return "documents";
+  if (section === "mail") return "mail";
+  if (section === "calendar") return "calendar";
+  return "workspace";
+}
+
 type UiStoreState = {
   assistantQuery: string;
   pendingLinkedDocumentIds: string[];
+  assistantContext: AssistantContextSnapshot;
   mobileAiOpen: boolean;
   desktopAiOpen: boolean;
   sidebarWidth: number;
   assistantWidth: number;
   setAssistantQuery: (query: string) => void;
+  setAssistantContext: (ctx: AssistantContextSnapshot) => void;
+  setAssistantContextFromPath: (pathname: string) => void;
+  clearAssistantContextObject: () => void;
   openAiWithQuery: (query?: string) => void;
   addPendingLinkedDocuments: (documentIds: string[]) => void;
   consumePendingLinkedDocuments: () => string[];
@@ -100,11 +129,27 @@ type UiStoreState = {
 export const useUiStore = create<UiStoreState>((set, get) => ({
   assistantQuery: "",
   pendingLinkedDocumentIds: [],
+  assistantContext: DEFAULT_ASSISTANT_CONTEXT,
   mobileAiOpen: false,
   desktopAiOpen: false,
   sidebarWidth: initialSidebarWidth,
   assistantWidth: initialAssistantWidth,
   setAssistantQuery: (query) => set({ assistantQuery: query }),
+  setAssistantContext: (ctx) => set({ assistantContext: ctx }),
+  setAssistantContextFromPath: (pathname) =>
+    set((state) => ({
+      assistantContext: {
+        module: pathnameToAssistantModule(pathname),
+        object:
+          state.assistantContext.module === pathnameToAssistantModule(pathname)
+            ? state.assistantContext.object
+            : null,
+      },
+    })),
+  clearAssistantContextObject: () =>
+    set((state) => ({
+      assistantContext: { ...state.assistantContext, object: null },
+    })),
   openAiWithQuery: (query) =>
     set((state) => ({
       assistantQuery: typeof query === "string" ? query : state.assistantQuery,

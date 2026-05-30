@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   apiBaseUrl,
   apiDeleteDocument,
+  apiGetDocumentDownloadUrl,
   apiListDocuments,
   apiSearchDocuments,
   apiUploadDocumentWithProgress,
@@ -923,31 +924,17 @@ function DocRow({
     setMenuOpen(false);
   }
 
-  async function downloadBinary() {
-    if (!token) return;
+  async function downloadViaPresignedUrl() {
     setMenuOpen(false);
     try {
-      const res = await fetchWithAuth(
-        `${apiBaseUrl}/documents/${doc.id}/binary?disposition=attachment`,
-        {},
-        onTokenRefresh,
-      );
-      if (res.status === 401 || res.status === 403) {
-        onSessionExpired();
-        return;
-      }
-      if (!res.ok) {
-        const err = await readApiError(res);
-        throw new Error(err.message ?? err.errorCode ?? "Request failed");
-      }
-      const blob = await res.blob();
-      const href = URL.createObjectURL(blob);
+      const { url } = await apiGetDocumentDownloadUrl(doc.id, onSessionExpired, onTokenRefresh);
       const a = document.createElement("a");
-      a.href = href;
+      a.href = url;
       a.download = doc.fileName || doc.title || "document";
       a.rel = "noopener";
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(href);
+      document.body.removeChild(a);
     } catch (e) {
       toast.error(e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось скачать");
     }
@@ -1007,7 +994,7 @@ function DocRow({
       },
     },
     { id: "copy", label: "Копировать ссылку", action: () => void copyDocumentLink() },
-    { id: "dl", label: "Скачать файл", action: () => void downloadBinary() },
+    { id: "dl", label: "Скачать файл", action: () => void downloadViaPresignedUrl() },
     {
       id: "ai",
       label: "Спросить ассистента…",

@@ -257,6 +257,27 @@ export const handlers = [
     const threadId = String(params.threadId ?? "thread-1");
 
     if (text.includes("событ") || text.includes("встреч") || text.includes("календар")) {
+      const hasDate =
+        /\d{1,2}\.\d{1,2}/.test(text) ||
+        text.includes("завтра") ||
+        text.includes("tomorrow") ||
+        text.includes("мая") ||
+        text.includes("июн");
+      if (!hasDate && text.includes("по согласованию")) {
+        return HttpResponse.json({
+          route: "CONTROLLED_ACTION",
+          traceId: "trace-mock",
+          status: "NEEDS_CLARIFICATION",
+          message: "Нужно уточнить данные для действия.",
+          responseType: "NEEDS_CLARIFICATION",
+          clarificationIntent: "create_calendar_event",
+          missingFields: ["startAt"],
+          partialEntities: {
+            title: "согласованию договора",
+            participants: ["admin@example.com"],
+          },
+        });
+      }
       const created: AiActionMock = {
         id: `act-${Math.random().toString(36).slice(2, 9)}`,
         intent: "create_calendar_event",

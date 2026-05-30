@@ -19,6 +19,13 @@ public class JwtTokenAdapter implements TokenPort {
 
     public JwtTokenAdapter(JwtProperties jwtProperties) {
         this.jwtProperties = jwtProperties;
+        String secret = jwtProperties.secret();
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                "JWT_SECRET must be at least 32 bytes (UTF-8 encoded). " +
+                "Current value is too short or not set. Set the JWT_SECRET environment variable."
+            );
+        }
     }
 
     @Override

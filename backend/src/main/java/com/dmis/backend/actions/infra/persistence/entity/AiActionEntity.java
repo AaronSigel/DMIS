@@ -27,6 +27,9 @@ public class AiActionEntity {
     @Column(name = "confirmed_by")
     private String confirmedBy;
 
+    @Column(name = "result", columnDefinition = "TEXT")
+    private String result;
+
     protected AiActionEntity() {
     }
 
@@ -70,4 +73,7 @@ public class AiActionEntity {
     public void setConfirmedBy(String confirmedBy) {
         this.confirmedBy = confirmedBy;
     }
+
+    public String getResult() { return result; }
+    public void setResult(String result) { this.result = result; }
 }

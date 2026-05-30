@@ -54,12 +54,9 @@ public class PersistenceMapper {
 
     public ActionDtos.AiActionView toActionView(AiActionEntity entity) {
         return new ActionDtos.AiActionView(
-                entity.getId(),
-                entity.getIntent(),
-                fromJson(entity.getEntitiesJson()),
-                entity.getActorId(),
-                ActionStatus.valueOf(entity.getStatus()),
-                entity.getConfirmedBy()
+                entity.getId(), entity.getIntent(), fromJson(entity.getEntitiesJson()),
+                entity.getActorId(), ActionStatus.valueOf(entity.getStatus()),
+                entity.getConfirmedBy(), entity.getResult()
         );
     }
 

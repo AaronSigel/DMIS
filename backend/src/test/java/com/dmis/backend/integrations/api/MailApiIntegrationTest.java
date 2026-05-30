@@ -25,7 +25,6 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -78,7 +77,7 @@ class MailApiIntegrationTest {
     }
 
     @Test
-    void sendDraft_removesDraftFromList() throws Exception {
+    void sendDraft_returnsServiceUnavailableWhenSmtpNotConfigured() throws Exception {
         String token = loginAndGetToken();
         String subject = "SendMe-" + UUID.randomUUID();
 
@@ -95,14 +94,10 @@ class MailApiIntegrationTest {
                 .getContentAsString();
         String draftId = objectMapper.readTree(createJson).get("id").asText();
 
+        // SMTP is not configured in the test context, so sending should return 503 SERVICE_UNAVAILABLE.
         mockMvc.perform(post("/api/mail/drafts/" + draftId + "/send")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(get("/api/mail/drafts")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].id", not(hasItem(draftId))));
+                .andExpect(status().isServiceUnavailable());
     }
 
     @Test

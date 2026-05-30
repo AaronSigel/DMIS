@@ -40,19 +40,22 @@ class MailCalendarHttpAdapterTest {
     );
 
     @Test
-    void noopWhenMailSenderUnavailable() {
+    void sendMailDraft_throwsWhenSmtpNotConfigured() {
         @SuppressWarnings("unchecked")
         ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(null);
 
         MailCalendarHttpAdapter adapter = createAdapter(provider);
 
-        IntegrationDtos.MailDraftView result = adapter.sendMailDraft(DRAFT, "key-1", List.of());
-        assertSame(DRAFT, result);
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> adapter.sendMailDraft(DRAFT, "key-1", List.of())
+        );
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, ex.getStatusCode());
     }
 
     @Test
-    void noopWhenMailFromBlank() {
+    void throwsServiceUnavailableWhenMailFromBlank() {
         @SuppressWarnings("unchecked")
         ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
         JavaMailSender sender = mock(JavaMailSender.class);
@@ -62,8 +65,11 @@ class MailCalendarHttpAdapterTest {
                 mock(MailCalendarPersistenceAdapter.class), provider, ""
         );
 
-        IntegrationDtos.MailDraftView result = adapter.sendMailDraft(DRAFT, "key-1", List.of());
-        assertSame(DRAFT, result);
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> adapter.sendMailDraft(DRAFT, "key-1", List.of())
+        );
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, ex.getStatusCode());
         verify(sender, never()).send(any(MimeMessage.class));
     }
 
@@ -293,25 +299,4 @@ class MailCalendarHttpAdapterTest {
         );
     }
 
-    private static final class EmptyObjectProvider<T> implements ObjectProvider<T> {
-        @Override
-        public T getObject() {
-            return null;
-        }
-
-        @Override
-        public T getObject(Object... args) {
-            return null;
-        }
-
-        @Override
-        public T getIfAvailable() {
-            return null;
-        }
-
-        @Override
-        public T getIfUnique() {
-            return null;
-        }
-    }
 }

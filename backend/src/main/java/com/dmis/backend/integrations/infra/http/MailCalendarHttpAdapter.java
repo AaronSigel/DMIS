@@ -58,8 +58,10 @@ public class MailCalendarHttpAdapter implements MailCalendarPort {
         JavaMailSender sender = mailSenderProvider.getIfAvailable();
         String fromRaw = senderAddress == null || senderAddress.isBlank() ? mailFrom : senderAddress;
         if (sender == null || fromRaw == null || fromRaw.isBlank()) {
-            // SMTP не настроен — fallback в no-op (используется в тестах и dev-окружении).
-            return draft;
+            throw new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Интеграция с почтовым сервером не настроена. Задайте SMTP-параметры в конфигурации."
+            );
         }
         List<IntegrationDtos.MailAttachment> safeAttachments = attachments == null ? List.of() : attachments;
 

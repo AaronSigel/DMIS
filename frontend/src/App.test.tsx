@@ -14,6 +14,7 @@ describe("auth smoke", () => {
       desktopAiOpen: false,
       assistantQuery: "",
       pendingLinkedDocumentIds: [],
+      assistantContext: { module: "workspace", object: null },
     });
   });
 
@@ -81,7 +82,7 @@ describe("auth smoke", () => {
       .find((el) => within(el).queryByRole("button", { name: /диалоги/i }));
     expect(assistantAside).toBeTruthy();
     await userEvent.type(
-      within(assistantAside as HTMLElement).getByPlaceholderText(/спросите по вашим документам/i),
+      within(assistantAside as HTMLElement).getByTestId("assistant-message-input"),
       "Создай событие календаря на 9 мая 15:00 по обсуждению схемотехники",
     );
     await userEvent.click(
@@ -127,7 +128,7 @@ describe("auth smoke", () => {
     });
 
     await userEvent.type(
-      within(assistantAside as HTMLElement).getByPlaceholderText(/спросите по вашим документам/i),
+      within(assistantAside as HTMLElement).getByTestId("assistant-message-input"),
       "что есть по новому договору?",
     );
     await userEvent.click(
@@ -356,6 +357,118 @@ describe("doc table url filters", () => {
 });
 
 describe("assistant document context", () => {
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    useUiStore.setState({
+      desktopAiOpen: false,
+      assistantQuery: "",
+      pendingLinkedDocumentIds: [],
+      assistantContext: { module: "workspace", object: null },
+    });
+  });
+
+  it("shows context card on document page", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/documents/doc-1"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
+    );
+
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    expect(within(panel).getByTestId("assistant-context-card")).toBeInTheDocument();
+    expect(within(panel).getByTestId("assistant-context-object")).toHaveTextContent(/Policy Doc/);
+  });
+
+  it("shows prompt suggestions on documents list in idle state", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    expect(within(panel).getByTestId("assistant-prompt-suggestions")).toBeInTheDocument();
+    expect(within(panel).getByTestId("assistant-suggestion-find-doc")).toBeInTheDocument();
+  });
+
+  it("sends suggestion prompt when chip is clicked", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+    const panel = await screen.findByTestId("assistant-panel");
+    await userEvent.click(within(panel).getByTestId("assistant-suggestion-find-doc"));
+
+    await waitFor(() => expect(within(panel).getByTestId("assistant-answer")).toBeInTheDocument());
+  });
+
+  it("shows clarification form for calendar action without date", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/documents/doc-1"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+    const panel = await screen.findByTestId("assistant-panel");
+
+    await userEvent.type(
+      within(panel).getByTestId("assistant-message-input"),
+      "Создай встречу по согласованию договора",
+    );
+    await userEvent.click(within(panel).getByTestId("assistant-send-button"));
+
+    await waitFor(() =>
+      expect(within(panel).getByTestId("assistant-clarification-form")).toBeInTheDocument(),
+    );
+    expect(within(panel).getByTestId("clarification-field-startAt")).toBeInTheDocument();
+  });
+
   it("maps backend document statuses to UI labels", () => {
     expect(
       documentStatusLabel({

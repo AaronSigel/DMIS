@@ -26,14 +26,12 @@ public class AiActionPersistenceAdapter implements AiActionPort {
 
     @Override
     public ActionDtos.AiActionView save(ActionDtos.AiActionView action) {
-        repository.save(new AiActionEntity(
-                action.id(),
-                action.intent(),
-                mapper.toJson(action.entities()),
-                action.actorId(),
-                action.status().name(),
-                action.confirmedBy()
-        ));
+        AiActionEntity entity = new AiActionEntity(
+                action.id(), action.intent(), mapper.toJson(action.entities()),
+                action.actorId(), action.status().name(), action.confirmedBy()
+        );
+        entity.setResult(action.result());
+        repository.save(entity);
         return findById(action.id()).orElseThrow();
     }
 

@@ -31,6 +31,12 @@ export const queryKeys = {
   audit: {
     list: ["audit", "list"] as const,
   },
+  users: {
+    list: ["users", "list"] as const,
+  },
+  actions: {
+    list: ["actions", "list"] as const,
+  },
 };
 
 export const queryClient = new QueryClient({

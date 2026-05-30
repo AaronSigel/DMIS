@@ -238,6 +238,7 @@ export function WorkspacePage({
   const closeDesktopAi = useUiStore((state) => state.closeDesktopAi);
   const sidebarWidth = useUiStore((state) => state.sidebarWidth);
   const assistantWidth = useUiStore((state) => state.assistantWidth);
+  const setAssistantContextFromPath = useUiStore((state) => state.setAssistantContextFromPath);
   const navigate = useNavigate();
   const defaultSection = isAdmin(user) ? "dashboard" : "documents";
   const section = location.pathname.split("/")[1] || defaultSection;
@@ -263,6 +264,10 @@ export function WorkspacePage({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [closeDesktopAi, desktopAiOpen]);
+
+  useEffect(() => {
+    setAssistantContextFromPath(location.pathname);
+  }, [location.pathname, setAssistantContextFromPath]);
 
   const documentsCountQuery = useQuery({
     queryKey: queryKeys.documents.count,

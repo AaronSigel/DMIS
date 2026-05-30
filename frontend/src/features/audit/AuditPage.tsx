@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiListAudit } from "../../apiClient";
+import { apiListAudit, apiListUsers } from "../../apiClient";
 import { queryKeys } from "../../shared/api/queryClient";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
 import { PageHeader } from "../../shared/ui/PageHeader";
@@ -60,6 +60,18 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
     queryFn: () => apiListAudit(onSessionExpired, onTokenRefresh),
     enabled: !!token,
   });
+
+  const usersQuery = useQuery({
+    queryKey: queryKeys.users.list,
+    queryFn: () => apiListUsers(onSessionExpired, onTokenRefresh),
+    enabled: adminMode,
+    staleTime: 5 * 60_000,
+  });
+
+  const actorLookup = useMemo(
+    () => new Map((usersQuery.data ?? []).map((u) => [u.id, u.email])),
+    [usersQuery.data],
+  );
 
   const allRecords = useMemo(() => {
     const records = auditQuery.data ?? [];
@@ -215,7 +227,9 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
                           {formatDateTime(record.at)}
                         </td>
                         <td className="border-b border-border px-3 py-2 align-top text-text">
-                          {record.actorId}
+                          {adminMode
+                            ? (actorLookup.get(record.actorId) ?? record.actorId)
+                            : user.email}
                         </td>
                         <td className="border-b border-border px-3 py-2 align-top text-text">
                           {localizeAuditAction(record.action)}

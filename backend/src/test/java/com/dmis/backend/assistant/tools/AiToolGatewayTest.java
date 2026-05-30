@@ -135,6 +135,7 @@ class AiToolGatewayTest {
                         new ActionDtos.SendEmailEntities("a@b.c", "s", "b"),
                         "u-admin",
                         ActionStatus.DRAFT,
+                        null,
                         null
                 )
         );

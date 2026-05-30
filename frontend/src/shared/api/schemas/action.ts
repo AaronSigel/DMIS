@@ -65,6 +65,7 @@ export const ActionViewSchema = z.object({
   actorId: z.string(),
   status: ActionStatusSchema,
   confirmedBy: z.string().nullable(),
+  result: z.string().nullable().optional(),
 });
 
 export const ActionListSchema = z.array(ActionViewSchema);

@@ -29,7 +29,7 @@ import {
   DocumentPageSchema,
   DocumentViewSchema,
 } from "./shared/api/schemas/document";
-import { ActionViewSchema, type ActionView } from "./shared/api/schemas/action";
+import { ActionListSchema, ActionViewSchema, type ActionView } from "./shared/api/schemas/action";
 import {
   AvailabilityResponseSchema,
   CalendarEventListSchema,
@@ -338,6 +338,10 @@ export type AssistantSubmitResult = {
   diagnosticCode?: string | null;
   message?: string | null;
   contextDocuments?: unknown;
+  responseType?: string | null;
+  clarificationIntent?: string | null;
+  missingFields?: string[];
+  partialEntities?: Record<string, unknown>;
 };
 
 export async function apiSubmitAssistantRequest(
@@ -658,6 +662,23 @@ export async function apiGetDocumentTitle(
   return { id: payload.id, title: payload.title };
 }
 
+export async function apiGetDocumentDownloadUrl(
+  documentId: string,
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<{ url: string; ttlSeconds: number }> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/documents/${documentId}/download-url`,
+    { method: "GET" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(
+    response,
+    z.object({ url: z.string(), ttlSeconds: z.number() }),
+    onUnauthorized,
+  );
+}
+
 /** Параметры постраничного списка документов (опционально по тегу раздела). */
 export type ApiListDocumentsParams = {
   page: number;
@@ -823,6 +844,14 @@ export async function apiGetDocumentTags(
   return payload.tags;
 }
 
+export async function apiListActions(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<ActionView[]> {
+  const response = await fetchWithAuth(`${apiBaseUrl}/actions`, { method: "GET" }, onNewToken);
+  return parseAuthenticatedSchema(response, ActionListSchema, onUnauthorized);
+}
+
 /** Подтверждает draft-действие ассистента (intent -> confirm). */
 export async function apiConfirmAction(
   actionId: string,
@@ -944,6 +973,15 @@ export async function apiSearchUsers(
     { method: "GET" },
     onNewToken,
   );
+  return parseAuthenticatedSchema(response, UserSummaryListSchema, onUnauthorized);
+}
+
+/** Список всех пользователей — только для администратора (`GET /users`). */
+export async function apiListUsers(
+  onUnauthorized: () => void,
+  onNewToken?: (token: string) => void,
+): Promise<UserSummary[]> {
+  const response = await fetchWithAuth(`${apiBaseUrl}/users`, { method: "GET" }, onNewToken);
   return parseAuthenticatedSchema(response, UserSummaryListSchema, onUnauthorized);
 }
 

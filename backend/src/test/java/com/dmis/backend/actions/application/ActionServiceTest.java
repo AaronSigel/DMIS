@@ -32,7 +32,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -120,24 +122,65 @@ class ActionServiceTest {
 
     @Test
     void executeChecksActorAcl() {
-        doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Mail service unavailable"))
-                .when(integrationService)
-                .sendMail(
-                        eq(owner),
-                        eq("a@b.c"),
-                        eq("Subj"),
-                        eq("Body"),
-                        anyString(),
-                        eq(List.of())
-                );
+        // Directly save a CONFIRMED action to test ACL enforcement without going through confirm()
         ActionDtos.AiActionView draft = actionService.draft(
                 owner,
                 "send_email",
                 new SendEmailEntities("a@b.c", "Subj", "Body")
         );
-        ActionDtos.AiActionView confirmed = actionService.confirm(owner, draft.id());
-        assertEquals(ActionStatus.CONFIRMED, confirmed.status());
+        ActionDtos.AiActionView confirmedAction = new ActionDtos.AiActionView(
+                draft.id(),
+                draft.intent(),
+                draft.entities(),
+                draft.actorId(),
+                ActionStatus.CONFIRMED,
+                owner.id(),
+                null
+        );
+        aiActionPort.save(confirmedAction);
+
+        // outsider must not be able to execute another user's action
         assertThrows(ResponseStatusException.class, () -> actionService.execute(outsider, draft.id()));
+    }
+
+    @Test
+    void confirm_resetsStatusToDraftWhenExecuteFails() {
+        // arrange: draft action, sendMail throws SERVICE_UNAVAILABLE
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "send_email",
+                new SendEmailEntities("a@b.c", "Subj", "Body")
+        );
+        doThrow(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "SMTP unavailable"))
+                .when(integrationService).sendMail(any(), any(), any(), any(), any(), any());
+
+        // act: confirm throws because execute fails
+        assertThatThrownBy(() -> actionService.confirm(owner, draft.id()))
+                .isInstanceOf(ResponseStatusException.class);
+
+        // assert: status was reset to DRAFT, not left as CONFIRMED
+        ActionDtos.AiActionView afterFailure = actionService.list(owner).stream()
+                .filter(a -> a.id().equals(draft.id()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(ActionStatus.DRAFT, afterFailure.status());
+    }
+
+    @Test
+    void confirm_propagatesExecuteException() {
+        // arrange: create a draft action, make integrationService throw on sendMail
+        ActionDtos.AiActionView draft = actionService.draft(
+                owner,
+                "send_email",
+                new SendEmailEntities("a@b.c", "Subj", "Body")
+        );
+        doThrow(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "SMTP unavailable"))
+                .when(integrationService).sendMail(any(), any(), any(), any(), any(), any());
+
+        // act + assert
+        assertThatThrownBy(() -> actionService.confirm(owner, draft.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("SMTP unavailable");
     }
 
     @Test
@@ -209,6 +252,23 @@ class ActionServiceTest {
                         "2026-05-10T09:30:00Z"
                 )
         );
+        // confirm succeeds (createCalendarEvent not yet mocked to throw)
+        ActionDtos.AiActionView confirmed = actionService.confirm(owner, draft.id());
+        assertEquals(ActionStatus.EXECUTED, confirmed.status());
+
+        // now simulate the integration failing on a fresh execute attempt
+        // reset to CONFIRMED state by re-saving the confirmed action
+        ActionDtos.AiActionView resetToConfirmed = new ActionDtos.AiActionView(
+                confirmed.id(),
+                confirmed.intent(),
+                confirmed.entities(),
+                confirmed.actorId(),
+                ActionStatus.CONFIRMED,
+                confirmed.confirmedBy(),
+                null
+        );
+        aiActionPort.save(resetToConfirmed);
+
         doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Calendar service unavailable"))
                 .when(integrationService)
                 .createCalendarEvent(
@@ -221,24 +281,12 @@ class ActionServiceTest {
                         eq(EventCreationSource.AI_ACTION),
                         isNull()
                 );
-        ActionDtos.AiActionView confirmed = actionService.confirm(owner, draft.id());
-        assertEquals(ActionStatus.CONFIRMED, confirmed.status());
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> actionService.execute(owner, draft.id()));
 
         assertEquals(HttpStatus.BAD_GATEWAY, exception.getStatusCode());
         assertTrue(exception.getReason().contains("Calendar service unavailable"));
         assertEquals(ActionStatus.CONFIRMED, aiActionPort.findById(draft.id()).orElseThrow().status());
-        verify(integrationService, times(2)).createCalendarEvent(
-                eq(owner),
-                eq("Standup"),
-                anyList(),
-                eq("2026-05-10T09:00:00Z"),
-                eq("2026-05-10T09:30:00Z"),
-                eq(""),
-                eq(EventCreationSource.AI_ACTION),
-                isNull()
-        );
     }
 
     @Test

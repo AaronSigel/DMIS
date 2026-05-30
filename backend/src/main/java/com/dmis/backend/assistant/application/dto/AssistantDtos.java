@@ -139,10 +139,49 @@ public final class AssistantDtos {
             String status,
             String diagnosticCode,
             String message,
-            List<AssistantDocumentStatusView> contextDocuments
+            List<AssistantDocumentStatusView> contextDocuments,
+            String responseType,
+            String clarificationIntent,
+            List<String> missingFields,
+            java.util.Map<String, Object> partialEntities
     ) {
         public SubmitRequestResult {
             contextDocuments = contextDocuments == null ? List.of() : List.copyOf(contextDocuments);
+            missingFields = missingFields == null ? List.of() : List.copyOf(missingFields);
+            partialEntities = partialEntities == null ? java.util.Map.of() : java.util.Map.copyOf(partialEntities);
+        }
+
+        public SubmitRequestResult(
+                String route,
+                String traceId,
+                com.dmis.backend.actions.application.dto.ActionDtos.AiActionView action,
+                String streamUrl,
+                SubmitStreamPayload streamPayload,
+                String status,
+                String diagnosticCode,
+                String message,
+                List<AssistantDocumentStatusView> contextDocuments
+        ) {
+            this(
+                    route,
+                    traceId,
+                    action,
+                    streamUrl,
+                    streamPayload,
+                    status,
+                    diagnosticCode,
+                    message,
+                    contextDocuments,
+                    action != null ? "ACTION_DRAFT" : null,
+                    null,
+                    List.of(),
+                    java.util.Map.of()
+            );
         }
     }
+
+    public static final String RESPONSE_ACTION_DRAFT = "ACTION_DRAFT";
+    public static final String RESPONSE_NEEDS_CLARIFICATION = "NEEDS_CLARIFICATION";
+    public static final String RESPONSE_ANSWER = "ANSWER";
+    public static final String RESPONSE_DIAGNOSTIC = "DIAGNOSTIC";
 }

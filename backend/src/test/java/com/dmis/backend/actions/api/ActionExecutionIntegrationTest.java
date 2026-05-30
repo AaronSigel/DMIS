@@ -46,7 +46,7 @@ class ActionExecutionIntegrationTest {
     private EmbeddingsPort embeddingsPort;
 
     @Test
-    void sendEmailIntentDeletesTransientDraftOnExecute() throws Exception {
+    void sendEmailIntentReturnsServiceUnavailableWhenSmtpNotConfigured() throws Exception {
         String token = loginAndGetToken();
 
         String draftJson = mockMvc.perform(post("/api/actions/draft")
@@ -61,31 +61,11 @@ class ActionExecutionIntegrationTest {
 
         String actionId = objectMapper.readTree(draftJson).get("id").asText();
 
+        // SMTP is not configured in test environment — confirm propagates the error
         mockMvc.perform(post("/api/actions/{id}/confirm", actionId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("EXECUTED"));
-
-        mockMvc.perform(post("/api/actions/{id}/execute", actionId)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("EXECUTED"));
-
-        mockMvc.perform(post("/api/actions/{id}/execute", actionId)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("EXECUTED"));
-
-        int mailDrafts = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM mail_drafts WHERE recipient = ?",
-                Integer.class, "recipient@example.com");
-        assertEquals(0, mailDrafts);
-
-        mockMvc.perform(get("/api/mail/messages")
-                        .queryParam("folder", "DRAFT")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isEmpty());
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_ERROR"));
     }
 
     @Test

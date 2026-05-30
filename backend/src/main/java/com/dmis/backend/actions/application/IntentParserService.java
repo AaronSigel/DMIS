@@ -67,7 +67,7 @@ public class IntentParserService {
         try {
             return switch (intent) {
                 case ActionDtos.SEND_EMAIL_INTENT -> new ActionDtos.SendEmailEntities(
-                        userMentionResolver.resolve(resolveEmailRecipient(entities, userText)),
+                        userMentionResolver.resolve(requiredString(entities, "to")),
                         resolveEmailSubject(entities, selectedDocumentIds),
                         resolveEmailBody(entities, userText, selectedDocumentIds),
                         mergeDocumentIds(optionalDocumentIdList(entities, "attachmentDocumentIds"), selectedDocumentIds)
@@ -129,27 +129,6 @@ public class IntentParserService {
         }
         String text = String.valueOf(value).trim();
         return text.isBlank() ? null : text;
-    }
-
-    private String resolveEmailRecipient(Map<String, Object> entities, String userText) {
-        String explicit = optionalString(entities, "to");
-        if (explicit != null) {
-            return explicit;
-        }
-        String normalized = userText.toLowerCase(java.util.Locale.ROOT);
-        if (normalized.contains("аналит")) {
-            return "@analyst";
-        }
-        if (normalized.contains("reviewer") || normalized.contains("ревьюер")) {
-            return "@reviewer";
-        }
-        if (normalized.contains("manager") || normalized.contains("менеджер")) {
-            return "@manager";
-        }
-        if (normalized.contains("admin") || normalized.contains("админ")) {
-            return "@admin";
-        }
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing entity field: to");
     }
 
     /**

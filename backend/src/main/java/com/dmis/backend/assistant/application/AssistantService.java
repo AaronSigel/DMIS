@@ -1,5 +1,6 @@
 package com.dmis.backend.assistant.application;
 
+import com.dmis.backend.actions.application.ActionDraftBuildResult;
 import com.dmis.backend.actions.application.ActionDraftBuilder;
 import com.dmis.backend.actions.application.ActionService;
 import com.dmis.backend.actions.application.IntentParserService;
@@ -305,17 +306,54 @@ public class AssistantService {
         }
 
         if (routing.requestType() == RequestType.CONTROLLED_ACTION) {
-            ActionDtos.AiActionView action = createControlledActionDraft(actor, text, normalizedSelected, linkedDocumentIds, traceId);
+            ControlledActionOutcome outcome = resolveControlledActionDraft(
+                    actor,
+                    text,
+                    normalizedSelected,
+                    linkedDocumentIds,
+                    traceId
+            );
+            if (outcome.clarification() != null) {
+                ActionDraftBuildResult clarification = outcome.clarification();
+                auditService.append(
+                        actor.id(),
+                        "assistant.action.clarification",
+                        "assistant_thread",
+                        thread.id(),
+                        "traceId=" + traceId
+                                + ", intent=" + clarification.intent()
+                                + ", missing=" + clarification.missingFields()
+                );
+                return new AssistantDtos.SubmitRequestResult(
+                        RequestType.CONTROLLED_ACTION.name(),
+                        traceId,
+                        null,
+                        null,
+                        null,
+                        "NEEDS_CLARIFICATION",
+                        null,
+                        "Нужно уточнить данные для действия.",
+                        List.of(),
+                        AssistantDtos.RESPONSE_NEEDS_CLARIFICATION,
+                        clarification.intent(),
+                        clarification.missingFields(),
+                        clarification.partialEntities()
+                );
+            }
             return new AssistantDtos.SubmitRequestResult(
                     RequestType.CONTROLLED_ACTION.name(),
                     traceId,
-                    action,
+                    outcome.action(),
                     null,
                     null,
                     "OK",
                     null,
                     null,
-                    List.of()
+                    List.of(),
+                    AssistantDtos.RESPONSE_ACTION_DRAFT,
+                    null,
+                    List.of(),
+                    Map.of()
             );
         }
 
@@ -371,7 +409,7 @@ public class AssistantService {
         );
     }
 
-    private ActionDtos.AiActionView createControlledActionDraft(
+    private ControlledActionOutcome resolveControlledActionDraft(
             UserView actor,
             String text,
             List<String> selectedDocumentIds,
@@ -379,91 +417,80 @@ public class AssistantService {
             String traceId
     ) {
         if (actionDraftBuilder.supportsSendEmail(text)) {
-            try {
-                ActionDtos.SendEmailEntities entities = actionDraftBuilder.buildSendEmail(
-                        text,
-                        selectedDocumentIds,
-                        linkedDocumentIds
-                );
-                ActionDtos.AiActionView action = actionService.draft(actor, ActionDtos.SEND_EMAIL_INTENT, entities);
-                auditService.append(
-                        actor.id(),
-                        "assistant.action.draft.created",
-                        "ai_action",
-                        action.id(),
-                        "traceId=" + traceId + ", intent=send_email, source=builder"
-                );
-                return action;
-            } catch (ResponseStatusException builderError) {
-                try {
-                    ActionDtos.AiActionView action = parseActionDraft(actor, text, selectedDocumentIds);
-                    auditService.append(
-                            actor.id(),
-                            "assistant.action.draft.created",
-                            "ai_action",
-                            action.id(),
-                            "traceId=" + traceId + ", intent=" + action.intent() + ", source=parser"
-                    );
-                    return action;
-                } catch (ResponseStatusException parserError) {
-                    auditService.append(
-                            actor.id(),
-                            "assistant.action.failed",
-                            "assistant_thread",
-                            actor.id(),
-                            "traceId=" + traceId + ", builder=" + builderError.getReason() + ", parser=" + parserError.getReason()
-                    );
-                    throw builderError;
-                }
+            ActionDraftBuildResult built = actionDraftBuilder.tryBuildSendEmail(
+                    text,
+                    selectedDocumentIds,
+                    linkedDocumentIds
+            );
+            if (built.needsClarification()) {
+                return ControlledActionOutcome.clarification(built);
             }
+            ActionDtos.AiActionView action = actionService.draft(
+                    actor,
+                    ActionDtos.SEND_EMAIL_INTENT,
+                    (ActionDtos.SendEmailEntities) built.entities()
+            );
+            auditService.append(
+                    actor.id(),
+                    "assistant.action.draft.created",
+                    "ai_action",
+                    action.id(),
+                    "traceId=" + traceId + ", intent=send_email, source=builder"
+            );
+            return ControlledActionOutcome.draft(action);
         }
         if (actionDraftBuilder.supportsCreateCalendarEvent(text)) {
-            try {
-                ActionDtos.CreateCalendarEventEntities entities = actionDraftBuilder.buildCreateCalendarEvent(
-                        text,
-                        actor.email()
-                );
-                ActionDtos.AiActionView action = actionService.draft(actor, ActionDtos.CREATE_CALENDAR_EVENT_INTENT, entities);
-                auditService.append(
-                        actor.id(),
-                        "assistant.action.draft.created",
-                        "ai_action",
-                        action.id(),
-                        "traceId=" + traceId + ", intent=create_calendar_event, source=builder"
-                );
-                return action;
-            } catch (ResponseStatusException builderError) {
-                try {
-                    ActionDtos.AiActionView action = parseActionDraft(actor, text, selectedDocumentIds);
-                    auditService.append(
-                            actor.id(),
-                            "assistant.action.draft.created",
-                            "ai_action",
-                            action.id(),
-                            "traceId=" + traceId + ", intent=" + action.intent() + ", source=parser"
-                    );
-                    return action;
-                } catch (ResponseStatusException parserError) {
-                    auditService.append(
-                            actor.id(),
-                            "assistant.action.failed",
-                            "assistant_thread",
-                            actor.id(),
-                            "traceId=" + traceId + ", builder=" + builderError.getReason() + ", parser=" + parserError.getReason()
-                    );
-                    throw builderError;
-                }
+            ActionDraftBuildResult built = actionDraftBuilder.tryBuildCreateCalendarEvent(text, actor.email());
+            if (built.needsClarification()) {
+                return ControlledActionOutcome.clarification(built);
             }
+            ActionDtos.AiActionView action = actionService.draft(
+                    actor,
+                    ActionDtos.CREATE_CALENDAR_EVENT_INTENT,
+                    (ActionDtos.CreateCalendarEventEntities) built.entities()
+            );
+            auditService.append(
+                    actor.id(),
+                    "assistant.action.draft.created",
+                    "ai_action",
+                    action.id(),
+                    "traceId=" + traceId + ", intent=create_calendar_event, source=builder"
+            );
+            return ControlledActionOutcome.draft(action);
         }
-        ActionDtos.AiActionView action = parseActionDraft(actor, text, selectedDocumentIds);
-        auditService.append(
-                actor.id(),
-                "assistant.action.draft.created",
-                "ai_action",
-                action.id(),
-                "traceId=" + traceId + ", intent=" + action.intent() + ", source=parser"
-        );
-        return action;
+        try {
+            ActionDtos.AiActionView action = parseActionDraft(actor, text, selectedDocumentIds);
+            auditService.append(
+                    actor.id(),
+                    "assistant.action.draft.created",
+                    "ai_action",
+                    action.id(),
+                    "traceId=" + traceId + ", intent=" + action.intent() + ", source=parser"
+            );
+            return ControlledActionOutcome.draft(action);
+        } catch (ResponseStatusException parserError) {
+            auditService.append(
+                    actor.id(),
+                    "assistant.action.failed",
+                    "assistant_thread",
+                    actor.id(),
+                    "traceId=" + traceId + ", parser=" + parserError.getReason()
+            );
+            throw parserError;
+        }
+    }
+
+    private record ControlledActionOutcome(
+            ActionDtos.AiActionView action,
+            ActionDraftBuildResult clarification
+    ) {
+        static ControlledActionOutcome draft(ActionDtos.AiActionView action) {
+            return new ControlledActionOutcome(action, null);
+        }
+
+        static ControlledActionOutcome clarification(ActionDraftBuildResult clarification) {
+            return new ControlledActionOutcome(null, clarification);
+        }
     }
 
     public void appendStreamMessages(

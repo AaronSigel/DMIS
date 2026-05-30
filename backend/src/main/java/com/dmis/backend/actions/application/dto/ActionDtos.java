@@ -44,7 +44,8 @@ public final class ActionDtos {
             @Valid ActionEntities entities,
             String actorId,
             ActionStatus status,
-            String confirmedBy
+            String confirmedBy,
+            String result
     ) {
     }
 

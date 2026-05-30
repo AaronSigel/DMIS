@@ -71,25 +71,38 @@ class ActionDraftBuilderTest {
     @Test
     void buildCreateCalendarEventWithoutAttendeesUsesOrganizer() {
         ActionDtos.CreateCalendarEventEntities entities = builder.buildCreateCalendarEvent(
-                "Создай новую встречу на 26.05. Тема - \"Проверка DMIS\"",
+                "Создай новую встречу на 26.05.2028. Тема - \"Проверка DMIS\"",
                 "admin@example.com"
         );
 
         assertEquals("Проверка DMIS", entities.title());
-        assertEquals("2026-05-26T10:00:00Z", entities.startIso());
-        assertEquals("2026-05-26T11:00:00Z", entities.endIso());
+        assertEquals("2028-05-26T10:00:00Z", entities.startIso());
+        assertEquals("2028-05-26T11:00:00Z", entities.endIso());
         assertEquals(List.of("admin@example.com"), entities.attendees());
     }
 
     @Test
     void buildCreateCalendarEventWithMention() {
         ActionDtos.CreateCalendarEventEntities entities = builder.buildCreateCalendarEvent(
-                "Создай встречу с @manager на 27.05 в 15:00 на 30 минут",
+                "Создай встречу с @manager на 27.05.2028 в 15:00 на 30 минут",
                 "admin@example.com"
         );
 
         assertEquals(List.of("manager@example.com"), entities.attendees());
-        assertEquals("2026-05-27T15:00:00Z", entities.startIso());
-        assertEquals("2026-05-27T15:30:00Z", entities.endIso());
+        assertEquals("2028-05-27T15:00:00Z", entities.startIso());
+        assertEquals("2028-05-27T15:30:00Z", entities.endIso());
+    }
+
+    @Test
+    void tryBuildCreateCalendarEventWithoutDateNeedsClarification() {
+        ActionDraftBuildResult result = builder.tryBuildCreateCalendarEvent(
+                "Создай встречу по согласованию договора",
+                "admin@example.com"
+        );
+
+        assertTrue(result.needsClarification());
+        assertEquals(ActionDtos.CREATE_CALENDAR_EVENT_INTENT, result.intent());
+        assertTrue(result.missingFields().contains("startAt"));
+        assertEquals("согласованию договора", result.partialEntities().get("title"));
     }
 }

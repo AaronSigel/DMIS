@@ -242,6 +242,8 @@ export function DocumentCardPage({
   const [meetingEnd, setMeetingEnd] = useState("");
   const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
   const addPendingLinkedDocuments = useUiStore((state) => state.addPendingLinkedDocuments);
+  const setAssistantContext = useUiStore((state) => state.setAssistantContext);
+  const clearAssistantContextObject = useUiStore((state) => state.clearAssistantContextObject);
   const toast = useToast();
   const searchMarkerRef = useRef<HTMLElement>(null);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -264,6 +266,19 @@ export function DocumentCardPage({
     },
   });
   const doc = docQuery.data ?? null;
+
+  useEffect(() => {
+    if (!doc) return;
+    setAssistantContext({
+      module: "documents",
+      object: {
+        type: "DOCUMENT",
+        id: doc.id,
+        title: (doc.title || doc.fileName || "").trim() || undefined,
+      },
+    });
+    return () => clearAssistantContextObject();
+  }, [clearAssistantContextObject, doc, setAssistantContext]);
 
   const updateDocumentMutation = useMutation({
     mutationFn: (patch: { title?: string; tags?: string[] }) => {

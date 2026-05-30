@@ -85,7 +85,7 @@ class AssistantActionParseIntegrationTest {
         when(intentParserPort.parse("перешли документ @contract.txt аналитику"))
                 .thenReturn(new IntentParserPort.ParsedIntent(
                         "send_email",
-                        Map.of()
+                        Map.of("to", "@analyst")
                 ));
         String token = loginAndGetToken();
 

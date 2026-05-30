@@ -44,3 +44,4 @@ export const AssistantDocumentStatusViewSchema = z.object({
 export const AssistantDocumentStatusListSchema = z.array(AssistantDocumentStatusViewSchema);
 
 export type AssistantDocumentStatusView = z.infer<typeof AssistantDocumentStatusViewSchema>;
+export type AssistantThreadMessageView = z.infer<typeof AssistantThreadMessageViewSchema>;

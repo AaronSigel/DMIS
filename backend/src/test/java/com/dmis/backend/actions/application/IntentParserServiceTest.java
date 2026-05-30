@@ -11,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -32,6 +33,21 @@ class IntentParserServiceTest {
                 new UserMentionResolver(userAccessPort),
                 Validation.buildDefaultValidatorFactory().getValidator()
         );
+    }
+
+    @Test
+    void parseDraft_throwsBadRequest_whenToFieldMissingAndNoKeyword() {
+        when(intentParserPort.parse("отправь что-нибудь кому-нибудь"))
+            .thenReturn(new IntentParserPort.ParsedIntent(
+                "send_email",
+                Map.of("subject", "Тест", "body", "Содержимое")
+                // нет поля "to"
+            ));
+
+        assertThatThrownBy(() -> intentParserService.parseDraft("отправь что-нибудь кому-нибудь"))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+            .isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
     }
 
     @Test
@@ -72,7 +88,7 @@ class IntentParserServiceTest {
         when(intentParserPort.parse("перешли документ @contract.txt аналитику"))
                 .thenReturn(new IntentParserPort.ParsedIntent(
                         "send_email",
-                        Map.of()
+                        Map.of("to", "@analyst")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
                 new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
@@ -102,7 +118,7 @@ class IntentParserServiceTest {
         when(intentParserPort.parse("перешли это аналитику"))
                 .thenReturn(new IntentParserPort.ParsedIntent(
                         "send_email",
-                        Map.of()
+                        Map.of("to", "@analyst")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
                 new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
