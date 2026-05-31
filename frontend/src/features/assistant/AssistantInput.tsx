@@ -1,3 +1,4 @@
+import { useCallback, useRef } from "react";
 import type { RefObject } from "react";
 import type { MentionDoc } from "./assistantPanelTypes";
 
@@ -44,6 +45,15 @@ export function AssistantInput({
   onMentionActiveIndexChange,
   onClearMentionCandidates,
 }: AssistantInputProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
   return (
     <div className="shrink-0 border-t border-border px-4 py-3">
       {recording && liveTranscript && (
@@ -71,10 +81,16 @@ export function AssistantInput({
         </div>
       )}
       <div className="flex flex-wrap items-stretch gap-1.5">
-        <input
+        <textarea
+          ref={textareaRef}
           data-testid="assistant-message-input"
           value={inputValue}
-          onChange={(e) => onInputChange(e.target.value)}
+          rows={1}
+          style={{ maxHeight: "120px", resize: "none", overflowY: "auto" }}
+          onChange={(e) => {
+            onInputChange(e.target.value);
+            resizeTextarea();
+          }}
           onKeyDown={(e) => {
             if (mentionCandidates.length) {
               if (e.key === "ArrowDown") {
@@ -101,7 +117,7 @@ export function AssistantInput({
                 return;
               }
             }
-            if (e.key === "Enter") {
+            if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               onSubmit();
             }
