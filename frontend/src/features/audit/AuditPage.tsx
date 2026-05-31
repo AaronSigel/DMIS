@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiListAudit, apiListUsers } from "../../apiClient";
 import { queryKeys } from "../../shared/api/queryClient";
@@ -11,6 +11,7 @@ import {
 } from "../../shared/lib/localizeDomain";
 import type { AuditRecord } from "../../entities/audit";
 import { formatDateTime } from "../../shared/lib/formatDate";
+import { truncateId } from "../../shared/lib/formatId";
 
 type User = {
   id: string;
@@ -37,12 +38,68 @@ function uniqueValues(records: AuditRecord[], selector: (record: AuditRecord) =>
   return Array.from(new Set(records.map(selector))).sort((a, b) => a.localeCompare(b, "ru"));
 }
 
+export function deriveActionType(action: string): { label: string; className: string } {
+  if (action.startsWith("action."))
+    return { label: "ИИ", className: "bg-indigo-100 text-indigo-700" };
+  if (
+    action.startsWith("calendar.") ||
+    action.startsWith("mail.") ||
+    action.startsWith("document.") ||
+    action.startsWith("rag.")
+  )
+    return { label: "система", className: "bg-gray-100 text-gray-600" };
+  if (action.startsWith("admin."))
+    return { label: "админ", className: "bg-orange-100 text-orange-700" };
+  return { label: "пользователь", className: "bg-blue-100 text-blue-700" };
+}
+
+export function deriveAuditStatus(status: string | null | undefined): {
+  label: string;
+  className: string;
+} {
+  switch (status) {
+    case "ERROR":
+      return { label: "ошибка", className: "bg-red-100 text-red-700" };
+    case "PENDING":
+      return { label: "ожидает", className: "bg-yellow-100 text-yellow-700" };
+    case "CANCELLED":
+      return { label: "отменено", className: "bg-gray-100 text-gray-600" };
+    case "SUCCESS":
+    default:
+      return { label: "успешно", className: "bg-green-100 text-green-700" };
+  }
+}
+
+function Badge({ label, className }: { label: string; className: string }) {
+  return (
+    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${className}`}>
+      {label}
+    </span>
+  );
+}
+
 export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: AuditPageProps) {
   const adminMode = isAdmin(user);
   const [actionFilter, setActionFilter] = useState("");
   const [resourceTypeFilter, setResourceTypeFilter] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  type DateRange = "all" | "today" | "7d" | "30d";
+  const [dateRange, setDateRange] = useState<DateRange>("all");
+
+  function toggleRow(id: string) {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
 
   const auditQuery = useQuery({
     queryKey: queryKeys.audit.list,
@@ -83,15 +140,29 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
 
   const filteredRecords = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
+
+    // Compute the cutoff timestamp once
+    let cutoffMs: number | null = null;
+    if (dateRange === "today") {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      cutoffMs = d.getTime();
+    } else if (dateRange === "7d") {
+      cutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    } else if (dateRange === "30d") {
+      cutoffMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    }
+
     return scopedRecords.filter((record) => {
       if (actionFilter && record.action !== actionFilter) return false;
       if (resourceTypeFilter && record.resourceType !== resourceTypeFilter) return false;
+      if (cutoffMs !== null && new Date(record.at).getTime() < cutoffMs) return false;
       if (!normalizedSearch) return true;
       const haystack =
         `${record.actorId} ${record.action} ${record.resourceType} ${record.resourceId} ${record.details}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
-  }, [actionFilter, resourceTypeFilter, scopedRecords, search]);
+  }, [actionFilter, resourceTypeFilter, dateRange, scopedRecords, search]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -119,7 +190,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
       />
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-        <div className="grid gap-2 rounded-lg border border-border bg-white p-3 md:grid-cols-[1fr_220px_220px]">
+        <div className="grid gap-2 rounded-lg border border-border bg-white p-3 md:grid-cols-[1fr_200px_200px_160px]">
           <input
             value={search}
             onChange={(event) => {
@@ -162,6 +233,20 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
               </option>
             ))}
           </select>
+          <select
+            value={dateRange}
+            onChange={(event) => {
+              setDateRange(event.target.value as DateRange);
+              setPage(1);
+            }}
+            aria-label="Фильтр по дате"
+            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
+          >
+            <option value="all">Всё время</option>
+            <option value="today">Сегодня</option>
+            <option value="7d">7 дней</option>
+            <option value="30d">30 дней</option>
+          </select>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-white p-3">
@@ -202,6 +287,12 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
                         Действие
                       </th>
                       <th className="border-b border-border px-3 py-2 font-semibold text-text">
+                        Тип
+                      </th>
+                      <th className="border-b border-border px-3 py-2 font-semibold text-text">
+                        Статус
+                      </th>
+                      <th className="border-b border-border px-3 py-2 font-semibold text-text">
                         Ресурс
                       </th>
                       <th className="border-b border-border px-3 py-2 font-semibold text-text">
@@ -211,28 +302,72 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
                   </thead>
                   <tbody>
                     {pagedRecords.map((record) => (
-                      <tr key={record.id}>
-                        <td className="border-b border-border px-3 py-2 align-top text-muted">
-                          {formatDateTime(record.at)}
-                        </td>
-                        <td className="border-b border-border px-3 py-2 align-top text-text">
-                          {adminMode
-                            ? (actorLookup.get(record.actorId) ?? record.actorId)
-                            : user.email}
-                        </td>
-                        <td className="border-b border-border px-3 py-2 align-top text-text">
-                          {localizeAuditAction(record.action)}
-                        </td>
-                        <td className="border-b border-border px-3 py-2 align-top text-text">
-                          <div className="flex flex-col gap-0.5">
-                            <span>{localizeResourceType(record.resourceType)}</span>
-                            <span className="text-xs text-muted">{record.resourceId}</span>
-                          </div>
-                        </td>
-                        <td className="border-b border-border px-3 py-2 align-top text-text">
-                          {localizeAuditDetails(record.details) || "(без деталей)"}
-                        </td>
-                      </tr>
+                      <React.Fragment key={record.id}>
+                        <tr>
+                          <td className="border-b border-border px-3 py-2 align-top text-muted">
+                            {formatDateTime(record.at)}
+                          </td>
+                          <td className="border-b border-border px-3 py-2 align-top text-text">
+                            {adminMode
+                              ? (actorLookup.get(record.actorId) ?? record.actorId)
+                              : user.email}
+                          </td>
+                          <td className="border-b border-border px-3 py-2 align-top text-text">
+                            {localizeAuditAction(record.action)}
+                          </td>
+                          <td className="border-b border-border px-3 py-2 align-top">
+                            <Badge {...deriveActionType(record.action)} />
+                          </td>
+                          <td className="border-b border-border px-3 py-2 align-top">
+                            <Badge {...deriveAuditStatus(record.status)} />
+                          </td>
+                          <td className="border-b border-border px-3 py-2 align-top text-text">
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex flex-col gap-0.5">
+                                <span>{localizeResourceType(record.resourceType)}</span>
+                                <span className="text-xs text-muted">
+                                  {record.resourceId ? truncateId(record.resourceId) : "—"}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toggleRow(record.id)}
+                                aria-label={
+                                  expandedRows.has(record.id) ? "Скрыть детали" : "Показать детали"
+                                }
+                                className={`ml-auto shrink-0 text-muted transition-transform duration-150 ${
+                                  expandedRows.has(record.id) ? "rotate-90" : ""
+                                }`}
+                              >
+                                ›
+                              </button>
+                            </div>
+                          </td>
+                          <td className="border-b border-border px-3 py-2 align-top text-text">
+                            {localizeAuditDetails(record.details) || "(без деталей)"}
+                          </td>
+                        </tr>
+                        {expandedRows.has(record.id) && (
+                          <tr key={`${record.id}-detail`}>
+                            <td colSpan={7} className="border-b border-border bg-surface px-3 py-2">
+                              <pre className="overflow-auto text-xs text-muted">
+                                {JSON.stringify(
+                                  {
+                                    resourceId: record.resourceId,
+                                    actorId: record.actorId,
+                                    action: record.action,
+                                    ...(record.metadata != null
+                                      ? { metadata: record.metadata }
+                                      : {}),
+                                  },
+                                  null,
+                                  2,
+                                )}
+                              </pre>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
