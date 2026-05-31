@@ -1,6 +1,12 @@
-import { useCallback, useRef } from "react";
-import type { RefObject } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import type { CSSProperties, RefObject } from "react";
 import type { MentionDoc } from "./assistantPanelTypes";
+
+const textareaStyle: CSSProperties = {
+  maxHeight: "120px",
+  resize: "none",
+  overflowY: "auto",
+};
 
 type AssistantInputProps = {
   inputValue: string;
@@ -54,6 +60,10 @@ export function AssistantInput({
     el.style.height = `${el.scrollHeight}px`;
   }, []);
 
+  useEffect(() => {
+    resizeTextarea();
+  }, [inputValue, resizeTextarea]);
+
   return (
     <div className="shrink-0 border-t border-border px-4 py-3">
       {recording && liveTranscript && (
@@ -86,7 +96,8 @@ export function AssistantInput({
           data-testid="assistant-message-input"
           value={inputValue}
           rows={1}
-          style={{ maxHeight: "120px", resize: "none", overflowY: "auto" }}
+          style={textareaStyle}
+          aria-label="Поле ввода сообщения ассистенту"
           onChange={(e) => {
             onInputChange(e.target.value);
             resizeTextarea();
