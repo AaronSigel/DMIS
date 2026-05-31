@@ -191,10 +191,14 @@ function tagForSection(section: string): string | undefined {
 }
 
 function parseTagsInput(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function formatQueryOrMutationError(err: unknown): string {
@@ -485,19 +489,8 @@ export function DocTable({
     setDocumentSearchQuery("");
   }
 
-  function parseBulkTags(input: string): string[] {
-    return [
-      ...new Set(
-        input
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      ),
-    ];
-  }
-
   async function applyBulkTagsReplace() {
-    const tags = parseBulkTags(bulkTagsInput);
+    const tags = parseTagsInput(bulkTagsInput);
     if (!selectedIds.length) return;
     setBulkBusy(true);
     const results = await Promise.allSettled(
@@ -1203,9 +1196,13 @@ function DocRow({
               onChange={(e) => setEditingTagsValue(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  if (updateTagsMutation.isPending) return;
                   updateTagsMutation.mutate({ id: doc.id, tags: parseTagsInput(editingTagsValue) });
                 }
                 if (e.key === "Escape") {
+                  e.stopPropagation();
                   setEditingTags(false);
                 }
               }}
@@ -1250,9 +1247,9 @@ function DocRow({
             }}
           >
             {doc.tags && doc.tags.length > 0 ? (
-              doc.tags.map((tag) => (
+              doc.tags.map((tag, i) => (
                 <span
-                  key={tag}
+                  key={`${tag}-${i}`}
                   className="rounded-full bg-muted/20 px-1.5 py-0.5 text-[10px] text-muted"
                 >
                   {tag}
