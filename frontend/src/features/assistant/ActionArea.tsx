@@ -41,6 +41,8 @@ export function ActionArea({
           onSubmit={onClarificationSubmit}
           onCancel={onClarificationCancel}
           pending={clarificationPending}
+          onSessionExpired={onSessionExpired}
+          onTokenRefresh={onTokenRefresh}
         />
       )}
       {visibleActions.map((action) => (

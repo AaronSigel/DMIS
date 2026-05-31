@@ -1,4 +1,7 @@
+import { useEffect, useMemo, useState } from "react";
 import { localizeIntent } from "../../shared/lib/localizeDomain";
+import { isoToLocalDateTimeInput } from "../../shared/lib/datetimeLocal";
+import { UserSearchInput } from "../../shared/ui/UserSearchInput";
 
 export type ClarificationState = {
   intent: string;
@@ -23,6 +26,11 @@ function fieldValue(partialEntities: Record<string, unknown>, field: string): st
   const value = partialEntities[field] ?? partialEntities[field === "startAt" ? "startIso" : field];
   if (Array.isArray(value)) return value.join(", ");
   if (value == null) return "";
+  if (field === "startAt") {
+    const raw = String(value);
+    const localValue = isoToLocalDateTimeInput(raw);
+    return localValue || raw;
+  }
   return String(value);
 }
 
@@ -33,6 +41,8 @@ type ClarificationFormProps = {
   onSubmit: () => void;
   onCancel: () => void;
   pending?: boolean;
+  onSessionExpired: () => void;
+  onTokenRefresh?: (token: string) => void;
 };
 
 export function ClarificationForm({
@@ -42,7 +52,28 @@ export function ClarificationForm({
   onSubmit,
   onCancel,
   pending = false,
+  onSessionExpired,
+  onTokenRefresh,
 }: ClarificationFormProps) {
+  const baseValues = useMemo(() => {
+    const next: Record<string, string> = {};
+    for (const field of clarification.missingFields) {
+      next[field] = values[field] ?? fieldValue(clarification.partialEntities, field);
+    }
+    return next;
+  }, [clarification.missingFields, clarification.partialEntities, values]);
+
+  const [draftValues, setDraftValues] = useState<Record<string, string>>(baseValues);
+
+  useEffect(() => {
+    setDraftValues(baseValues);
+  }, [baseValues]);
+
+  const hasEmptyRequiredField = clarification.missingFields.some(
+    (field) => !(draftValues[field] ?? "").trim(),
+  );
+  const isSubmitDisabled = pending || hasEmptyRequiredField;
+
   return (
     <div
       data-testid="assistant-clarification-form"
@@ -66,12 +97,41 @@ export function ClarificationForm({
         {clarification.missingFields.map((field) => (
           <label key={field} className="grid gap-1 text-[11px] text-text">
             {fieldLabel(field)}
-            <input
-              data-testid={`clarification-field-${field}`}
-              value={values[field] ?? fieldValue(clarification.partialEntities, field)}
-              onChange={(e) => onChange(field, e.target.value)}
-              className="rounded-md border border-border bg-surface px-2 py-1.5 text-[12px] outline-none"
-            />
+            {field === "to" ? (
+              <UserSearchInput
+                value={draftValues[field] ?? ""}
+                onChange={(val) => {
+                  setDraftValues((prev) => ({ ...prev, [field]: val }));
+                  onChange(field, val);
+                }}
+                multi={false}
+                onSessionExpired={onSessionExpired}
+                onTokenRefresh={onTokenRefresh}
+              />
+            ) : field === "participants" ? (
+              <UserSearchInput
+                value={draftValues[field] ?? ""}
+                onChange={(val) => {
+                  setDraftValues((prev) => ({ ...prev, [field]: val }));
+                  onChange(field, val);
+                }}
+                multi={true}
+                onSessionExpired={onSessionExpired}
+                onTokenRefresh={onTokenRefresh}
+              />
+            ) : (
+              <input
+                data-testid={`clarification-field-${field}`}
+                type={field === "startAt" ? "datetime-local" : "text"}
+                value={draftValues[field] ?? ""}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setDraftValues((prev) => ({ ...prev, [field]: nextValue }));
+                  onChange(field, nextValue);
+                }}
+                className="rounded-md border border-border bg-surface px-2 py-1.5 text-[12px] outline-none"
+              />
+            )}
           </label>
         ))}
       </div>
@@ -86,13 +146,16 @@ export function ClarificationForm({
         <button
           type="button"
           data-testid="clarification-submit-button"
-          disabled={pending}
+          disabled={isSubmitDisabled}
           className="rounded-md border-0 bg-primary px-3 py-1 text-xs text-white disabled:opacity-50"
           onClick={onSubmit}
         >
           Продолжить
         </button>
       </div>
+      {hasEmptyRequiredField && (
+        <p className="mb-0 mt-2 text-[11px] text-muted">Заполните все обязательные поля.</p>
+      )}
     </div>
   );
 }
