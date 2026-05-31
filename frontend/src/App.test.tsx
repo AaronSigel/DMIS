@@ -24,6 +24,39 @@ describe("auth smoke", () => {
     });
   });
 
+  function buildDocumentsPage() {
+    return {
+      content: [
+        {
+          id: "doc-1",
+          title: "Policy Doc",
+          ownerId: "u-admin",
+          description: "Corporate policy",
+          tags: ["policy"],
+          source: "upload",
+          category: "general",
+          status: "READY",
+          type: "TXT",
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+          totalSizeBytes: 128,
+          fileName: "policy.txt",
+          contentType: "text/plain",
+          storageRef: "documents/doc-1",
+          indexedChunkCount: 1,
+          indexedAt: "2026-01-01T00:00:00Z",
+          extractedTextPreview: "Policy preview",
+          extractedTextLength: 12,
+          extractedTextTruncated: false,
+        },
+      ],
+      totalElements: 1,
+      totalPages: 1,
+      page: 0,
+      size: 20,
+    };
+  }
+
   it("signs in and opens document card", async () => {
     render(
       <MemoryRouter
@@ -53,6 +86,81 @@ describe("auth smoke", () => {
     expect(screen.getByRole("button", { name: /спросить ассистента/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /создать встречу/i })).toBeInTheDocument();
     expect(window.localStorage.getItem("dmis_token")).toBe("token-1");
+  });
+
+  it("does not logout on 403 when refresh succeeds and retries protected request", async () => {
+    let documentsCallCount = 0;
+    let refreshCallCount = 0;
+    const authHeaders: string[] = [];
+    server.use(
+      http.get("*/documents", ({ request }) => {
+        documentsCallCount += 1;
+        authHeaders.push(request.headers.get("authorization") ?? "");
+        if (documentsCallCount === 1) {
+          return HttpResponse.json({ message: "Expired token" }, { status: 403 });
+        }
+        return HttpResponse.json(buildDocumentsPage());
+      }),
+      http.post("*/auth/refresh", () => {
+        refreshCallCount += 1;
+        return HttpResponse.json({ token: "token-2" });
+      }),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+    expect(screen.queryByTestId("login-email-input")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("dmis_token")).toBe("token-2");
+    expect(refreshCallCount).toBe(1);
+    expect(documentsCallCount).toBeGreaterThanOrEqual(2);
+    expect(authHeaders).toContain("Bearer token-1");
+    expect(authHeaders).toContain("Bearer token-2");
+  });
+
+  it("logs out on unauthorized when refresh fails", async () => {
+    server.use(
+      http.get("*/documents", () =>
+        HttpResponse.json({ message: "Expired token" }, { status: 403 }),
+      ),
+      http.post("*/auth/refresh", () =>
+        HttpResponse.json({ message: "Refresh invalid" }, { status: 401 }),
+      ),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /войти/i })).toBeInTheDocument());
+    expect(screen.getByTestId("login-email-input")).toBeInTheDocument();
+    expect(window.localStorage.getItem("dmis_token")).toBeNull();
   });
 
   it("creates action drafts from document and assistant hooks", async () => {
@@ -529,13 +637,10 @@ describe("calendar page", () => {
       ).toBeInTheDocument(),
     );
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const deleteButtons = screen.getAllByRole("button", { name: /удалить/i });
     await userEvent.click(deleteButtons[0]!);
-    await waitFor(() =>
-      expect(screen.queryByText("Синк команды (обновлено)")).not.toBeInTheDocument(),
-    );
-    confirmSpy.mockRestore();
+    await userEvent.click(screen.getByRole("button", { name: /подтвердить/i }));
+    await waitFor(() => expect(screen.queryAllByText("Синк команды (обновлено)")).toHaveLength(0));
   });
 });
 
@@ -556,7 +661,7 @@ describe("doc table url filters", () => {
   }
 
   it("restores filter and sort state from query string", async () => {
-    window.history.pushState({}, "", "/documents?sort=oldest&page=2");
+    window.history.pushState({}, "", "/documents?sort=date_asc&page=2");
 
     render(
       <BrowserRouter>
@@ -567,12 +672,12 @@ describe("doc table url filters", () => {
     await loginAsAdmin();
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /сортировка: старые/i })).toBeInTheDocument(),
+      expect(screen.getByRole("combobox", { name: /сортировка/i })).toHaveValue("date_asc"),
     );
     expect(screen.getByRole("button", { name: /^архив$/i })).toBeInTheDocument();
 
     const params = new URLSearchParams(window.location.search);
-    expect(params.get("sort")).toBe("oldest");
+    expect(params.get("sort")).toBe("date_asc");
     expect(params.get("page")).toBe("2");
   });
 
@@ -588,12 +693,15 @@ describe("doc table url filters", () => {
     await loginAsAdmin();
     await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole("button", { name: /сортировка: новые/i }));
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /сортировка/i }),
+      "date_asc",
+    );
     await userEvent.click(screen.getByRole("button", { name: /^архив$/i }));
 
     await waitFor(() => {
       const params = new URLSearchParams(window.location.search);
-      expect(params.get("sort")).toBe("oldest");
+      expect(params.get("sort")).toBe("date_asc");
       expect(params.get("archive")).toBe("1");
       expect(params.get("page")).toBeNull();
     });
