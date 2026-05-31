@@ -14,7 +14,6 @@ import { Avatar } from "../shared/ui/Avatar";
 import { SectionLabel } from "../shared/ui/SectionLabel";
 import { DashboardPage } from "./DashboardPage";
 import { DocumentCardPage } from "./DocumentCardPage";
-import { SettingsPage } from "./SettingsPage";
 
 type User = {
   id: string;
@@ -209,8 +208,6 @@ function Sidebar({
       <NavItem label="Календарь" k="calendar" icon="📅" />
       <SectionLabel>контроль</SectionLabel>
       <NavItem label={isAdmin(user) ? "Журнал аудита" : "Мои ИИ-действия"} k="audit" icon="○" />
-      <NavItem label="Настройки" k="settings" icon="☰" />
-      {isAdmin(user) && <NavItem label="Права доступа (скоро)" k="acl" icon="🔒" />}
     </aside>
   );
 }
@@ -284,8 +281,6 @@ export function WorkspacePage({
         mail: "/mail",
         calendar: "/calendar",
         audit: "/audit",
-        settings: "/settings",
-        acl: "/settings",
       };
       if (s === "documents") {
         setUploadTrigger(0);
@@ -369,15 +364,6 @@ export function WorkspacePage({
         },
       },
       {
-        id: "sec-settings",
-        label: "Настройки",
-        hint: "раздел",
-        onActivate: () => {
-          handleSection("settings");
-          closeMobileSidebar();
-        },
-      },
-      {
         id: "sec-audit",
         label: isAdmin(user) ? "Журнал аудита" : "Мои ИИ-действия",
         hint: "раздел",
@@ -387,18 +373,6 @@ export function WorkspacePage({
         },
       },
     ];
-
-    if (isAdmin(user)) {
-      core.push({
-        id: "sec-acl",
-        label: "Права доступа",
-        hint: "скоро",
-        onActivate: () => {
-          handleSection("acl");
-          closeMobileSidebar();
-        },
-      });
-    }
 
     const matches = (item: NavSearchResultItem) => {
       const hay = `${item.label} ${item.hint ?? ""}`.toLowerCase();
@@ -503,7 +477,7 @@ export function WorkspacePage({
           />
         }
       />
-      <Route path="/settings" element={<SettingsPage user={user} />} />
+      <Route path="/settings" element={<Navigate to={userHomePath} replace />} />
       <Route
         path="/documents/:documentId"
         element={

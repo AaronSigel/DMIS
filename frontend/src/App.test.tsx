@@ -186,14 +186,9 @@ describe("auth smoke", () => {
     expect(screen.getByRole("button", { name: /календарь/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /журнал аудита/i })).not.toBeInTheDocument();
 
-    // Заглушечные настройки не должны выглядеть интерактивными.
-    await userEvent.click(screen.getByRole("button", { name: /настройки/i }));
-    await waitFor(() =>
-      expect(screen.getByRole("heading", { name: /настройки/i })).toBeInTheDocument(),
-    );
-    for (const btn of screen.getAllByRole("button", { name: "Скоро" })) {
-      expect(btn).toBeDisabled();
-    }
+    // Settings and ACL nav items have been removed from navigation.
+    expect(screen.queryByRole("button", { name: /настройки/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /права доступа/i })).not.toBeInTheDocument();
   });
 });
 
