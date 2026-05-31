@@ -556,7 +556,7 @@ describe("doc table url filters", () => {
   }
 
   it("restores filter and sort state from query string", async () => {
-    window.history.pushState({}, "", "/documents?indexed=1&sort=oldest&page=2");
+    window.history.pushState({}, "", "/documents?sort=oldest&page=2");
 
     render(
       <BrowserRouter>
@@ -567,20 +567,16 @@ describe("doc table url filters", () => {
     await loginAsAdmin();
 
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /фильтр: проиндексированные/i }),
-      ).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /сортировка: старые/i })).toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: /сортировка: старые/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^архив$/i })).toBeInTheDocument();
 
     const params = new URLSearchParams(window.location.search);
-    expect(params.get("indexed")).toBe("1");
     expect(params.get("sort")).toBe("oldest");
     expect(params.get("page")).toBe("2");
   });
 
-  it("updates query string when filter and sort are toggled", async () => {
+  it("updates query string when sort and archive are toggled", async () => {
     window.history.pushState({}, "", "/documents");
 
     render(
@@ -592,13 +588,11 @@ describe("doc table url filters", () => {
     await loginAsAdmin();
     await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole("button", { name: /^фильтр$/i }));
     await userEvent.click(screen.getByRole("button", { name: /сортировка: новые/i }));
     await userEvent.click(screen.getByRole("button", { name: /^архив$/i }));
 
     await waitFor(() => {
       const params = new URLSearchParams(window.location.search);
-      expect(params.get("indexed")).toBe("1");
       expect(params.get("sort")).toBe("oldest");
       expect(params.get("archive")).toBe("1");
       expect(params.get("page")).toBeNull();
