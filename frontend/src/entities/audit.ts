@@ -6,4 +6,6 @@ export type AuditRecord = {
   resourceType: string;
   resourceId: string;
   details: string;
+  status?: "SUCCESS" | "ERROR" | "PENDING" | "CANCELLED" | null;
+  metadata?: Record<string, unknown> | null;
 };

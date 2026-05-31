@@ -9,6 +9,8 @@ export const AuditRecordSchema = z.object({
   resourceType: z.string(),
   resourceId: z.string(),
   details: z.string(),
+  status: z.enum(["SUCCESS", "ERROR", "PENDING", "CANCELLED"]).nullish(),
+  metadata: z.record(z.unknown()).nullish(),
 });
 
 /** Список записей аудита (`GET /audit`). */
