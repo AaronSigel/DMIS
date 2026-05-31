@@ -190,6 +190,13 @@ function tagForSection(section: string): string | undefined {
   return undefined;
 }
 
+function parseTagsInput(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function formatQueryOrMutationError(err: unknown): string {
   if (!(err instanceof Error)) return "";
   if (err.message === "Unauthorized") return "";
@@ -371,7 +378,8 @@ export function DocTable({
     return sortOrder === "newest" ? bt - at : at - bt;
   });
   const isAdminUser = user.roles?.includes("ADMIN") ?? false;
-  const cols = "32px 1fr 140px 100px 132px 44px";
+  const cols = "32px minmax(220px,1fr) 140px 100px 132px 160px 44px";
+  const tableMinWidth = "680px";
   const allVisibleSelected = docs.length > 0 && docs.every((doc) => selectedIds.includes(doc.id));
   const selectedCount = selectedIds.length;
   const uploadsInProgress = uploadItems.some(
@@ -592,7 +600,9 @@ export function DocTable({
             {uploadItems.map((item) => (
               <div key={item.id} className="mb-1">
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className="truncate text-text">{item.name}</span>
+                  <span className="min-w-0 truncate text-text" title={item.name}>
+                    {item.name}
+                  </span>
                   {item.status === "error" && <span className="text-danger">{item.error}</span>}
                   {(item.status === "queued" || item.status === "uploading") && (
                     <span className="text-muted">{item.progress}%</span>
@@ -674,7 +684,9 @@ export function DocTable({
                   className="grid gap-2 rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-semibold">{result.documentTitle}</span>
+                    <span className="min-w-0 truncate font-semibold" title={result.documentTitle}>
+                      {result.documentTitle}
+                    </span>
                     <span className="text-[12px] text-muted">
                       Лучшее совпадение: {result.bestScore.toFixed(4)} · фрагментов:{" "}
                       {result.hits.length}
@@ -801,59 +813,64 @@ export function DocTable({
           </select>
         </div>
 
-        <div
-          className="sticky top-0 z-[1] grid gap-0 bg-surface"
-          style={{ gridTemplateColumns: cols }}
-        >
-          <div className="border-b border-border py-[10px]">
-            <input
-              type="checkbox"
-              aria-label="Выбрать все документы на странице"
-              checked={allVisibleSelected}
-              onChange={toggleSelectAllVisible}
-            />
-          </div>
-          {["название", "владелец / доступ", "обновлено", "статус", ""].map((h) => (
-            <div
-              key={h}
-              className="border-b border-border py-[10px] text-[11px] font-semibold uppercase tracking-[0.06em] text-muted"
-            >
-              {h}
+        <div className="overflow-x-auto">
+          <div
+            className="sticky top-0 z-[1] grid gap-0 bg-surface"
+            style={{ gridTemplateColumns: cols, minWidth: tableMinWidth }}
+          >
+            <div className="border-b border-border py-[10px]">
+              <input
+                type="checkbox"
+                aria-label="Выбрать все документы на странице"
+                checked={allVisibleSelected}
+                onChange={toggleSelectAllVisible}
+              />
             </div>
-          ))}
-        </div>
-
-        {loading && !docs.length && (
-          <p className="py-4 text-[13px] text-muted">Загрузка документов…</p>
-        )}
-        {!loading && !docs.length && (
-          <div className="grid gap-2 py-4 text-[13px] text-muted">
-            <p className="m-0">{q ? "Поиск не дал результатов." : "Документы пока не найдены."}</p>
-            <p className="m-0">
-              Нажмите «Загрузить» или «+ Новый», чтобы добавить документ в систему.
-            </p>
+            {["название", "владелец / доступ", "обновлено", "статус", "теги", ""].map((h) => (
+              <div
+                key={h}
+                className="border-b border-border py-[10px] text-[11px] font-semibold uppercase tracking-[0.06em] text-muted"
+              >
+                {h}
+              </div>
+            ))}
           </div>
-        )}
 
-        <div data-testid="document-list">
-          {docs.map((doc, i) => (
-            <DocRow
-              key={doc.id}
-              doc={doc}
-              cols={cols}
-              last={i === docs.length - 1}
-              selected={selectedIds.includes(doc.id)}
-              token={token}
-              isAdmin={isAdminUser}
-              onSessionExpired={onSessionExpired}
-              onTokenRefresh={onTokenRefresh}
-              onToggleSelect={() => toggleSelect(doc.id)}
-              onRowNavigate={() => navigate(`/documents/${doc.id}`)}
-              onOpenRename={setRenameDoc}
-              onDeleteDocument={(id) => deleteMutation.mutateAsync(id)}
-              onNavigateAudit={() => navigate("/audit")}
-            />
-          ))}
+          {loading && !docs.length && (
+            <p className="py-4 text-[13px] text-muted">Загрузка документов…</p>
+          )}
+          {!loading && !docs.length && (
+            <div className="grid gap-2 py-4 text-[13px] text-muted">
+              <p className="m-0">
+                {q ? "Поиск не дал результатов." : "Документы пока не найдены."}
+              </p>
+              <p className="m-0">
+                Нажмите «Загрузить» или «+ Новый», чтобы добавить документ в систему.
+              </p>
+            </div>
+          )}
+
+          <div data-testid="document-list">
+            {docs.map((doc, i) => (
+              <DocRow
+                key={doc.id}
+                doc={doc}
+                cols={cols}
+                minWidth={tableMinWidth}
+                last={i === docs.length - 1}
+                selected={selectedIds.includes(doc.id)}
+                token={token}
+                isAdmin={isAdminUser}
+                onSessionExpired={onSessionExpired}
+                onTokenRefresh={onTokenRefresh}
+                onToggleSelect={() => toggleSelect(doc.id)}
+                onRowNavigate={() => navigate(`/documents/${doc.id}`)}
+                onOpenRename={setRenameDoc}
+                onDeleteDocument={(id) => deleteMutation.mutateAsync(id)}
+                onNavigateAudit={() => navigate("/audit")}
+              />
+            ))}
+          </div>
         </div>
 
         <RenameDocumentModal
@@ -908,6 +925,7 @@ export function DocTable({
 function DocRow({
   doc,
   cols,
+  minWidth,
   last,
   selected,
   token,
@@ -922,6 +940,7 @@ function DocRow({
 }: {
   doc: DocumentView;
   cols: string;
+  minWidth: string;
   last: boolean;
   selected: boolean;
   token: string;
@@ -936,12 +955,27 @@ function DocRow({
 }) {
   const openAiWithQuery = useUiStore((state) => state.openAiWithQuery);
   const toast = useToast();
+  const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [menuFocusIdx, setMenuFocusIdx] = useState(0);
+  const [editingTags, setEditingTags] = useState(false);
+  const [editingTagsValue, setEditingTagsValue] = useState("");
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const menuItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const updateTagsMutation = useMutation({
+    mutationFn: ({ id, tags }: { id: string; tags: string[] }) =>
+      apiUpdateDocument(id, { tags }, onSessionExpired, onTokenRefresh),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.documents.all });
+      setEditingTags(false);
+    },
+    onError: (e) => {
+      toast.error(formatQueryOrMutationError(e) || "Не удалось сохранить теги");
+    },
+  });
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -1095,6 +1129,7 @@ function DocRow({
       className="grid cursor-pointer items-center outline-none"
       style={{
         gridTemplateColumns: cols,
+        minWidth,
         borderBottom: last ? "none" : "1px dashed var(--color-border)",
       }}
       onClick={() => {
@@ -1134,9 +1169,13 @@ function DocRow({
           onChange={onToggleSelect}
         />
       </div>
-      <div className="flex items-center gap-2 overflow-hidden py-[11px]">
+      <div className="flex min-w-0 items-center gap-2 overflow-hidden py-[11px]">
         <span className="shrink-0 text-sm">{docIcon(doc)}</span>
-        <span data-testid="document-title" className="truncate text-sm font-medium text-text">
+        <span
+          data-testid="document-title"
+          className="min-w-0 truncate text-sm font-medium text-text"
+          title={doc.title}
+        >
           {doc.title}
         </span>
       </div>
@@ -1152,6 +1191,78 @@ function DocRow({
 
       <div className="pr-2 py-[11px]" data-testid="document-index-status">
         <StatusBadge status={doc.status} />
+      </div>
+
+      <div className="px-3 py-[11px]" onClick={(e) => e.stopPropagation()}>
+        {editingTags ? (
+          <div className="flex items-center gap-1">
+            <input
+              autoFocus
+              type="text"
+              value={editingTagsValue}
+              onChange={(e) => setEditingTagsValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  updateTagsMutation.mutate({ id: doc.id, tags: parseTagsInput(editingTagsValue) });
+                }
+                if (e.key === "Escape") {
+                  setEditingTags(false);
+                }
+              }}
+              className="w-32 rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] outline-none"
+              placeholder="тег1, тег2"
+            />
+            <button
+              type="button"
+              aria-label="Сохранить теги"
+              disabled={updateTagsMutation.isPending}
+              onClick={() =>
+                updateTagsMutation.mutate({ id: doc.id, tags: parseTagsInput(editingTagsValue) })
+              }
+              className="text-[11px] text-primary disabled:opacity-50"
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              aria-label="Отмена"
+              onClick={() => setEditingTags(false)}
+              className="text-[11px] text-muted"
+            >
+              ✗
+            </button>
+          </div>
+        ) : (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Редактировать теги"
+            className="flex cursor-pointer flex-wrap gap-1"
+            onClick={() => {
+              setEditingTags(true);
+              setEditingTagsValue(doc.tags?.join(", ") ?? "");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                setEditingTags(true);
+                setEditingTagsValue(doc.tags?.join(", ") ?? "");
+              }
+            }}
+          >
+            {doc.tags && doc.tags.length > 0 ? (
+              doc.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full bg-muted/20 px-1.5 py-0.5 text-[10px] text-muted"
+                >
+                  {tag}
+                </span>
+              ))
+            ) : (
+              <span className="text-[11px] text-muted/50 hover:text-primary">+</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div
