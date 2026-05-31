@@ -137,6 +137,8 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     setComposeTo(composeToParam ?? "");
     setComposeSubject(composeSubjectParam ?? "");
     setComposeBody("");
+    setComposeAttachments([]);
+    setShowDocPicker(false);
     setComposeOpen(true);
     const next = new URLSearchParams(searchParams);
     next.delete("composeTo");
@@ -281,6 +283,8 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     setComposeTo("");
     setComposeSubject("");
     setComposeBody("");
+    setComposeAttachments([]);
+    setShowDocPicker(false);
     setComposeOpen(true);
   }
 
@@ -290,6 +294,8 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     setComposeTo(detail.to);
     setComposeSubject(detail.subject);
     setComposeBody(detail.body);
+    setComposeAttachments([]);
+    setShowDocPicker(false);
     setComposeOpen(true);
   }
 
