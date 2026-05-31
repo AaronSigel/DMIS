@@ -125,6 +125,61 @@ function HighlightedSearchText({ text, query }: { text: string; query: string })
   return <>{parts}</>;
 }
 
+// @visibleForTesting
+export function UploadPipeline({ status }: { status: string }) {
+  const STAGES = [
+    { key: "uploaded", label: "Загружен" },
+    { key: "extracting", label: "Извлекается текст" },
+    { key: "indexing", label: "Индексируется" },
+    { key: "indexed", label: "Проиндексирован" },
+  ] as const;
+
+  // currentIdx: which step is currently active (0-based)
+  // For client-side upload status "done": step 0 (Загружен) is current, rest pending
+  // Future: map backend statuses here when API provides them
+  const currentIdx = 0; // upload "done" always means step 0 is reached
+
+  return (
+    <div
+      role="status"
+      aria-label={`Статус загрузки: ${STAGES[currentIdx]?.label ?? ""}`}
+      className="flex flex-wrap items-center gap-1 text-[11px]"
+    >
+      {STAGES.map((stage, idx) => {
+        const isCurrent = idx === currentIdx;
+        const isPast = idx < currentIdx;
+        const isPending = idx > currentIdx;
+        return (
+          <span key={stage.key} className="flex items-center gap-1">
+            {idx > 0 && (
+              <span className="text-muted" aria-hidden="true">
+                →
+              </span>
+            )}
+            <span
+              data-step-current={isCurrent ? true : undefined}
+              className={
+                isCurrent
+                  ? "rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary"
+                  : isPast
+                    ? "text-text"
+                    : "text-muted"
+              }
+            >
+              {isPast && (
+                <span aria-hidden="true" className="mr-0.5">
+                  ✓
+                </span>
+              )}
+              {stage.label}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Тег API для фильтрации списка по «разделу» сайдбара. */
 function tagForSection(section: string): string | undefined {
   if (section === "pinned") return "pinned";
@@ -142,11 +197,6 @@ function formatQueryOrMutationError(err: unknown): string {
 }
 
 const docTableQuerySchema = z.object({
-  indexed: z.preprocess((value) => {
-    if (value === "1" || value === "true") return true;
-    if (value === "0" || value === "false") return false;
-    return undefined;
-  }, z.boolean().optional()),
   archive: z.preprocess((value) => {
     if (value === "1" || value === "true") return true;
     if (value === "0" || value === "false") return false;
@@ -163,23 +213,20 @@ const docTableQuerySchema = z.object({
 });
 
 function parseDocTableQuery(search: string): {
-  filterActive: boolean;
   archiveActive: boolean;
   sortOrder: "newest" | "oldest";
   page: number;
 } {
   const params = new URLSearchParams(search);
   const parsed = docTableQuerySchema.safeParse({
-    indexed: params.get("indexed") ?? undefined,
     archive: params.get("archive") ?? undefined,
     sort: params.get("sort") ?? undefined,
     page: params.get("page") ?? undefined,
   });
   if (!parsed.success) {
-    return { filterActive: false, archiveActive: false, sortOrder: "newest", page: 0 };
+    return { archiveActive: false, sortOrder: "newest", page: 0 };
   }
   return {
-    filterActive: parsed.data.indexed ?? false,
     archiveActive: parsed.data.archive ?? false,
     sortOrder: parsed.data.sort ?? "newest",
     page: parsed.data.page ?? 0,
@@ -201,7 +248,6 @@ export function DocTable({
   const initialQueryState = parseDocTableQuery(location.search);
   const [page, setPage] = useState(initialQueryState.page);
   const [renameDoc, setRenameDoc] = useState<DocumentView | null>(null);
-  const [filterActive, setFilterActive] = useState(initialQueryState.filterActive);
   const [archiveActive, setArchiveActive] = useState(initialQueryState.archiveActive);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">(initialQueryState.sortOrder);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -221,7 +267,6 @@ export function DocTable({
 
   useEffect(() => {
     const nextState = parseDocTableQuery(location.search);
-    setFilterActive((prev) => (prev === nextState.filterActive ? prev : nextState.filterActive));
     setArchiveActive((prev) => (prev === nextState.archiveActive ? prev : nextState.archiveActive));
     setSortOrder((prev) => (prev === nextState.sortOrder ? prev : nextState.sortOrder));
     setPage((prev) => (prev === nextState.page ? prev : nextState.page));
@@ -229,11 +274,6 @@ export function DocTable({
 
   useEffect(() => {
     const nextParams = new URLSearchParams(location.search);
-    if (filterActive) {
-      nextParams.set("indexed", "1");
-    } else {
-      nextParams.delete("indexed");
-    }
     if (archiveActive) {
       nextParams.set("archive", "1");
     } else {
@@ -254,7 +294,7 @@ export function DocTable({
     const next = nextParams.toString();
     if (current === next) return;
     navigate({ pathname: location.pathname, search: next ? `?${next}` : "" }, { replace: true });
-  }, [filterActive, archiveActive, sortOrder, page, location.pathname, location.search, navigate]);
+  }, [archiveActive, sortOrder, page, location.pathname, location.search, navigate]);
 
   const docQuery = useQuery({
     queryKey: queryKeys.documents.list({ section, page, size: 20, archive: archiveActive }),
@@ -316,9 +356,7 @@ export function DocTable({
   const rawDocs = docPage?.content ?? [];
   const q = (searchQuery ?? "").trim().toLowerCase();
   const filteredBySearch = q ? rawDocs.filter((d) => d.title.toLowerCase().includes(q)) : rawDocs;
-  const filtered = filterActive
-    ? filteredBySearch.filter((d) => (d.status ?? "").toLowerCase() === "indexed")
-    : filteredBySearch;
+  const filtered = filteredBySearch;
   const docs = [...filtered].sort((a, b) => {
     const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
     const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
@@ -489,16 +527,6 @@ export function DocTable({
         actions={
           <>
             <TopBarBtn
-              onClick={() => setFilterActive((v) => !v)}
-              title={
-                filterActive
-                  ? "Показываются только проиндексированные документы"
-                  : "Показать только проиндексированные документы"
-              }
-            >
-              {filterActive ? "Фильтр: проиндексированные" : "Фильтр"}
-            </TopBarBtn>
-            <TopBarBtn
               onClick={() => {
                 setArchiveActive((v) => !v);
                 setPage(0);
@@ -557,16 +585,20 @@ export function DocTable({
               <div key={item.id} className="mb-1">
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="truncate text-text">{item.name}</span>
-                  <span className={item.status === "error" ? "text-danger" : "text-muted"}>
-                    {item.status === "error" ? item.error : `${item.progress}%`}
-                  </span>
+                  {item.status === "error" && <span className="text-danger">{item.error}</span>}
+                  {(item.status === "queued" || item.status === "uploading") && (
+                    <span className="text-muted">{item.progress}%</span>
+                  )}
                 </div>
-                <div className="h-1.5 rounded bg-zinc-100">
-                  <div
-                    className="h-1.5 rounded bg-primary"
-                    style={{ width: `${item.progress}%` }}
-                  />
-                </div>
+                {item.status === "done" && <UploadPipeline status={item.status} />}
+                {(item.status === "queued" || item.status === "uploading") && (
+                  <div className="h-1.5 rounded bg-zinc-100">
+                    <div
+                      className="h-1.5 rounded bg-primary"
+                      style={{ width: `${item.progress}%` }}
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -713,9 +745,7 @@ export function DocTable({
         <p className="mb-1.5 mt-2 text-xs text-muted">
           {q
             ? `Поиск по названию: «${searchQuery?.trim() ?? ""}». Учитываются только документы на текущей странице списка (${docs.length} из ${rawDocs.length} на странице).`
-            : filterActive
-              ? "Показаны только проиндексированные документы на текущей странице."
-              : "Фильтр выключен. Показаны все документы текущей страницы раздела."}
+            : "Показаны все документы текущей страницы раздела."}
         </p>
 
         <div className="mb-2 flex flex-wrap gap-1.5" aria-label="Активные фильтры списка">
@@ -728,10 +758,8 @@ export function DocTable({
               Поиск не задан
             </span>
           )}
-          <span
-            className={`rounded-full px-2 py-1 text-[11px] ${filterActive ? "bg-primary/15 text-text" : "bg-zinc-100 text-text"}`}
-          >
-            {filterActive ? "Только проиндексированные" : "Все статусы"}
+          <span className="rounded-full bg-zinc-100 px-2 py-1 text-[11px] text-text">
+            Все статусы
           </span>
           <span
             className={`rounded-full px-2 py-1 text-[11px] ${archiveActive ? "bg-primary/15 text-text" : "bg-zinc-100 text-muted"}`}

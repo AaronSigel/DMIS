@@ -494,6 +494,9 @@ describe("calendar page", () => {
       expect(screen.getByRole("heading", { name: /^календарь$/i })).toBeInTheDocument(),
     );
 
+    // Open the create form (form is hidden by default after the UX fix)
+    await userEvent.click(screen.getByRole("button", { name: /создать событие/i }));
+
     await userEvent.click(screen.getByRole("button", { name: /день/i }));
     await userEvent.click(screen.getByRole("button", { name: /неделя/i }));
     const dateInput = screen.getByLabelText(/дата просмотра календаря/i);

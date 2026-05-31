@@ -94,6 +94,16 @@ function formatDateTime(iso: string): string {
   }).format(date);
 }
 
+function formatDateOnly(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
 function eventStyleBounds(
   startIso: string,
   endIso: string,
@@ -170,7 +180,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [formError, setFormError] = useState("");
-  const [composeOpen, setComposeOpen] = useState(true);
+  const [composeOpen, setComposeOpen] = useState(false);
   const [participantQuery, setParticipantQuery] = useState("");
   const [participantHits, setParticipantHits] = useState<UserSummary[]>([]);
   const [availabilityHint, setAvailabilityHint] = useState("");
@@ -368,6 +378,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
   });
 
   function openDetail(ev: CalendarEvent) {
+    setComposeOpen(false);
     setSelectedEventId(ev.id);
     setEditMode(false);
     setForm({
@@ -514,13 +525,26 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setComposeOpen((v) => !v)}
-            className="text-left text-[12px] text-muted underline"
-          >
-            {composeOpen ? "Скрыть форму создания" : "Новое событие"}
-          </button>
+          {!composeOpen ? (
+            <button
+              type="button"
+              onClick={() => {
+                setComposeOpen(true);
+                setSelectedEventId(null);
+              }}
+              className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-white w-full"
+            >
+              + Создать событие
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setComposeOpen(false)}
+              className="text-left text-[12px] text-muted underline"
+            >
+              Скрыть форму
+            </button>
+          )}
 
           {composeOpen && (
             <form className="grid gap-2 border-t border-border pt-2" onSubmit={handleSubmitCreate}>
@@ -583,7 +607,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
             <span className="text-[12px] text-muted">
               Источник данных: локальный календарь DMIS
               {listRange
-                ? ` · период ${new Date(listRange.from).toLocaleDateString("ru-RU")} — ${new Date(listRange.to).toLocaleDateString("ru-RU")}`
+                ? ` · период ${formatDateOnly(listRange.from)} — ${formatDateOnly(listRange.to)}`
                 : ""}
             </span>
           </header>
