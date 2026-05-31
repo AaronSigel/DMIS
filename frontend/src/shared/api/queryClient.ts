@@ -3,8 +3,16 @@ import { QueryClient } from "@tanstack/react-query";
 export const queryKeys = {
   documents: {
     all: ["documents"] as const,
-    list: (params: { section: string; page: number; size: number; archive?: boolean }) =>
-      ["documents", params] as const,
+    list: (params: {
+      section: string;
+      page: number;
+      size: number;
+      archive?: boolean;
+      sort?: string;
+      typeFilter?: string;
+      ownerFilter?: string;
+      tagFilter?: string;
+    }) => ["documents", params] as const,
     search: (query: string) => ["documents", "search", query] as const,
     count: ["documents-count"] as const,
     card: (documentId: string | undefined) => ["document-card", documentId] as const,

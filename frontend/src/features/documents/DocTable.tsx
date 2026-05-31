@@ -180,6 +180,26 @@ export function UploadPipeline({ status }: { status: string }) {
   );
 }
 
+function sortToApiParams(sort: SortOption): { sortBy: string; order: string } {
+  switch (sort) {
+    case "date_asc":
+      return { sortBy: "updatedAt", order: "asc" };
+    case "name_asc":
+      return { sortBy: "name", order: "asc" };
+    case "name_desc":
+      return { sortBy: "name", order: "desc" };
+    case "date_desc":
+    default:
+      return { sortBy: "updatedAt", order: "desc" };
+  }
+}
+
+const TYPE_TO_CONTENT_TYPE: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  txt: "text/plain",
+};
+
 /** Тег API для фильтрации списка по «разделу» сайдбара. */
 function tagForSection(section: string): string | undefined {
   if (section === "pinned") return "pinned";
@@ -207,13 +227,26 @@ function formatQueryOrMutationError(err: unknown): string {
   return mapApiErrorToMessage(err.message);
 }
 
+type SortOption = "date_desc" | "date_asc" | "name_asc" | "name_desc";
+
+function normalizeSort(raw: string | undefined): SortOption {
+  if (raw === "oldest") return "date_asc";
+  if (raw === "newest") return "date_desc";
+  if (raw === "date_asc" || raw === "date_desc" || raw === "name_asc" || raw === "name_desc")
+    return raw;
+  return "date_desc";
+}
+
 const docTableQuerySchema = z.object({
   archive: z.preprocess((value) => {
     if (value === "1" || value === "true") return true;
     if (value === "0" || value === "false") return false;
     return undefined;
   }, z.boolean().optional()),
-  sort: z.enum(["newest", "oldest"]).optional(),
+  sort: z.string().optional(),
+  type: z.string().optional(),
+  ownerId: z.string().optional(),
+  tag: z.string().optional(),
   page: z.preprocess((value) => {
     if (typeof value !== "string") return undefined;
     if (value.trim() === "") return undefined;
@@ -225,22 +258,38 @@ const docTableQuerySchema = z.object({
 
 function parseDocTableQuery(search: string): {
   archiveActive: boolean;
-  sortOrder: "newest" | "oldest";
+  sort: SortOption;
   page: number;
+  typeFilter: string;
+  ownerFilter: string;
+  tagFilter: string;
 } {
   const params = new URLSearchParams(search);
   const parsed = docTableQuerySchema.safeParse({
     archive: params.get("archive") ?? undefined,
     sort: params.get("sort") ?? undefined,
+    type: params.get("type") ?? undefined,
+    ownerId: params.get("ownerId") ?? undefined,
+    tag: params.get("tag") ?? undefined,
     page: params.get("page") ?? undefined,
   });
   if (!parsed.success) {
-    return { archiveActive: false, sortOrder: "newest", page: 0 };
+    return {
+      archiveActive: false,
+      sort: "date_desc",
+      page: 0,
+      typeFilter: "all",
+      ownerFilter: "all",
+      tagFilter: "",
+    };
   }
   return {
     archiveActive: parsed.data.archive ?? false,
-    sortOrder: parsed.data.sort ?? "newest",
+    sort: normalizeSort(parsed.data.sort),
     page: parsed.data.page ?? 0,
+    typeFilter: parsed.data.type ?? "all",
+    ownerFilter: parsed.data.ownerId ?? "all",
+    tagFilter: parsed.data.tag ?? "",
   };
 }
 
@@ -260,7 +309,11 @@ export function DocTable({
   const [page, setPage] = useState(initialQueryState.page);
   const [renameDoc, setRenameDoc] = useState<DocumentView | null>(null);
   const [archiveActive, setArchiveActive] = useState(initialQueryState.archiveActive);
-  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">(initialQueryState.sortOrder);
+  const [sort, setSort] = useState<SortOption>(initialQueryState.sort);
+  const [typeFilter, setTypeFilter] = useState<string>(initialQueryState.typeFilter);
+  const [ownerFilter, setOwnerFilter] = useState<string>(initialQueryState.ownerFilter);
+  const [tagFilter, setTagFilter] = useState<string>(initialQueryState.tagFilter);
+  const [tagFilterInput, setTagFilterInput] = useState<string>(initialQueryState.tagFilter);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkTagsInput, setBulkTagsInput] = useState("");
@@ -280,7 +333,11 @@ export function DocTable({
   useEffect(() => {
     const nextState = parseDocTableQuery(location.search);
     setArchiveActive((prev) => (prev === nextState.archiveActive ? prev : nextState.archiveActive));
-    setSortOrder((prev) => (prev === nextState.sortOrder ? prev : nextState.sortOrder));
+    setSort((prev) => (prev === nextState.sort ? prev : nextState.sort));
+    setTypeFilter((prev) => (prev === nextState.typeFilter ? prev : nextState.typeFilter));
+    setOwnerFilter((prev) => (prev === nextState.ownerFilter ? prev : nextState.ownerFilter));
+    setTagFilter((prev) => (prev === nextState.tagFilter ? prev : nextState.tagFilter));
+    setTagFilterInput((prev) => (prev === nextState.tagFilter ? prev : nextState.tagFilter));
     setPage((prev) => (prev === nextState.page ? prev : nextState.page));
   }, [location.search]);
 
@@ -291,10 +348,25 @@ export function DocTable({
     } else {
       nextParams.delete("archive");
     }
-    if (sortOrder === "oldest") {
-      nextParams.set("sort", "oldest");
+    if (sort !== "date_desc") {
+      nextParams.set("sort", sort);
     } else {
       nextParams.delete("sort");
+    }
+    if (typeFilter !== "all") {
+      nextParams.set("type", typeFilter);
+    } else {
+      nextParams.delete("type");
+    }
+    if (ownerFilter !== "all") {
+      nextParams.set("ownerId", ownerFilter);
+    } else {
+      nextParams.delete("ownerId");
+    }
+    if (tagFilter) {
+      nextParams.set("tag", tagFilter);
+    } else {
+      nextParams.delete("tag");
     }
     if (page > 0) {
       nextParams.set("page", String(page));
@@ -306,13 +378,41 @@ export function DocTable({
     const next = nextParams.toString();
     if (current === next) return;
     navigate({ pathname: location.pathname, search: next ? `?${next}` : "" }, { replace: true });
-  }, [archiveActive, sortOrder, page, location.pathname, location.search, navigate]);
+  }, [
+    archiveActive,
+    sort,
+    typeFilter,
+    ownerFilter,
+    tagFilter,
+    page,
+    location.pathname,
+    location.search,
+    navigate,
+  ]);
 
+  const { sortBy, order } = sortToApiParams(sort);
   const docQuery = useQuery({
-    queryKey: queryKeys.documents.list({ section, page, size: 20, archive: archiveActive }),
+    queryKey: queryKeys.documents.list({
+      section,
+      page,
+      size: 20,
+      archive: archiveActive,
+      sort,
+      typeFilter,
+      ownerFilter,
+      tagFilter,
+    }),
     queryFn: () =>
       apiListDocuments(
-        { page, size: 20, tag: archiveActive ? "archive" : tagForSection(section) },
+        {
+          page,
+          size: 20,
+          tag: archiveActive ? "archive" : tagFilter || tagForSection(section),
+          type: typeFilter !== "all" ? TYPE_TO_CONTENT_TYPE[typeFilter] : undefined,
+          ownerId: ownerFilter !== "all" ? ownerFilter : undefined,
+          sortBy,
+          order,
+        },
         onSessionExpired,
         onTokenRefresh,
       ),
@@ -354,6 +454,14 @@ export function DocTable({
     if (uploadTrigger > 0) fileRef.current?.click();
   }, [uploadTrigger]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setTagFilter(tagFilterInput);
+      setPage(0);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [tagFilterInput]);
+
   function handleFileSelect(e: ChangeEvent<HTMLInputElement>) {
     const files = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = "";
@@ -370,17 +478,17 @@ export function DocTable({
     () => Array.from(new Set(rawDocs.map((d) => d.status).filter(Boolean))).sort(),
     [rawDocs],
   );
+  const availableOwners = useMemo(
+    () => Array.from(new Set(rawDocs.map((d) => d.ownerId).filter(Boolean))).sort(),
+    [rawDocs],
+  );
   const q = (searchQuery ?? "").trim().toLowerCase();
   const filteredBySearch = q ? rawDocs.filter((d) => d.title.toLowerCase().includes(q)) : rawDocs;
   const filtered =
     statusFilter === "ALL"
       ? filteredBySearch
       : filteredBySearch.filter((d) => d.status === statusFilter);
-  const docs = [...filtered].sort((a, b) => {
-    const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-    const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-    return sortOrder === "newest" ? bt - at : at - bt;
-  });
+  const docs = filtered;
   const isAdminUser = user.roles?.includes("ADMIN") ?? false;
   const cols = "32px minmax(220px,1fr) 140px 100px 132px 160px 44px";
   const tableMinWidth = "680px";
@@ -548,9 +656,20 @@ export function DocTable({
             >
               {archiveActive ? "Архив: вкл" : "Архив"}
             </TopBarBtn>
-            <TopBarBtn onClick={() => setSortOrder((v) => (v === "newest" ? "oldest" : "newest"))}>
-              {sortOrder === "newest" ? "Сортировка: новые" : "Сортировка: старые"}
-            </TopBarBtn>
+            <select
+              aria-label="Сортировка"
+              value={sort}
+              onChange={(e) => {
+                setSort(e.target.value as SortOption);
+                setPage(0);
+              }}
+              className="rounded-md border border-border bg-surface px-2 py-1 text-xs"
+            >
+              <option value="date_desc">Новые сверху</option>
+              <option value="date_asc">Старые сверху</option>
+              <option value="name_asc">Имя А→Я</option>
+              <option value="name_desc">Имя Я→А</option>
+            </select>
             <TopBarBtn
               onClick={() => fileRef.current?.click()}
               title="Загрузить документ в систему"
@@ -780,7 +899,14 @@ export function DocTable({
             {archiveActive ? "Только архив" : "Без архива"}
           </span>
           <span className="rounded-full bg-zinc-100 px-2 py-1 text-[11px] text-muted">
-            Сортировка: {sortOrder === "newest" ? "новые сверху" : "старые сверху"}
+            Сортировка:{" "}
+            {sort === "date_desc"
+              ? "новые сверху"
+              : sort === "date_asc"
+                ? "старые сверху"
+                : sort === "name_asc"
+                  ? "имя А→Я"
+                  : "имя Я→А"}
           </span>
         </div>
         <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -804,6 +930,52 @@ export function DocTable({
               </option>
             ))}
           </select>
+
+          {/* Type filter */}
+          <select
+            aria-label="Тип файла"
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value);
+              setPage(0);
+            }}
+            className="rounded-md border border-border bg-surface px-2 py-1 text-xs"
+          >
+            <option value="all">Все типы</option>
+            <option value="pdf">PDF</option>
+            <option value="docx">DOCX</option>
+            <option value="txt">TXT</option>
+          </select>
+
+          {/* Owner filter */}
+          {availableOwners.length > 1 && (
+            <select
+              aria-label="Владелец"
+              value={ownerFilter}
+              onChange={(e) => {
+                setOwnerFilter(e.target.value);
+                setPage(0);
+              }}
+              className="rounded-md border border-border bg-surface px-2 py-1 text-xs"
+            >
+              <option value="all">Все владельцы</option>
+              {availableOwners.map((id) => (
+                <option key={id} value={id}>
+                  {id.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Tag filter */}
+          <input
+            type="text"
+            aria-label="Фильтр по тегу"
+            placeholder="Тег…"
+            value={tagFilterInput}
+            onChange={(e) => setTagFilterInput(e.target.value)}
+            className="w-28 rounded-md border border-border bg-surface px-2 py-1 text-xs"
+          />
         </div>
 
         <div className="overflow-x-auto">
