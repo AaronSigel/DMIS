@@ -105,6 +105,7 @@ export function ClarificationForm({
                   onChange(field, val);
                 }}
                 multi={false}
+                inputTestId={`clarification-field-${field}`}
                 onSessionExpired={onSessionExpired}
                 onTokenRefresh={onTokenRefresh}
               />
@@ -116,6 +117,7 @@ export function ClarificationForm({
                   onChange(field, val);
                 }}
                 multi={true}
+                inputTestId={`clarification-field-${field}`}
                 onSessionExpired={onSessionExpired}
                 onTokenRefresh={onTokenRefresh}
               />

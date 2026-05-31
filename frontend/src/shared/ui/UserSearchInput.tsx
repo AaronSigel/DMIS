@@ -1,18 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { apiSearchUsers } from "../../apiClient";
-
-type UserSummary = {
-  id: string;
-  email: string;
-  fullName: string;
-  nickname?: string | null;
-};
+import type { UserSummary } from "../../entities/calendar";
 
 type UserSearchInputProps = {
   value: string;
   onChange: (value: string) => void;
   multi?: boolean;
   placeholder?: string;
+  inputTestId?: string;
   onSessionExpired: () => void;
   onTokenRefresh?: (token: string) => void;
 };
@@ -22,6 +17,7 @@ export function UserSearchInput({
   onChange,
   multi = false,
   placeholder,
+  inputTestId,
   onSessionExpired,
   onTokenRefresh,
 }: UserSearchInputProps) {
@@ -29,6 +25,12 @@ export function UserSearchInput({
   const [results, setResults] = useState<UserSummary[]>([]);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const onSessionExpiredRef = useRef(onSessionExpired);
+  const onTokenRefreshRef = useRef(onTokenRefresh);
+  useEffect(() => {
+    onSessionExpiredRef.current = onSessionExpired;
+    onTokenRefreshRef.current = onTokenRefresh;
+  });
 
   const selectedEmails = multi
     ? value
@@ -44,13 +46,15 @@ export function UserSearchInput({
       return;
     }
     const timer = setTimeout(() => {
-      void apiSearchUsers(trimmed, onSessionExpired, onTokenRefresh).then((data) => {
-        setResults(data as UserSummary[]);
-        setOpen(true);
-      });
+      void apiSearchUsers(trimmed, onSessionExpiredRef.current, onTokenRefreshRef.current).then(
+        (data) => {
+          setResults(data);
+          setOpen(true);
+        },
+      );
     }, 300);
     return () => clearTimeout(timer);
-  }, [inputText, onSessionExpired, onTokenRefresh]);
+  }, [inputText]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -70,7 +74,6 @@ export function UserSearchInput({
       }
     } else {
       onChange(user.email);
-      setInputText(user.email);
     }
     setInputText("");
     setOpen(false);
@@ -107,6 +110,7 @@ export function UserSearchInput({
       )}
 
       <input
+        data-testid={inputTestId}
         type="text"
         value={multi ? inputText : inputText || value}
         placeholder={placeholder ?? (multi ? "Введите имя или email…" : "Введите имя или email…")}
