@@ -14,9 +14,21 @@ export function ScreenState({ variant, message, action }: ScreenStateProps) {
   const text = message ?? defaultMessages[variant];
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      {variant === "loading" && <span className="text-2xl opacity-40">⟳</span>}
-      {variant === "error" && <span className="text-2xl text-danger opacity-60">⚠</span>}
-      {variant === "empty" && <span className="text-2xl opacity-30">○</span>}
+      {variant === "loading" && (
+        <span aria-hidden="true" className="text-2xl opacity-40">
+          ⟳
+        </span>
+      )}
+      {variant === "error" && (
+        <span aria-hidden="true" className="text-2xl text-danger opacity-60">
+          ⚠
+        </span>
+      )}
+      {variant === "empty" && (
+        <span aria-hidden="true" className="text-2xl opacity-30">
+          ○
+        </span>
+      )}
       <p className="m-0 text-sm text-muted">{text}</p>
       {action && (
         <button
