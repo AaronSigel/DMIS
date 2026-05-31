@@ -299,6 +299,8 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     setComposeTo(detail.to);
     setComposeSubject(detail.subject);
     setComposeBody(detail.body);
+    setComposeAttachments([]);
+    setShowDocPicker(false);
     setConfirmSendOpen(true);
   }
 
@@ -728,6 +730,9 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                   {composeDocsQuery.isPending && (
                     <p className="px-3 py-2 text-xs text-muted">Загрузка…</p>
                   )}
+                  {composeDocsQuery.isError && (
+                    <p className="px-3 py-2 text-xs text-danger">Не удалось загрузить документы.</p>
+                  )}
                   {composeDocsQuery.data?.content.length === 0 && (
                     <p className="px-3 py-2 text-xs text-muted">Нет документов.</p>
                   )}
@@ -789,7 +794,13 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
 
       <ConfirmDialog
         open={confirmSendOpen}
-        onOpenChange={setConfirmSendOpen}
+        onOpenChange={(open) => {
+          setConfirmSendOpen(open);
+          if (!open) {
+            setComposeAttachments([]);
+            setShowDocPicker(false);
+          }
+        }}
         onConfirm={handleConfirmSend}
         title="Отправить письмо?"
         description="Это действие нельзя отменить."
