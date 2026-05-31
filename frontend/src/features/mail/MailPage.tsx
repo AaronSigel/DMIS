@@ -6,6 +6,7 @@ import {
   apiDownloadMailAttachment,
   apiForwardDraft,
   apiGetMailMessage,
+  apiListDocuments,
   apiListMailMessages,
   apiMailThreadSummary,
   apiReplyDraft,
@@ -19,6 +20,7 @@ import { queryKeys } from "../../shared/api/queryClient";
 import { useUiStore } from "../../shared/store/uiStore";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
 import { timeAgo } from "../../shared/lib/timeAgo";
+import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { PageHeader } from "../../shared/ui/PageHeader";
 import { useToast } from "../../shared/ui/ToastProvider";
 import type { MailMessageSummary } from "../../entities/mail";
@@ -86,11 +88,39 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
   const [composeDraftId, setComposeDraftId] = useState<string | null>(null);
+  const [composeAttachments, setComposeAttachments] = useState<string[]>([]);
+  const [showDocPicker, setShowDocPicker] = useState(false);
 
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryText, setSummaryText] = useState<string | null>(null);
+
+  useEffect(() => {
+    const hasAnyOpenDialog = composeOpen || confirmSendOpen || summaryOpen;
+    if (!hasAnyOpenDialog) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (confirmSendOpen) {
+        setConfirmSendOpen(false);
+        return;
+      }
+      if (summaryOpen) {
+        setSummaryOpen(false);
+        return;
+      }
+      if (composeOpen) {
+        setComposeOpen(false);
+        setComposeAttachments([]);
+        setShowDocPicker(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [composeOpen, confirmSendOpen, summaryOpen]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -137,6 +167,13 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     enabled: !!token && !!selectedId,
   });
 
+  const composeDocsQuery = useQuery({
+    queryKey: ["documents", "compose-picker"],
+    queryFn: () => apiListDocuments({ page: 0, size: 50 }, onSessionExpired, onTokenRefresh),
+    enabled: composeOpen,
+    staleTime: 60_000,
+  });
+
   const isSearching = !!debouncedQuery;
   const messages: MailMessageSummary[] = useMemo(() => {
     if (isSearching) return searchQuery.data?.messages ?? [];
@@ -179,6 +216,10 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
       setComposeSubject(draft.subject);
       setComposeBody(draft.body);
       setComposeOpen(true);
+      toast.success("Черновик ответа создан.");
+    },
+    onError: (err) => {
+      toast.error(formatErrorMessage(err, "Не удалось создать черновик ответа."));
     },
   });
 
@@ -193,6 +234,10 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
       setComposeSubject(draft.subject);
       setComposeBody(draft.body);
       setComposeOpen(true);
+      toast.success("Черновик пересылки создан.");
+    },
+    onError: (err) => {
+      toast.error(formatErrorMessage(err, "Не удалось создать черновик пересылки."));
     },
   });
 
@@ -201,6 +246,10 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     onSuccess: (res) => {
       setSummaryText(res.summary);
       setSummaryOpen(true);
+      toast.success("Краткий пересказ готов.");
+    },
+    onError: (err) => {
+      toast.error(formatErrorMessage(err, "Не удалось получить краткий пересказ."));
     },
   });
 
@@ -213,6 +262,13 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
         onSessionExpired,
         onTokenRefresh,
       ),
+    onSuccess: () => {
+      invalidateMail();
+      toast.success("Вложение сохранено.");
+    },
+    onError: (err) => {
+      toast.error(formatErrorMessage(err, "Не удалось сохранить вложение."));
+    },
   });
 
   function handleReplyWithAi() {
@@ -248,22 +304,37 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
 
   async function handleSaveCompose() {
     const to = normalizeMailRecipientInput(composeTo);
-    if (composeDraftId) {
-      await apiUpdateMailDraft(
-        composeDraftId,
-        { to, subject: composeSubject, body: composeBody },
-        onSessionExpired,
-        onTokenRefresh,
-      );
-    } else {
-      const created = await apiCreateMailDraft(
-        { to, subject: composeSubject, body: composeBody },
-        onSessionExpired,
-        onTokenRefresh,
-      );
-      setComposeDraftId(created.id);
+    try {
+      if (composeDraftId) {
+        await apiUpdateMailDraft(
+          composeDraftId,
+          {
+            to,
+            subject: composeSubject,
+            body: composeBody,
+            attachmentDocumentIds: composeAttachments,
+          },
+          onSessionExpired,
+          onTokenRefresh,
+        );
+      } else {
+        const created = await apiCreateMailDraft(
+          {
+            to,
+            subject: composeSubject,
+            body: composeBody,
+            attachmentDocumentIds: composeAttachments,
+          },
+          onSessionExpired,
+          onTokenRefresh,
+        );
+        setComposeDraftId(created.id);
+      }
+      invalidateMail();
+      toast.success("Черновик сохранен.");
+    } catch (err) {
+      toast.error(formatErrorMessage(err, "Не удалось сохранить черновик."));
     }
-    invalidateMail();
   }
 
   async function handleConfirmSend() {
@@ -272,7 +343,12 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     try {
       if (!id) {
         const created = await apiCreateMailDraft(
-          { to, subject: composeSubject, body: composeBody },
+          {
+            to,
+            subject: composeSubject,
+            body: composeBody,
+            attachmentDocumentIds: composeAttachments,
+          },
           onSessionExpired,
           onTokenRefresh,
         );
@@ -282,9 +358,12 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
       await apiSendMailDraft(id, onSessionExpired, onTokenRefresh);
       setConfirmSendOpen(false);
       setComposeOpen(false);
+      setComposeAttachments([]);
+      setShowDocPicker(false);
       setComposeDraftId(null);
       invalidateMail();
       setFolder("SENT");
+      toast.success("Письмо отправлено.");
     } catch (err) {
       toast.error(formatErrorMessage(err, "Не удалось отправить письмо."));
     }
@@ -393,8 +472,11 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                             : "bg-transparent text-text hover:bg-surface"
                         }`}
                       >
-                        <span className="flex w-full items-center justify-between gap-2">
-                          <span className="truncate font-medium">
+                        <span className="flex w-full min-w-0 items-center justify-between gap-2">
+                          <span
+                            className="min-w-0 truncate font-medium"
+                            title={message.from || "—"}
+                          >
                             {message.draft ? "Черновик → " : ""}
                             {message.from || "—"}
                           </span>
@@ -402,11 +484,17 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                             {timeAgo(message.sentAtIso)}
                           </span>
                         </span>
-                        <span className="line-clamp-1 w-full break-words text-[13px] text-text">
+                        <span
+                          className="line-clamp-1 w-full overflow-hidden break-words text-[13px] text-text"
+                          title={message.subject || "(без темы)"}
+                        >
                           {message.subject || "(без темы)"}
                           {message.hasAttachments ? " 📎" : ""}
                         </span>
-                        <span className="line-clamp-2 w-full break-words text-[12px] text-muted">
+                        <span
+                          className="line-clamp-2 w-full overflow-hidden break-words text-[12px] text-muted"
+                          title={message.preview}
+                        >
                           {message.preview}
                         </span>
                       </button>
@@ -499,7 +587,7 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
               </div>
 
               <header className="flex flex-col gap-1">
-                <h3 className="m-0 text-lg font-semibold text-text">
+                <h3 className="m-0 break-words text-lg font-semibold text-text">
                   {detail.subject || "(без темы)"}
                 </h3>
                 <p className="m-0 text-[12px] text-muted">
@@ -520,7 +608,9 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                         key={att.partId}
                         className="flex flex-wrap items-center gap-2 text-[12px]"
                       >
-                        <span className="truncate text-text">{att.fileName}</span>
+                        <span className="max-w-full truncate text-text" title={att.fileName}>
+                          {att.fileName}
+                        </span>
                         <button
                           type="button"
                           className="rounded border border-border px-2 py-0.5 text-[11px]"
@@ -533,12 +623,10 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                           disabled={saveToDocsMutation.isPending}
                           className="rounded border border-border px-2 py-0.5 text-[11px]"
                           onClick={() =>
-                            saveToDocsMutation.mutate(
-                              { partId: att.partId, fileName: att.fileName },
-                              {
-                                onSuccess: () => invalidateMail(),
-                              },
-                            )
+                            saveToDocsMutation.mutate({
+                              partId: att.partId,
+                              fileName: att.fileName,
+                            })
                           }
                         >
                           В документы
@@ -594,11 +682,89 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                 className="mt-1 w-full rounded-md border border-border px-2 py-1.5 text-[13px]"
               />
             </label>
+            {/* Attachments */}
+            <div className="mt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted">Вложения:</span>
+                <button
+                  type="button"
+                  onClick={() => setShowDocPicker((v) => !v)}
+                  className="rounded border border-border px-2 py-0.5 text-xs hover:bg-surface"
+                >
+                  {showDocPicker ? "Скрыть" : "Прикрепить документ"}
+                </button>
+              </div>
+
+              {/* Selected attachment chips */}
+              {composeAttachments.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {composeAttachments.map((docId) => {
+                    const doc = composeDocsQuery.data?.content.find((d) => d.id === docId);
+                    return (
+                      <span
+                        key={docId}
+                        className="flex items-center gap-1 rounded-full bg-muted/20 px-2 py-0.5 text-xs"
+                      >
+                        {doc?.title ?? docId.slice(0, 8)}
+                        <button
+                          type="button"
+                          aria-label="Удалить вложение"
+                          onClick={() =>
+                            setComposeAttachments((prev) => prev.filter((id) => id !== docId))
+                          }
+                          className="ml-0.5 text-muted hover:text-danger"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Document picker list */}
+              {showDocPicker && (
+                <div className="mt-1 max-h-36 overflow-y-auto rounded border border-border bg-surface">
+                  {composeDocsQuery.isPending && (
+                    <p className="px-3 py-2 text-xs text-muted">Загрузка…</p>
+                  )}
+                  {composeDocsQuery.data?.content.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-muted">Нет документов.</p>
+                  )}
+                  {composeDocsQuery.data?.content.map((doc) => {
+                    const checked = composeAttachments.includes(doc.id);
+                    return (
+                      <label
+                        key={doc.id}
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/10"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setComposeAttachments((prev) =>
+                              checked ? prev.filter((id) => id !== doc.id) : [...prev, doc.id],
+                            )
+                          }
+                        />
+                        <span className="truncate">{doc.title}</span>
+                        <span className="ml-auto shrink-0 text-muted">{doc.status}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 className="rounded-md border border-border px-3 py-1.5 text-[12px]"
-                onClick={() => setComposeOpen(false)}
+                onClick={() => {
+                  setComposeOpen(false);
+                  setComposeAttachments([]);
+                  setShowDocPicker(false);
+                }}
               >
                 Отмена
               </button>
@@ -621,34 +787,15 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
         </div>
       )}
 
-      {confirmSendOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="alertdialog"
-        >
-          <div className="w-full max-w-sm rounded-lg border border-border bg-white p-4 shadow-lg">
-            <p className="m-0 mb-3 text-[13px] text-text">
-              Отправить письмо? Это действие нельзя отменить.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-border px-3 py-1.5 text-[12px]"
-                onClick={() => setConfirmSendOpen(false)}
-              >
-                Нет
-              </button>
-              <button
-                type="button"
-                className="rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-white"
-                onClick={() => void handleConfirmSend()}
-              >
-                Да, отправить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmSendOpen}
+        onOpenChange={setConfirmSendOpen}
+        onConfirm={handleConfirmSend}
+        title="Отправить письмо?"
+        description="Это действие нельзя отменить."
+        confirmText="Да, отправить"
+        cancelText="Нет"
+      />
 
       {summaryOpen && (
         <div
