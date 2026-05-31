@@ -38,6 +38,7 @@ function renderValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "object") return JSON.stringify(value);
   const str = String(value);
+  // Uses local timezone (not UTC) so times display correctly for the user's region
   if (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T/.test(str)) return formatDateTime(str);
   return str;
 }
