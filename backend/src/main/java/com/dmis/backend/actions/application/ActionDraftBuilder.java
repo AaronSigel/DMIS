@@ -24,7 +24,9 @@ import java.util.regex.Pattern;
  */
 @Service
 public class ActionDraftBuilder {
-    private static final Pattern MENTION_PATTERN = Pattern.compile("@([\\w.-]+)");
+    private static final Pattern USER_MENTION_PATTERN = Pattern.compile(
+            "([@#])([\\p{L}\\p{N}._-]+(?:\\s+\\p{Lu}[\\p{L}.-]*){0,2})"
+    );
     private static final Pattern DATE_PATTERN = Pattern.compile(
             "(?iu)(?:на\\s+)?(\\d{1,2})\\.(\\d{1,2})(?:\\.(\\d{2,4}))?(?:\\.|\\s|$)"
     );
@@ -247,11 +249,25 @@ public class ActionDraftBuilder {
     }
 
     private static String extractRecipientMention(String text) {
-        Matcher matcher = MENTION_PATTERN.matcher(text);
-        if (matcher.find()) {
-            return "@" + matcher.group(1);
+        Matcher matcher = USER_MENTION_PATTERN.matcher(text);
+        while (matcher.find()) {
+            String mention = matcher.group();
+            if (mention.startsWith("#")) {
+                return mention;
+            }
+        }
+        matcher = USER_MENTION_PATTERN.matcher(text);
+        while (matcher.find()) {
+            String mention = matcher.group();
+            if (!isLikelyDocumentMention(mention)) {
+                return mention;
+            }
         }
         return null;
+    }
+
+    private static boolean isLikelyDocumentMention(String mention) {
+        return mention.startsWith("@") && !mention.contains(" ") && mention.substring(1).contains(".");
     }
 
     private static String inferRecipientFromText(String text) {
@@ -352,9 +368,12 @@ public class ActionDraftBuilder {
 
     private static List<String> extractAttendeeMentions(String text) {
         LinkedHashSet<String> mentions = new LinkedHashSet<>();
-        Matcher matcher = MENTION_PATTERN.matcher(text);
+        Matcher matcher = USER_MENTION_PATTERN.matcher(text);
         while (matcher.find()) {
-            mentions.add("@" + matcher.group(1));
+            String mention = matcher.group();
+            if (!isLikelyDocumentMention(mention)) {
+                mentions.add(mention);
+            }
         }
         return List.copyOf(mentions);
     }

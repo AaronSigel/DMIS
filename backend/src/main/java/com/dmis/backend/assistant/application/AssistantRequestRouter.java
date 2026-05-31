@@ -18,7 +18,7 @@ public class AssistantRequestRouter {
             "(?i)(подготовь\\s+письм|отправ(ь|ить)\\s+письм|создай\\s+встреч|назнач(ь|ить)\\s+встреч|"
                     + "prepare\\s+email|send\\s+email|create\\s+(meeting|event)|schedule\\s+meeting)"
     );
-    private static final Pattern MENTION_PATTERN = Pattern.compile("@[\\w.-]+");
+    private static final Pattern MENTION_PATTERN = Pattern.compile("[@#][\\p{L}\\p{N}._-]+");
     private static final Pattern QUESTION_PATTERN = Pattern.compile(
             "(?i)(\\?|какая|какой|какие|как|что|где|когда|сколько|указан|написано|содержит|контрольн)"
     );

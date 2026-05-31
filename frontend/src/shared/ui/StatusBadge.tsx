@@ -13,6 +13,7 @@ export function StatusBadge({ status }: { status: string }) {
     pending: "border border-muted bg-transparent text-muted",
     failed: "border-none bg-danger-soft text-danger",
     draft: "border border-text bg-transparent text-text",
+    cancelled: "border border-muted bg-transparent text-muted",
     confirmed: "border border-primary bg-primary-soft text-primary",
     executed: "border-none bg-success text-white",
   };

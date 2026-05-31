@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -27,8 +28,10 @@ public class ActionsController {
     }
 
     @GetMapping
-    public List<ActionDtos.AiActionView> list() {
-        return actionService.list(currentUserProvider.currentUser());
+    public List<ActionDtos.AiActionView> list(
+            @RequestParam(value = "threadId", required = false) String threadId
+    ) {
+        return actionService.list(currentUserProvider.currentUser(), threadId);
     }
 
     @PostMapping("/draft")
@@ -39,6 +42,11 @@ public class ActionsController {
     @PostMapping("/{actionId}/confirm")
     public ActionDtos.AiActionView confirm(@PathVariable("actionId") String actionId) {
         return actionService.confirm(currentUserProvider.currentUser(), actionId);
+    }
+
+    @PostMapping("/{actionId}/cancel")
+    public ActionDtos.AiActionView cancel(@PathVariable("actionId") String actionId) {
+        return actionService.cancel(currentUserProvider.currentUser(), actionId);
     }
 
     @PostMapping("/{actionId}/execute")

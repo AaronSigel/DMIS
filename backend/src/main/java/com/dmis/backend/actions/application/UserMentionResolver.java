@@ -2,16 +2,16 @@ package com.dmis.backend.actions.application;
 
 import com.dmis.backend.users.application.dto.UserSummaryView;
 import com.dmis.backend.users.application.port.UserAccessPort;
+import com.dmis.backend.users.application.UserFioMatcher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Locale;
 
 /**
- * Сопоставление {@code @упоминания} пользователя из каталога с email.
- * Строку без префикса {@code @} возвращает без изменений (после trim).
+ * Сопоставление {@code @}/{@code #} упоминания пользователя из каталога с email.
+ * Строку без mention-префикса возвращает без изменений (после trim).
  */
 @Service
 public class UserMentionResolver {
@@ -24,7 +24,8 @@ public class UserMentionResolver {
 
     public String resolve(String value) {
         String trimmed = value.trim();
-        if (!trimmed.startsWith("@") || trimmed.length() == 1) {
+        boolean hasMentionPrefix = trimmed.startsWith("@") || trimmed.startsWith("#");
+        if (!hasMentionPrefix || trimmed.length() == 1) {
             return trimmed;
         }
 
@@ -54,10 +55,7 @@ public class UserMentionResolver {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ambiguous user mention: " + trimmed);
         }
 
-        String normalizedMention = normalizeMention(mention);
-        List<UserSummaryView> nameMatches = users.stream()
-                .filter(user -> normalizeMention(user.fullName()).equals(normalizedMention))
-                .toList();
+        List<UserSummaryView> nameMatches = UserFioMatcher.matchStrict(mention, users);
         if (nameMatches.size() == 1) {
             return nameMatches.get(0).email();
         }
@@ -72,11 +70,4 @@ public class UserMentionResolver {
         return at < 0 ? email : email.substring(0, at);
     }
 
-    private static String normalizeMention(String value) {
-        return value == null
-                ? ""
-                : value.trim()
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[\\s._-]+", " ");
-    }
 }

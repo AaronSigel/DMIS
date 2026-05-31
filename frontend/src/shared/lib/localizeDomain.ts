@@ -5,6 +5,7 @@ const statusLabels: Record<string, string> = {
   pending: "в ожидании",
   failed: "ошибка",
   draft: "черновик",
+  cancelled: "отменено",
   confirmed: "подтверждено",
   executed: "выполнено",
   queued: "в очереди",
@@ -24,6 +25,7 @@ const intentLabels: Record<string, string> = {
 
 const auditActionLabels: Record<string, string> = {
   "action.draft": "черновик действия",
+  "action.cancel": "отмена действия",
   "action.confirm": "подтверждение действия",
   "action.execute": "выполнение действия",
   "mail.draft.create": "черновик письма",
@@ -55,6 +57,7 @@ const resourceTypeLabels: Record<string, string> = {
 
 const detailsLabels: Record<string, string> = {
   "Draft created": "Черновик создан",
+  "Action cancelled": "Действие отменено",
   "Action confirmed": "Действие подтверждено",
   "Action executed successfully": "Действие выполнено",
   "Mail draft prepared": "Черновик письма подготовлен",

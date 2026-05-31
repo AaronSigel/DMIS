@@ -205,6 +205,50 @@ public class AssistantService {
         );
     }
 
+    public AssistantDtos.ThreadDetailView seedConversation(
+            UserView actor,
+            String threadId,
+            String userContent,
+            String assistantContent,
+            List<String> documentIds
+    ) {
+        AssistantDtos.ThreadView thread = loadAccessibleThread(actor, threadId);
+        List<String> safeDocumentIds = documentIds == null ? List.of() : documentIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        validateDocumentAccess(actor, safeDocumentIds);
+
+        Instant now = Instant.now();
+        assistantPort.saveMessage(new AssistantDtos.MessageView(
+                "msg-" + UUID.randomUUID(),
+                thread.id(),
+                "USER",
+                userContent.trim(),
+                safeDocumentIds,
+                now
+        ));
+        assistantPort.saveMessage(new AssistantDtos.MessageView(
+                "msg-" + UUID.randomUUID(),
+                thread.id(),
+                "ASSISTANT",
+                assistantContent.trim(),
+                safeDocumentIds,
+                Instant.now()
+        ));
+        assistantPort.saveThread(new AssistantDtos.ThreadView(
+                thread.id(),
+                thread.ownerId(),
+                thread.title(),
+                thread.ideologyProfileId(),
+                thread.knowledgeSourceIds(),
+                thread.createdAt(),
+                Instant.now()
+        ));
+        auditService.append(actor.id(), "assistant.conversation.seed", "assistant_thread", thread.id(), "Conversation seeded");
+        return getThread(actor, thread.id());
+    }
+
     public List<AssistantDtos.AssistantDocumentStatusView> documentStatuses(UserView actor, List<String> documentIds) {
         return contextAssemblyService.documentStatuses(actor, documentIds);
     }
@@ -308,6 +352,7 @@ public class AssistantService {
         if (routing.requestType() == RequestType.CONTROLLED_ACTION) {
             ControlledActionOutcome outcome = resolveControlledActionDraft(
                     actor,
+                    thread.id(),
                     text,
                     normalizedSelected,
                     linkedDocumentIds,
@@ -411,6 +456,7 @@ public class AssistantService {
 
     private ControlledActionOutcome resolveControlledActionDraft(
             UserView actor,
+            String threadId,
             String text,
             List<String> selectedDocumentIds,
             List<String> linkedDocumentIds,
@@ -428,7 +474,8 @@ public class AssistantService {
             ActionDtos.AiActionView action = actionService.draft(
                     actor,
                     ActionDtos.SEND_EMAIL_INTENT,
-                    (ActionDtos.SendEmailEntities) built.entities()
+                    (ActionDtos.SendEmailEntities) built.entities(),
+                    threadId
             );
             auditService.append(
                     actor.id(),
@@ -447,7 +494,8 @@ public class AssistantService {
             ActionDtos.AiActionView action = actionService.draft(
                     actor,
                     ActionDtos.CREATE_CALENDAR_EVENT_INTENT,
-                    (ActionDtos.CreateCalendarEventEntities) built.entities()
+                    (ActionDtos.CreateCalendarEventEntities) built.entities(),
+                    threadId
             );
             auditService.append(
                     actor.id(),
@@ -459,7 +507,8 @@ public class AssistantService {
             return ControlledActionOutcome.draft(action);
         }
         try {
-            ActionDtos.AiActionView action = parseActionDraft(actor, text, selectedDocumentIds);
+            IntentParserService.ParsedDraft parsedDraft = intentParserService.parseDraft(text, selectedDocumentIds);
+            ActionDtos.AiActionView action = actionService.draft(actor, parsedDraft.intent(), parsedDraft.entities(), threadId);
             auditService.append(
                     actor.id(),
                     "assistant.action.draft.created",

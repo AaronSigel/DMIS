@@ -128,6 +128,20 @@ export async function parseAuthenticatedJson<T>(
   return response.json() as Promise<T>;
 }
 
+/** Authenticated endpoints that intentionally return an empty success body. */
+export async function parseAuthenticatedVoid(
+  response: Response,
+  onUnauthorized: () => void,
+): Promise<void> {
+  if (response.status === 401 || response.status === 403) {
+    onUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+}
+
 /** JSON уже проверен parseAuthenticatedJson; дополнительно валидирует контракт ответа. */
 async function parseAuthenticatedSchema<T>(
   response: Response,
@@ -596,7 +610,7 @@ export async function apiLinkAssistantThreadDocument(
     },
     onNewToken,
   );
-  await parseAuthenticatedJson<unknown>(response, onUnauthorized);
+  await parseAuthenticatedVoid(response, onUnauthorized);
 }
 
 export async function apiUnlinkAssistantThreadDocument(
@@ -610,7 +624,7 @@ export async function apiUnlinkAssistantThreadDocument(
     { method: "DELETE" },
     onNewToken,
   );
-  await parseAuthenticatedJson<unknown>(response, onUnauthorized);
+  await parseAuthenticatedVoid(response, onUnauthorized);
 }
 
 export async function apiUploadAssistantThreadAttachment(
@@ -847,8 +861,14 @@ export async function apiGetDocumentTags(
 export async function apiListActions(
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
+  threadId?: string,
 ): Promise<ActionView[]> {
-  const response = await fetchWithAuth(`${apiBaseUrl}/actions`, { method: "GET" }, onNewToken);
+  const query = threadId ? `?threadId=${encodeURIComponent(threadId)}` : "";
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/actions${query}`,
+    { method: "GET" },
+    onNewToken,
+  );
   return parseAuthenticatedSchema(response, ActionListSchema, onUnauthorized);
 }
 
@@ -860,6 +880,20 @@ export async function apiConfirmAction(
 ) {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/actions/${actionId}/confirm`,
+    { method: "POST" },
+    onNewToken,
+  );
+  return parseAuthenticatedSchema(response, ActionViewSchema, onUnauthorized);
+}
+
+/** Отменяет draft-действие ассистента без выполнения. */
+export async function apiCancelAction(
+  actionId: string,
+  onUnauthorized: () => void = () => {},
+  onNewToken?: (token: string) => void,
+): Promise<ActionView> {
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/actions/${actionId}/cancel`,
     { method: "POST" },
     onNewToken,
   );

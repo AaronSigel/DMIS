@@ -320,7 +320,7 @@ class SearchControllerIntegrationTest {
     private String loginAndGetToken() throws Exception {
         String json = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@example.com\",\"password\":\"demo\"}"))
+                        .content("{\"email\":\"sokolov-d-a@example.com\",\"password\":\"demo\"}"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

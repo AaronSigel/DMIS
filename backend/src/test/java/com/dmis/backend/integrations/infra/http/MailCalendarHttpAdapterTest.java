@@ -103,12 +103,12 @@ class MailCalendarHttpAdapterTest {
         when(sender.createMimeMessage()).thenAnswer(invocation -> new MimeMessage(Session.getInstance(new Properties())));
 
         MailCalendarHttpAdapter adapter = createAdapter(provider);
-        adapter.sendMailDraft(DRAFT, "key-1", List.of(), "admin@example.com");
+        adapter.sendMailDraft(DRAFT, "key-1", List.of(), "sokolov-d-a@example.com");
 
         ArgumentCaptor<MimeMessage> captor = ArgumentCaptor.forClass(MimeMessage.class);
         verify(sender).send(captor.capture());
         MimeMessage sent = captor.getValue();
-        assertEquals("admin@example.com", ((InternetAddress) sent.getFrom()[0]).getAddress());
+        assertEquals("sokolov-d-a@example.com", ((InternetAddress) sent.getFrom()[0]).getAddress());
         assertEquals("<key-1@example.com>", sent.getHeader("Message-ID")[0]);
     }
 

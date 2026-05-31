@@ -308,7 +308,7 @@ class SearchServiceTest {
     }
 
     private static UserView admin() {
-        return new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
+        return new UserView("u-admin", "sokolov-d-a@example.com", "Admin", Set.of(RoleName.ADMIN));
     }
 
     private static DocumentAccessPort noopAccessPort() {

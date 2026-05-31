@@ -325,7 +325,7 @@ export function DocTable({
     return sortOrder === "newest" ? bt - at : at - bt;
   });
   const isAdminUser = user.roles?.includes("ADMIN") ?? false;
-  const cols = "32px 1fr 140px 100px 110px 40px";
+  const cols = "32px 1fr 140px 100px 132px 44px";
   const allVisibleSelected = docs.length > 0 && docs.every((doc) => selectedIds.includes(doc.id));
   const selectedCount = selectedIds.length;
   const uploadsInProgress = uploadItems.some(
@@ -1092,7 +1092,7 @@ function DocRow({
         {doc.updatedAt ? timeAgo(doc.updatedAt) : "—"}
       </div>
 
-      <div className="py-[11px]" data-testid="document-index-status">
+      <div className="pr-2 py-[11px]" data-testid="document-index-status">
         <StatusBadge status={doc.status} />
       </div>
 

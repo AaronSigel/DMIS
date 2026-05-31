@@ -756,7 +756,11 @@ public class IntegrationService {
         StringBuilder ctx = new StringBuilder();
         for (String id : ids) {
             if (mailDraftPort.existsById(id)) {
-                throw new ResponseStatusException(BAD_REQUEST, "Summarize supports Mailpit messages only, not drafts");
+                MailDraftPort.MailDraftSummary draft = requireOwnedMailDraft(actor, id);
+                ctx.append("Черновик\nТема: ").append(draft.subject()).append("\nОт: ").append(actor.email())
+                        .append("\nКому: ").append(draft.recipient())
+                        .append("\nТекст:\n").append(draft.body()).append("\n\n---\n\n");
+                continue;
             }
             IntegrationDtos.MailMessageDetailView m = mailReadPort.getMailMessage(mailbox, id);
             ctx.append("Тема: ").append(m.subject()).append("\nОт: ").append(m.from()).append("\nКому: ").append(m.to())

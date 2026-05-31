@@ -50,9 +50,9 @@ export function useAssistantActions({
   const [clarificationPending, setClarificationPending] = useState(false);
 
   const actionsQuery = useQuery({
-    queryKey: queryKeys.actions.list,
-    queryFn: () => apiListActions(onSessionExpired, onTokenRefresh),
-    enabled: !!token,
+    queryKey: activeThreadId ? queryKeys.actions.byThread(activeThreadId) : queryKeys.actions.list,
+    queryFn: () => apiListActions(onSessionExpired, onTokenRefresh, activeThreadId),
+    enabled: !!token && !!activeThreadId,
     staleTime: 30_000,
   });
 
@@ -60,11 +60,9 @@ export function useAssistantActions({
     const data = actionsQuery.data;
     if (!data || !activeThreadId) return;
     setLocalActionsByThread((prev) => {
-      if (prev[activeThreadId]?.length) return prev;
       const serverActions = data.filter(
         (a) => a.status === "DRAFT" || a.status === "CONFIRMED" || a.status === "EXECUTED",
       );
-      if (!serverActions.length) return prev;
       return { ...prev, [activeThreadId]: serverActions };
     });
   }, [actionsQuery.data, activeThreadId]);
@@ -87,7 +85,9 @@ export function useAssistantActions({
     });
   }
 
-  const localActions = activeThreadId ? (localActionsByThread[activeThreadId] ?? []) : [];
+  const localActions = activeThreadId
+    ? (localActionsByThread[activeThreadId] ?? []).filter((action) => action.status !== "CANCELLED")
+    : [];
   const clarification = activeThreadId ? (clarificationByThread[activeThreadId] ?? null) : null;
   const clarificationValues = activeThreadId
     ? (clarificationValuesByThread[activeThreadId] ?? {})

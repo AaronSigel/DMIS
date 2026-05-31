@@ -91,7 +91,7 @@ class IntentParserServiceTest {
                         Map.of("to", "@analyst")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft(
@@ -100,7 +100,7 @@ class IntentParserServiceTest {
         );
 
         var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
-        assertEquals("analyst@example.com", entities.to());
+        assertEquals("petrova-a-s@example.com", entities.to());
         assertEquals(List.of("doc-1"), entities.attachmentDocumentIds());
         assertTrue(entities.subject().contains("Документ"));
         assertTrue(entities.body().contains("перешли документ"));
@@ -121,7 +121,7 @@ class IntentParserServiceTest {
                         Map.of("to", "@analyst")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft(
@@ -130,7 +130,7 @@ class IntentParserServiceTest {
         );
 
         var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
-        assertEquals("analyst@example.com", entities.to());
+        assertEquals("petrova-a-s@example.com", entities.to());
         assertEquals(List.of("doc-1"), entities.attachmentDocumentIds());
         assertTrue(entities.subject().contains("Документ"));
         assertTrue(entities.body().contains("перешли это аналитику"));
@@ -162,13 +162,13 @@ class IntentParserServiceTest {
                         Map.of("to", "@analyst", "subject", "Тема", "body", "Текст")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("send to analyst");
 
         var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
-        assertEquals("analyst@example.com", entities.to());
+        assertEquals("petrova-a-s@example.com", entities.to());
     }
 
     @Test
@@ -179,13 +179,13 @@ class IntentParserServiceTest {
                         Map.of("to", "@analysist", "subject", "Тема", "body", "Текст")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@example.com", "analysist", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "analysist", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("send to analysist");
 
         var entities = (com.dmis.backend.actions.application.dto.ActionDtos.SendEmailEntities) parsed.entities();
-        assertEquals("analyst@example.com", entities.to());
+        assertEquals("petrova-a-s@example.com", entities.to());
     }
 
     @Test
@@ -201,13 +201,13 @@ class IntentParserServiceTest {
                         )
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("create meeting with analyst");
 
         var entities = (com.dmis.backend.actions.application.dto.ActionDtos.CreateCalendarEventEntities) parsed.entities();
-        assertEquals(List.of("analyst@example.com", "external@example.com"), entities.attendees());
+        assertEquals(List.of("petrova-a-s@example.com", "external@example.com"), entities.attendees());
     }
 
     @Test
@@ -237,7 +237,7 @@ class IntentParserServiceTest {
                         Map.of("to", "@unknown", "subject", "Тема", "body", "Текст")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "analyst@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
         ));
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> intentParserService.parseDraft("send to unknown"));

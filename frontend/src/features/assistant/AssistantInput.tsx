@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { CSSProperties, RefObject } from "react";
 import type { MentionDoc } from "./assistantPanelTypes";
+import type { UserSummary } from "../../entities/calendar";
+import { userMentionLabel } from "./hooks/useUserMentions";
 
 const textareaStyle: CSSProperties = {
   maxHeight: "120px",
@@ -15,6 +17,8 @@ type AssistantInputProps = {
   liveTranscript: string;
   mentionCandidates: MentionDoc[];
   mentionActiveIndex: number;
+  userMentionCandidates: UserSummary[];
+  userMentionActiveIndex: number;
   blocksUserSend: boolean;
   isStreaming: boolean;
   token: boolean;
@@ -28,6 +32,10 @@ type AssistantInputProps = {
   onAttachMention: (candidate: MentionDoc) => void;
   onMentionActiveIndexChange: (index: number) => void;
   onClearMentionCandidates: () => void;
+  onAttachUserMention: (user: UserSummary) => void;
+  onUserMentionActiveIndexChange: (index: number) => void;
+  onClearUserMentionCandidates: () => void;
+  textareaRef?: RefObject<HTMLTextAreaElement>;
 };
 
 export function AssistantInput({
@@ -37,6 +45,8 @@ export function AssistantInput({
   liveTranscript,
   mentionCandidates,
   mentionActiveIndex,
+  userMentionCandidates,
+  userMentionActiveIndex,
   blocksUserSend,
   isStreaming,
   token,
@@ -50,8 +60,13 @@ export function AssistantInput({
   onAttachMention,
   onMentionActiveIndexChange,
   onClearMentionCandidates,
+  onAttachUserMention,
+  onUserMentionActiveIndexChange,
+  onClearUserMentionCandidates,
+  textareaRef: externalTextareaRef,
 }: AssistantInputProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = externalTextareaRef ?? internalTextareaRef;
 
   const resizeTextarea = useCallback(() => {
     const el = textareaRef.current;
@@ -86,6 +101,25 @@ export function AssistantInput({
             >
               <span className="mr-1.5 text-primary">@</span>
               {candidate.title}
+            </button>
+          ))}
+        </div>
+      )}
+      {!!userMentionCandidates.length && (
+        <div className="mb-2 grid gap-1 rounded-[10px] border border-border bg-white p-1.5">
+          {userMentionCandidates.map((candidate) => (
+            <button
+              key={candidate.id}
+              type="button"
+              onClick={() => onAttachUserMention(candidate)}
+              className={`rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${
+                userMentionCandidates[userMentionActiveIndex]?.id === candidate.id
+                  ? "bg-primary-soft"
+                  : "bg-transparent"
+              }`}
+            >
+              <span className="mr-1.5 text-primary">#</span>
+              {candidate.fullName || userMentionLabel(candidate)}
             </button>
           ))}
         </div>
@@ -125,6 +159,36 @@ export function AssistantInput({
               if (e.key === "Escape") {
                 e.preventDefault();
                 onClearMentionCandidates();
+                return;
+              }
+            }
+            if (userMentionCandidates.length) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                onUserMentionActiveIndexChange(
+                  (userMentionActiveIndex + 1) % userMentionCandidates.length,
+                );
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                onUserMentionActiveIndexChange(
+                  userMentionActiveIndex <= 0
+                    ? userMentionCandidates.length - 1
+                    : userMentionActiveIndex - 1,
+                );
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const candidate =
+                  userMentionCandidates[userMentionActiveIndex] ?? userMentionCandidates[0];
+                if (candidate) onAttachUserMention(candidate);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClearUserMentionCandidates();
                 return;
               }
             }

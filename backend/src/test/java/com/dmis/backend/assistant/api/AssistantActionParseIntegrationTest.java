@@ -77,7 +77,7 @@ class AssistantActionParseIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.intent").value("send_email"))
                 .andExpect(jsonPath("$.entities.type").value("send_email"))
-                .andExpect(jsonPath("$.entities.to").value("analyst@example.com"));
+                .andExpect(jsonPath("$.entities.to").value("petrova-a-s@example.com"));
     }
 
     @Test
@@ -99,7 +99,7 @@ class AssistantActionParseIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.intent").value("send_email"))
                 .andExpect(jsonPath("$.entities.type").value("send_email"))
-                .andExpect(jsonPath("$.entities.to").value("analyst@example.com"))
+                .andExpect(jsonPath("$.entities.to").value("petrova-a-s@example.com"))
                 .andExpect(jsonPath("$.entities.attachmentDocumentIds[0]").value("doc-1"));
     }
 
@@ -156,7 +156,7 @@ class AssistantActionParseIntegrationTest {
     private String loginAndGetToken() throws Exception {
         String json = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@example.com\",\"password\":\"demo\"}"))
+                        .content("{\"email\":\"sokolov-d-a@example.com\",\"password\":\"demo\"}"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

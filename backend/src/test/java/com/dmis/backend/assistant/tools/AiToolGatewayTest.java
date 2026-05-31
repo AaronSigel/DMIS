@@ -67,11 +67,11 @@ class AiToolGatewayTest {
                 actionService,
                 auditService
         );
-        actor = new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
+        actor = new UserView("u-admin", "sokolov-d-a@example.com", "Admin", Set.of(RoleName.ADMIN));
 
         when(documentUseCases.list(any(), any())).thenReturn(new DocumentDtos.PageResponse<>(List.of(), 0, 0, 0, 20));
         when(searchService.search(any(), anyString())).thenReturn(new SearchDtos.SearchOnlyResponse("q", "NO_RESULTS", List.of(), pipeline()));
-        when(userAccessPort.findAllSummaries()).thenReturn(List.of(new UserSummaryView("u-1", "analyst@example.com", "analyst", "Analyst User")));
+        when(userAccessPort.findAllSummaries()).thenReturn(List.of(new UserSummaryView("u-1", "petrova-a-s@example.com", "analyst", "Analyst User")));
     }
 
     @Test
@@ -135,6 +135,7 @@ class AiToolGatewayTest {
                         new ActionDtos.SendEmailEntities("a@b.c", "s", "b"),
                         "u-admin",
                         ActionStatus.DRAFT,
+                        null,
                         null,
                         null
                 )

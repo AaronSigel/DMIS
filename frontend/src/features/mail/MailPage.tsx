@@ -59,7 +59,7 @@ function normalizeMailRecipientInput(raw: string): string {
 }
 
 /**
- * Префилл для AI-ассистента: отправка через intent → actions.
+ * Префилл для AI-ассистента: отправка только после явного действия пользователя.
  */
 function buildReplyPrefill(detail: { from: string; subject: string; body: string }): string {
   const trimmedBody = detail.body.trim();
@@ -200,7 +200,7 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
 
   function handleReplyWithAi() {
     if (!detail) return;
-    openAiWithQuery(buildReplyPrefill(detail));
+    openAiWithQuery(buildReplyPrefill(detail), { newThread: true });
   }
 
   function openNewCompose() {
@@ -218,6 +218,15 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     setComposeSubject(detail.subject);
     setComposeBody(detail.body);
     setComposeOpen(true);
+  }
+
+  function openSendDraftFromDetail() {
+    if (!detail || !selectedSummary?.draft) return;
+    setComposeDraftId(detail.id);
+    setComposeTo(detail.to);
+    setComposeSubject(detail.subject);
+    setComposeBody(detail.body);
+    setConfirmSendOpen(true);
   }
 
   async function handleSaveCompose() {
@@ -440,17 +449,26 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                   </>
                 )}
                 {selectedSummary?.draft && (
-                  <button
-                    type="button"
-                    onClick={openEditDraftFromDetail}
-                    className="rounded-md border border-border bg-white px-2 py-1 text-[12px] font-medium text-text"
-                  >
-                    Редактировать черновик
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={openEditDraftFromDetail}
+                      className="rounded-md border border-border bg-white px-2 py-1 text-[12px] font-medium text-text"
+                    >
+                      Редактировать черновик
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openSendDraftFromDetail}
+                      className="rounded-md bg-primary px-2 py-1 text-[12px] font-semibold text-white"
+                    >
+                      Отправить…
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
-                  disabled={summaryMutation.isPending || !!selectedSummary?.draft}
+                  disabled={summaryMutation.isPending}
                   onClick={() => summaryMutation.mutate()}
                   className="rounded-md border border-border bg-white px-2 py-1 text-[12px] font-medium text-text disabled:opacity-50"
                 >

@@ -55,7 +55,7 @@ export const ActionEntitiesSchema = z.union([
   UnknownActionEntitiesSchema,
 ]);
 
-export const ActionStatusSchema = z.enum(["DRAFT", "CONFIRMED", "EXECUTED"]);
+export const ActionStatusSchema = z.enum(["DRAFT", "CANCELLED", "CONFIRMED", "EXECUTED"]);
 
 /** DTO действия ассистента (соответствует backend AiActionView). */
 export const ActionViewSchema = z.object({
@@ -66,6 +66,7 @@ export const ActionViewSchema = z.object({
   status: ActionStatusSchema,
   confirmedBy: z.string().nullable(),
   result: z.string().nullable().optional(),
+  assistantThreadId: z.string().nullable().optional(),
 });
 
 export const ActionListSchema = z.array(ActionViewSchema);

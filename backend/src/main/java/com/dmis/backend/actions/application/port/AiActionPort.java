@@ -11,4 +11,6 @@ public interface AiActionPort {
     Optional<ActionDtos.AiActionView> findById(String id);
 
     List<ActionDtos.AiActionView> findAll();
+
+    List<ActionDtos.AiActionView> findByAssistantThreadId(String assistantThreadId);
 }

@@ -30,16 +30,20 @@ public class AiActionEntity {
     @Column(name = "result", columnDefinition = "TEXT")
     private String result;
 
+    @Column(name = "assistant_thread_id")
+    private String assistantThreadId;
+
     protected AiActionEntity() {
     }
 
-    public AiActionEntity(String id, String intent, String entitiesJson, String actorId, String status, String confirmedBy) {
+    public AiActionEntity(String id, String intent, String entitiesJson, String actorId, String status, String confirmedBy, String assistantThreadId) {
         this.id = id;
         this.intent = intent;
         this.entitiesJson = entitiesJson;
         this.actorId = actorId;
         this.status = status;
         this.confirmedBy = confirmedBy;
+        this.assistantThreadId = assistantThreadId;
     }
 
     public String getId() {
@@ -76,4 +80,7 @@ public class AiActionEntity {
 
     public String getResult() { return result; }
     public void setResult(String result) { this.result = result; }
+
+    public String getAssistantThreadId() { return assistantThreadId; }
+    public void setAssistantThreadId(String assistantThreadId) { this.assistantThreadId = assistantThreadId; }
 }

@@ -3,6 +3,7 @@ import { useAssistantActions } from "./hooks/useAssistantActions";
 import { useAssistantSubmit } from "./hooks/useAssistantSubmit";
 import { useDictation } from "./hooks/useDictation";
 import { useDocumentAttachments } from "./hooks/useDocumentAttachments";
+import { useUserMentions } from "./hooks/useUserMentions";
 import { useThreadManagement } from "./hooks/useThreadManagement";
 import { useUiStore } from "../../shared/store/uiStore";
 import { useToast } from "../../shared/ui/ToastProvider";
@@ -40,13 +41,20 @@ export function AssistantPanel({
   onClose,
 }: AssistantPanelProps) {
   const assistantQuery = useUiStore((state) => state.assistantQuery);
+  const assistantPrefillSeq = useUiStore((state) => state.assistantPrefillSeq);
   const setAssistantQuery = useUiStore((state) => state.setAssistantQuery);
+  const consumePendingNewAssistantThread = useUiStore(
+    (state) => state.consumePendingNewAssistantThread,
+  );
   const [inputValue, setInputValue] = useState(assistantQuery);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const inputValueRef = useRef(inputValue);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const handledPrefillSeqRef = useRef(assistantPrefillSeq);
+  const toast = useToast();
 
   const threadMgmt = useThreadManagement({ token, onSessionExpired, onTokenRefresh });
-  const { activeThreadId, ensureThreadId } = threadMgmt;
+  const { activeThreadId, createThread, ensureThreadId } = threadMgmt;
 
   const docs = useDocumentAttachments({
     token,
@@ -55,6 +63,15 @@ export function AssistantPanel({
     activeThreadId,
     ensureThreadId,
     threadDetail: threadMgmt.threadDetail,
+    inputValueRef,
+    setInputValue,
+    setAssistantQuery,
+  });
+
+  const users = useUserMentions({
+    token,
+    onSessionExpired,
+    onTokenRefresh,
     inputValueRef,
     setInputValue,
     setAssistantQuery,
@@ -75,6 +92,8 @@ export function AssistantPanel({
     selectedDocumentIds: docs.selectedDocumentIds,
     clearMentionCandidates: docs.clearMentionCandidates,
     setMentionTerm: docs.setMentionTerm,
+    clearUserMentionCandidates: users.clearUserMentions,
+    setUserMentionTerm: users.setUserMentionTerm,
     appendActionToThread: actions.appendActionToThread,
     setClarificationByThread: actions.setClarificationByThread,
     setClarificationValuesByThread: actions.setClarificationValuesByThread,
@@ -93,7 +112,22 @@ export function AssistantPanel({
 
   useEffect(() => {
     setInputValue(assistantQuery);
-  }, [assistantQuery]);
+    if (assistantPrefillSeq === handledPrefillSeqRef.current) return;
+    handledPrefillSeqRef.current = assistantPrefillSeq;
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.scrollIntoView({ block: "nearest" });
+    });
+  }, [assistantPrefillSeq, assistantQuery]);
+
+  useEffect(() => {
+    if (!consumePendingNewAssistantThread()) return;
+    void createThread().catch((e) => {
+      toast.error(
+        e instanceof Error ? mapApiErrorToMessage(e.message) : "Не удалось создать диалог",
+      );
+    });
+  }, [consumePendingNewAssistantThread, createThread, toast]);
 
   useEffect(() => {
     inputValueRef.current = inputValue;
@@ -252,10 +286,13 @@ export function AssistantPanel({
         liveTranscript={dictation.liveTranscript}
         mentionCandidates={docs.mentionCandidates}
         mentionActiveIndex={docs.mentionActiveIndex}
+        userMentionCandidates={users.userMentionCandidates}
+        userMentionActiveIndex={users.userMentionActiveIndex}
         blocksUserSend={submit.blocksUserSend}
         isStreaming={submit.assistantStream.isStreaming}
         token={!!token}
         uploadRef={docs.uploadRef}
+        textareaRef={textareaRef}
         onInputChange={submit.handleInputChange}
         onSubmit={submit.handleSubmit}
         onStopStream={() => submit.assistantStream.stopStream()}
@@ -265,6 +302,9 @@ export function AssistantPanel({
         onAttachMention={(c) => void docs.attachMention(c)}
         onMentionActiveIndexChange={docs.setMentionActiveIndex}
         onClearMentionCandidates={docs.clearMentionCandidates}
+        onAttachUserMention={users.attachUserMention}
+        onUserMentionActiveIndexChange={users.setUserMentionActiveIndex}
+        onClearUserMentionCandidates={users.clearUserMentions}
       />
       <AssistantThreadsDialog
         open={threadMgmt.threadsOpen}

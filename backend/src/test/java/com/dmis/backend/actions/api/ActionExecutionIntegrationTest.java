@@ -153,7 +153,7 @@ class ActionExecutionIntegrationTest {
                                 {"intent":"send_email","entities":{"type":"send_email","to":"@admin","subject":"Test","body":"Hello"}}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.entities.to").value("admin@example.com"));
+                .andExpect(jsonPath("$.entities.to").value("sokolov-d-a@example.com"));
 
         mockMvc.perform(post("/api/actions/draft")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -162,7 +162,7 @@ class ActionExecutionIntegrationTest {
                                 {"intent":"create_calendar_event","entities":{"type":"create_calendar_event","title":"Meet","attendees":["@admin"],"startIso":"2026-05-10T09:00:00Z","endIso":"2026-05-10T09:30:00Z"}}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.entities.attendees[0]").value("admin@example.com"));
+                .andExpect(jsonPath("$.entities.attendees[0]").value("sokolov-d-a@example.com"));
     }
 
     @Test
@@ -243,14 +243,92 @@ class ActionExecutionIntegrationTest {
                 .andExpect(jsonPath("$[?(@.id=='act-malformed')]").isEmpty());
     }
 
+    @Test
+    void listActionsCanBeFilteredByAssistantThread() throws Exception {
+        String token = loginAndGetToken();
+        String firstThreadId = createThread(token, "Диалог 1");
+        String secondThreadId = createThread(token, "Диалог 2");
+
+        String submitJson = mockMvc.perform(post("/api/assistant/threads/{threadId}/submit", firstThreadId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"text":"Отправь письмо @admin тема: Thread action. текст: Привет.","documentIds":[],"knowledgeSourceIds":["documents"],"ideologyProfileId":"balanced","stream":false}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.responseType").value("ACTION_DRAFT"))
+                .andExpect(jsonPath("$.action.status").value("DRAFT"))
+                .andExpect(jsonPath("$.action.assistantThreadId").value(firstThreadId))
+                .andReturn().getResponse().getContentAsString();
+        String actionId = objectMapper.readTree(submitJson).get("action").get("id").asText();
+
+        mockMvc.perform(get("/api/actions")
+                        .queryParam("threadId", firstThreadId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id=='" + actionId + "')]").isNotEmpty());
+
+        mockMvc.perform(get("/api/actions")
+                        .queryParam("threadId", secondThreadId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id=='" + actionId + "')]").isEmpty());
+    }
+
+    @Test
+    void cancelDraftActionPersistsCancelledStatusAndAudit() throws Exception {
+        String token = loginAndGetToken();
+
+        String draftJson = mockMvc.perform(post("/api/actions/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("""
+                                {"intent":"send_email","entities":{"type":"send_email","to":"recipient@example.com","subject":"Test","body":"Hello"}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn().getResponse().getContentAsString();
+        String actionId = objectMapper.readTree(draftJson).get("id").asText();
+
+        mockMvc.perform(post("/api/actions/{id}/cancel", actionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        mockMvc.perform(post("/api/actions/{id}/execute", actionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Action must be confirmed before execution"));
+
+        Integer auditCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_log WHERE action = ? AND resource_id = ?",
+                Integer.class,
+                "action.cancel",
+                actionId
+        );
+        assertEquals(1, auditCount);
+    }
+
     private String loginAndGetToken() throws Exception {
         String json = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@example.com\",\"password\":\"demo\"}"))
+                        .content("{\"email\":\"sokolov-d-a@example.com\",\"password\":\"demo\"}"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
         return objectMapper.readTree(json).get("token").asText();
+    }
+
+    private String createThread(String token, String title) throws Exception {
+        String json = mockMvc.perform(post("/api/assistant/threads")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content("{\"title\":\"" + title + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return objectMapper.readTree(json).get("id").asText();
     }
 }

@@ -28,7 +28,7 @@ public class AiActionPersistenceAdapter implements AiActionPort {
     public ActionDtos.AiActionView save(ActionDtos.AiActionView action) {
         AiActionEntity entity = new AiActionEntity(
                 action.id(), action.intent(), mapper.toJson(action.entities()),
-                action.actorId(), action.status().name(), action.confirmedBy()
+                action.actorId(), action.status().name(), action.confirmedBy(), action.assistantThreadId()
         );
         entity.setResult(action.result());
         repository.save(entity);
@@ -43,6 +43,14 @@ public class AiActionPersistenceAdapter implements AiActionPort {
     @Override
     public List<ActionDtos.AiActionView> findAll() {
         return repository.findAll().stream()
+                .map(this::safeMap)
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
+    @Override
+    public List<ActionDtos.AiActionView> findByAssistantThreadId(String assistantThreadId) {
+        return repository.findByAssistantThreadId(assistantThreadId).stream()
                 .map(this::safeMap)
                 .flatMap(Optional::stream)
                 .toList();

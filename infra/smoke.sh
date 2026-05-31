@@ -8,6 +8,7 @@ BASE_STT="${BASE_STT:-http://localhost:8000}"
 BASE_EMBEDDINGS="${BASE_EMBEDDINGS:-http://localhost:8001}"
 BASE_AI="${BASE_AI:-http://localhost:8002}"
 BASE_FRONTEND="${BASE_FRONTEND:-http://localhost:5173}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-sokolov-d-a@example.com}"
 
 wait_for() {
   local url="$1"
@@ -27,6 +28,33 @@ wait_for() {
   return 1
 }
 
+login_json() {
+  local email="$1"
+  local attempt=1
+  local max=10
+  local out code body
+  while (( attempt <= max )); do
+    out=$(curl -sS -w '\n%{http_code}' -X POST "${BASE_BACKEND}/api/auth/login" \
+      -H "Content-Type: application/json" \
+      -d "{\"email\":\"${email}\",\"password\":\"demo\"}")
+    code=$(echo "$out" | tail -n1)
+    body=$(echo "$out" | sed '$d')
+    if [[ "$code" == "200" ]]; then
+      echo "$body"
+      return 0
+    fi
+    if [[ "$code" == "429" ]]; then
+      sleep $(( 2 + attempt ))
+      ((attempt++))
+      continue
+    fi
+    echo "Login failed for ${email}: HTTP ${code}" >&2
+    return 1
+  done
+  echo "Login failed for ${email}: too many 429 responses" >&2
+  return 1
+}
+
 echo "Checking service health..."
 wait_for "${BASE_BACKEND}/api/health" "backend /api/health"
 if [[ "${ENABLE_MCP_HEALTH}" == "1" ]]; then
@@ -40,9 +68,7 @@ wait_for "${BASE_AI}/health" "ai-service /health"
 wait_for "${BASE_FRONTEND}/" "frontend /"
 
 echo "Login + flow smoke scenario..."
-LOGIN_JSON=$(curl -fsS -X POST "${BASE_BACKEND}/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"demo"}')
+LOGIN_JSON=$(login_json "${ADMIN_EMAIL}")
 
 TOKEN=$(echo "$LOGIN_JSON" | sed -E 's/.*"token":"([^"]+)".*/\1/')
 

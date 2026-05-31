@@ -38,34 +38,25 @@ public class DataBootstrap implements CommandLineRunner {
                 .orElseGet(() -> roleRepository.save(new RoleEntity(RoleName.ADMIN.name())));
         RoleEntity userRole = roleRepository.findById(RoleName.USER.name())
                 .orElseGet(() -> roleRepository.save(new RoleEntity(RoleName.USER.name())));
-        RoleEntity viewerRole = roleRepository.findById(RoleName.VIEWER.name())
-                .orElseGet(() -> roleRepository.save(new RoleEntity(RoleName.VIEWER.name())));
-
-        ensureDemoUser("u-admin", "admin", "System Admin", adminRole);
-        ensureDemoUser("u-analyst", "analyst", "Data Analyst", userRole);
-        ensureDemoUser("u-reviewer", "reviewer", "Document Reviewer", userRole);
-        ensureDemoUser("u-manager", "manager", "Project Manager", userRole);
-        ensureDemoUser("u-viewer", "viewer", "Read-only Viewer", viewerRole);
+        ensureDemoUser("u-admin", "sokolov-d-a", "admin", "Соколов Дмитрий Алексеевич", adminRole);
+        ensureDemoUser("u-analyst", "petrova-a-s", "analyst", "Петрова Анна Сергеевна", userRole);
+        ensureDemoUser("u-reviewer", "kuznetsov-i-p", "reviewer", "Кузнецов Игорь Павлович", userRole);
+        ensureDemoUser("u-manager", "volkova-e-v", "manager", "Волкова Елена Викторовна", userRole);
     }
 
-    private void ensureDemoUser(String id, String localPart, String fullName, RoleEntity primaryRole) {
+    private void ensureDemoUser(String id, String localPart, String nickname, String fullName, RoleEntity primaryRole) {
         String email = localPart + "@" + demoEmailDomain;
         userRepository.findById(id).ifPresentOrElse(
                 existing -> {
-                    if (!email.equalsIgnoreCase(existing.getEmail())) {
+                    if (!email.equalsIgnoreCase(existing.getEmail())
+                            || !fullName.equals(existing.getFullName())
+                            || existing.getNickname() == null
+                            || existing.getNickname().isBlank()) {
                         userRepository.save(new UserEntity(
                                 existing.getId(),
                                 email,
-                                localPart,
-                                existing.getFullName(),
-                                existing.getPasswordHash(),
-                                existing.getRoles()));
-                    } else if (existing.getNickname() == null || existing.getNickname().isBlank()) {
-                        userRepository.save(new UserEntity(
-                                existing.getId(),
-                                existing.getEmail(),
-                                localPart,
-                                existing.getFullName(),
+                                nickname,
+                                fullName,
                                 existing.getPasswordHash(),
                                 existing.getRoles()));
                     }
@@ -74,7 +65,7 @@ public class DataBootstrap implements CommandLineRunner {
                         userRepository.save(new UserEntity(
                                 id,
                                 email,
-                                localPart,
+                                nickname,
                                 fullName,
                                 passwordEncoder.encode("demo"),
                                 Set.of(primaryRole)))));

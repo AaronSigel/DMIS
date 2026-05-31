@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiConfirmAction, apiGetDocumentTags, apiGetDocumentTitle } from "../../apiClient";
+import {
+  apiCancelAction,
+  apiConfirmAction,
+  apiGetDocumentTags,
+  apiGetDocumentTitle,
+} from "../../apiClient";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { StatusBadge } from "../../shared/ui/StatusBadge";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
@@ -146,6 +151,7 @@ export function ActionCard({
   const [localStatus, setLocalStatus] = useState(status);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmPending, setConfirmPending] = useState(false);
+  const [cancelPending, setCancelPending] = useState(false);
   const [actionError, setActionError] = useState("");
   const [currentTags, setCurrentTags] = useState<string[] | null>(null);
   const [tagsLoading, setTagsLoading] = useState(false);
@@ -221,6 +227,22 @@ export function ActionCard({
     }
   }
 
+  async function handleCancelAction() {
+    setCancelPending(true);
+    setActionError("");
+    try {
+      const cancelled = await apiCancelAction(id, onSessionExpired ?? (() => {}), onTokenRefresh);
+      setLocalStatus(cancelled.status);
+      toast.info("Черновик действия отменен.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось отменить действие";
+      setActionError(message);
+      toast.error(message);
+    } finally {
+      setCancelPending(false);
+    }
+  }
+
   const fields = renderKnownIntentFields(intent, entities, documentTitle);
 
   return (
@@ -271,12 +293,22 @@ export function ActionCard({
         {actionError && <p className="m-0 text-[12px] text-danger">{actionError}</p>}
       </div>
       {localStatus === "DRAFT" && (
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex justify-end gap-2">
+          <button
+            type="button"
+            data-testid="action-cancel-button"
+            onClick={() => void handleCancelAction()}
+            disabled={cancelPending || confirmPending}
+            className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-text disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {cancelPending ? "Отмена…" : "Отменить"}
+          </button>
           <button
             type="button"
             data-testid="action-confirm-button"
             onClick={() => setConfirmOpen(true)}
-            className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white"
+            disabled={cancelPending}
+            className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             Подтвердить
           </button>

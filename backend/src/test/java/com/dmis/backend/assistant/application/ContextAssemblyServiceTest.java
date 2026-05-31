@@ -43,7 +43,7 @@ class ContextAssemblyServiceTest {
         AuditService auditService = new AuditService(new NoopAuditPort(), new AclService(noopAccessPort()));
         AssistantContextProperties properties = new AssistantContextProperties(12_000, 5, true);
         service = new ContextAssemblyService(documentUseCases, searchService, auditService, properties);
-        actor = new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
+        actor = new UserView("u-admin", "sokolov-d-a@example.com", "Admin", Set.of(RoleName.ADMIN));
     }
 
     @Test

@@ -28,7 +28,8 @@ export function ActionArea({
   onClarificationSubmit,
   onClarificationCancel,
 }: ActionAreaProps) {
-  if (!actions.length && !clarification) return null;
+  const visibleActions = actions.filter((action) => action.status !== "CANCELLED");
+  if (!visibleActions.length && !clarification) return null;
 
   return (
     <div data-testid="assistant-action-area" className="mt-2 grid gap-2">
@@ -42,7 +43,7 @@ export function ActionArea({
           pending={clarificationPending}
         />
       )}
-      {actions.map((action) => (
+      {visibleActions.map((action) => (
         <div key={action.id}>
           <ActionCard
             id={action.id}

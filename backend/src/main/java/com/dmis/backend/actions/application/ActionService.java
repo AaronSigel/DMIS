@@ -65,6 +65,10 @@ public class ActionService {
     }
 
     public ActionDtos.AiActionView draft(UserView actor, String intent, ActionEntities entities) {
+        return draft(actor, intent, entities, null);
+    }
+
+    public ActionDtos.AiActionView draft(UserView actor, String intent, ActionEntities entities, String assistantThreadId) {
         validateIntent(intent);
         validateEntitiesMatchIntent(intent, entities);
         ActionEntities resolvedEntities = resolveUserMentionsInEntities(entities);
@@ -78,7 +82,8 @@ public class ActionService {
                 actor.id(),
                 ActionStatus.DRAFT,
                 null,
-                null
+                null,
+                normalizeThreadId(assistantThreadId)
         );
         ActionDtos.AiActionView saved = aiActionPort.save(action);
         auditService.append(actor.id(), "action.draft", "ai_action", saved.id(), "Draft created");
@@ -86,13 +91,44 @@ public class ActionService {
     }
 
     public List<ActionDtos.AiActionView> list(UserView actor) {
-        List<ActionDtos.AiActionView> actions = aiActionPort.findAll();
+        return list(actor, null);
+    }
+
+    public List<ActionDtos.AiActionView> list(UserView actor, String assistantThreadId) {
+        String normalizedThreadId = normalizeThreadId(assistantThreadId);
+        List<ActionDtos.AiActionView> actions = normalizedThreadId == null
+                ? aiActionPort.findAll()
+                : aiActionPort.findByAssistantThreadId(normalizedThreadId);
         if (aclService.isAdmin(actor)) {
             return actions;
         }
         return actions.stream()
                 .filter(action -> action.actorId().equals(actor.id()))
                 .toList();
+    }
+
+    public ActionDtos.AiActionView cancel(UserView actor, String actionId) {
+        ActionDtos.AiActionView action = aiActionPort.findById(actionId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Action not found"));
+        if (!action.actorId().equals(actor.id()) && !aclService.isAdmin(actor)) {
+            throw new ResponseStatusException(FORBIDDEN, "No permission to cancel action");
+        }
+        if (action.status() != ActionStatus.DRAFT) {
+            throw new ResponseStatusException(CONFLICT, "Action is not in DRAFT state");
+        }
+        ActionDtos.AiActionView cancelled = new ActionDtos.AiActionView(
+                action.id(),
+                action.intent(),
+                action.entities(),
+                action.actorId(),
+                ActionStatus.CANCELLED,
+                null,
+                null,
+                action.assistantThreadId()
+        );
+        ActionDtos.AiActionView saved = aiActionPort.save(cancelled);
+        auditService.append(actor.id(), "action.cancel", "ai_action", saved.id(), "Action cancelled");
+        return saved;
     }
 
     public ActionDtos.AiActionView confirm(UserView actor, String actionId) {
@@ -111,7 +147,8 @@ public class ActionService {
                 action.actorId(),
                 ActionStatus.CONFIRMED,
                 actor.id(),
-                null
+                null,
+                action.assistantThreadId()
         );
         ActionDtos.AiActionView saved = aiActionPort.save(confirmed);
         auditService.append(actor.id(), "action.confirm", "ai_action", saved.id(), "Action confirmed");
@@ -126,7 +163,8 @@ public class ActionService {
                     action.actorId(),
                     ActionStatus.DRAFT,
                     null,
-                    null
+                    null,
+                    action.assistantThreadId()
             );
             try {
                 aiActionPort.save(rolledBack);
@@ -138,6 +176,13 @@ public class ActionService {
             }
             throw ex;
         }
+    }
+
+    private static String normalizeThreadId(String assistantThreadId) {
+        if (assistantThreadId == null || assistantThreadId.isBlank()) {
+            return null;
+        }
+        return assistantThreadId.trim();
     }
 
     public ActionDtos.AiActionView execute(UserView actor, String actionId) {
@@ -161,7 +206,8 @@ public class ActionService {
                     action.actorId(),
                     ActionStatus.EXECUTED,
                     action.confirmedBy(),
-                    result
+                    result,
+                    action.assistantThreadId()
             );
             ActionDtos.AiActionView saved = aiActionPort.save(executed);
             auditService.append(actor.id(), "action.execute", "ai_action", saved.id(), "Action executed successfully");

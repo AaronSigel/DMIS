@@ -2,7 +2,6 @@
 # Наполняет локальный demo-стек тестовыми данными через публичный API и SMTP в Mailpit.
 #
 # Идемпотентность:
-# - Документы: имя файла с префиксом dmis-seed-; перед загрузкой проверяется GET /api/documents.
 # - Календарь: заголовок «DMIS seed — planning sync»; проверка GET /api/calendar/events.
 # - Письма: тема «[DMIS seed] …» на конкретного получателя; перед SMTP проверяется список писем
 #   ящика получателя (от имени admin, у которого есть доступ к любому mailbox).
@@ -24,8 +23,6 @@ SMTP_PORT="${SMTP_PORT:-1025}"
 CAL_SEED_TITLE='DMIS seed — planning sync'
 MAIL_MARK='[DMIS seed]'
 
-CREATED_DOCS=0
-SKIPPED_DOCS=0
 CREATED_EVENTS=0
 SKIPPED_EVENTS=0
 CREATED_MAILS=0
@@ -87,66 +84,16 @@ api_login() {
   return 1
 }
 
-# Как api_login, но при окончательной неудаче — код 1 (для опциональных учёток после обновления DataBootstrap).
-api_login_optional() {
-  local email="$1"
-  local attempt=1
-  local max=10
-  local out ec body
-  while (( attempt <= max )); do
-    out=$(curl -sS -w '\n%{http_code}' -X POST "${BASE_BACKEND}/api/auth/login" \
-      -H "Content-Type: application/json" \
-      -d "{\"email\":\"${email}\",\"password\":\"demo\"}")
-    ec=$(echo "$out" | tail -n1)
-    body=$(echo "$out" | sed '$d')
-    if [[ "$ec" == "200" ]]; then
-      echo "$body" | json_token
-      return 0
-    fi
-    if [[ "$ec" == "429" ]]; then
-      sleep $(( 2 + attempt ))
-      ((attempt++))
-      continue
-    fi
-    return 1
-  done
-  return 1
-}
-
 echo "Waiting for backend..."
 wait_for "${BASE_BACKEND}/api/health" "backend /api/health"
 
-admin_email="admin@${DMIS_SEED_DOMAIN}"
-analyst_email="analyst@${DMIS_SEED_DOMAIN}"
-reviewer_email="reviewer@${DMIS_SEED_DOMAIN}"
-manager_email="manager@${DMIS_SEED_DOMAIN}"
+admin_email="sokolov-d-a@${DMIS_SEED_DOMAIN}"
+analyst_email="petrova-a-s@${DMIS_SEED_DOMAIN}"
+reviewer_email="kuznetsov-i-p@${DMIS_SEED_DOMAIN}"
+manager_email="volkova-e-v@${DMIS_SEED_DOMAIN}"
 
 echo "Login (admin)..."
 ADMIN_TOKEN=$(api_login "${admin_email}")
-
-doc_exists() {
-  local token="$1" marker="$2"
-  curl -fsS "${BASE_BACKEND}/api/documents?page=0&size=100" \
-    -H "Authorization: Bearer ${token}" \
-    | python3 -c "import json,sys
-m = sys.argv[1]
-d = json.load(sys.stdin)
-for it in d.get(\"content\", []):
-    if m in (it.get(\"title\") or \"\") or m in (it.get(\"fileName\") or \"\"):
-        sys.exit(0)
-sys.exit(1)" "$marker"
-}
-
-upload_txt() {
-  local token="$1" fname="$2" body="$3"
-  local tmp
-  tmp="$(mktemp)"
-  printf '%s' "$body" >"$tmp"
-  curl -fsS -X POST "${BASE_BACKEND}/api/documents" \
-    -H "Authorization: Bearer ${token}" \
-    -F "file=@${tmp};type=text/plain;filename=${fname}" >/dev/null
-  rm -f "$tmp"
-}
 
 document_id_by_marker() {
   local token="$1" marker="$2"
@@ -162,60 +109,7 @@ for it in d.get(\"content\", []):
 sys.exit(1)" "$marker"
 }
 
-echo "Seeding documents (idempotent)..."
-if ! doc_exists "$ADMIN_TOKEN" "dmis-seed-admin-brief.txt"; then
-  upload_txt "$ADMIN_TOKEN" "dmis-seed-admin-brief.txt" "Краткая справка для демо (admin). Сгенерировано seed-demo-data."
-  CREATED_DOCS=$((CREATED_DOCS + 1))
-  echo "  uploaded admin brief"
-else
-  SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
-  echo "  skip admin document (already present)"
-fi
-
 ANALYST_TOKEN=$(api_login "${analyst_email}")
-if ! doc_exists "$ANALYST_TOKEN" "dmis-seed-analyst-notes.txt"; then
-  upload_txt "$ANALYST_TOKEN" "dmis-seed-analyst-notes.txt" "Заметки аналитика для демо. Сгенерировано seed-demo-data."
-  CREATED_DOCS=$((CREATED_DOCS + 1))
-  echo "  uploaded analyst notes"
-else
-  SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
-  echo "  skip analyst document (already present)"
-fi
-
-REVIEWER_TOKEN=""
-if tok=$(api_login_optional "${reviewer_email}"); then
-  REVIEWER_TOKEN="$tok"
-fi
-if [[ -n "${REVIEWER_TOKEN}" ]]; then
-  if ! doc_exists "$REVIEWER_TOKEN" "dmis-seed-reviewer-checklist.txt"; then
-    upload_txt "$REVIEWER_TOKEN" "dmis-seed-reviewer-checklist.txt" "Чеклист ревьюера для демо. Сгенерировано seed-demo-data."
-    CREATED_DOCS=$((CREATED_DOCS + 1))
-    echo "  uploaded reviewer checklist"
-  else
-    SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
-    echo "  skip reviewer document (already present)"
-  fi
-else
-  echo "  skip reviewer document (нет входа для ${reviewer_email} — выполните пересборку backend: cd infra && docker compose up -d --build backend)"
-fi
-
-if ! doc_exists "$ADMIN_TOKEN" "dmis-seed-policy.txt"; then
-  upload_txt "$ADMIN_TOKEN" "dmis-seed-policy.txt" "Политика обработки документов: входящие письма сохраняются как документы, доступ проверяется backend ACL, изменения фиксируются в audit."
-  CREATED_DOCS=$((CREATED_DOCS + 1))
-  echo "  uploaded policy document"
-else
-  SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
-  echo "  skip policy document (already present)"
-fi
-
-if ! doc_exists "$ANALYST_TOKEN" "dmis-seed-meeting-notes.txt"; then
-  upload_txt "$ANALYST_TOKEN" "dmis-seed-meeting-notes.txt" "Заметки к встрече: проверить календарь, входящие письма, создание черновика и ответ ассистента по документам."
-  CREATED_DOCS=$((CREATED_DOCS + 1))
-  echo "  uploaded meeting notes"
-else
-  SKIPPED_DOCS=$((SKIPPED_DOCS + 1))
-  echo "  skip meeting notes (already present)"
-fi
 
 calendar_event_exists() {
   local token="$1" title="$2"
@@ -496,7 +390,6 @@ fi
 
 echo "Seed demo data finished."
 echo "Summary:"
-echo "  documents: created=${CREATED_DOCS}, skipped=${SKIPPED_DOCS}"
 echo "  calendar events: created=${CREATED_EVENTS}, skipped=${SKIPPED_EVENTS}"
 echo "  mail messages: created=${CREATED_MAILS}, skipped=${SKIPPED_MAILS}"
 echo "  mail drafts: created=${CREATED_DRAFTS}, skipped=${SKIPPED_DRAFTS}"

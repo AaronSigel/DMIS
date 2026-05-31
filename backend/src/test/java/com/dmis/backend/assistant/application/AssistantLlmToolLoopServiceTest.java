@@ -50,7 +50,7 @@ class AssistantLlmToolLoopServiceTest {
                 2,
                 0
         );
-        actor = new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
+        actor = new UserView("u-admin", "sokolov-d-a@example.com", "Admin", Set.of(RoleName.ADMIN));
         when(aiToolGateway.listTools(actor)).thenReturn(List.of(
                 new AiToolDefinition(
                         "documents.search",

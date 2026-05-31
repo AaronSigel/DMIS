@@ -1,19 +1,25 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { BrowserRouter, MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { documentStatusLabel } from "./features/assistant/AiPanel";
+import { queryClient } from "./shared/api/queryClient";
 import { useUiStore } from "./shared/store/uiStore";
+import { server } from "./test/setup";
 
 describe("auth smoke", () => {
   afterEach(() => {
     cleanup();
+    queryClient.clear();
     window.localStorage.clear();
     useUiStore.setState({
       desktopAiOpen: false,
       assistantQuery: "",
+      assistantPrefillSeq: 0,
       pendingLinkedDocumentIds: [],
+      pendingNewAssistantThread: false,
       assistantContext: { module: "workspace", object: null },
     });
   });
@@ -28,7 +34,10 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -56,7 +65,10 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -110,7 +122,10 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -154,7 +169,10 @@ describe("auth smoke", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "user@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "petrova-a-s@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -182,8 +200,17 @@ describe("auth smoke", () => {
 describe("mail page", () => {
   afterEach(() => {
     cleanup();
+    queryClient.clear();
     window.localStorage.clear();
     window.history.replaceState({}, "", "/");
+    useUiStore.setState({
+      desktopAiOpen: false,
+      assistantQuery: "",
+      assistantPrefillSeq: 0,
+      pendingLinkedDocumentIds: [],
+      pendingNewAssistantThread: false,
+      assistantContext: { module: "workspace", object: null },
+    });
   });
 
   it("renders inbox list, opens detail, exposes reply via assistant button", async () => {
@@ -196,7 +223,10 @@ describe("mail page", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -217,6 +247,228 @@ describe("mail page", () => {
       screen.getByRole("button", { name: /ответить на письмо через ИИ-ассистента/i }),
     ).toBeInTheDocument();
   });
+
+  it("sends selected draft from the detail toolbar after confirmation", async () => {
+    const sentDraftIds: string[] = [];
+    server.use(
+      http.get("*/mail/messages", ({ request }) => {
+        const folder = new URL(request.url).searchParams.get("folder");
+        if (folder !== "DRAFT") return HttpResponse.json([]);
+        return HttpResponse.json([
+          {
+            id: "draft-1",
+            from: "sokolov-d-a@example.com",
+            to: "manager@example.com",
+            subject: "Черновик отчёта",
+            preview: "Нужно отправить статус.",
+            sentAtIso: "2026-05-01T10:00:00Z",
+            hasAttachments: false,
+            draft: true,
+          },
+        ]);
+      }),
+      http.get("*/mail/messages/draft-1", () =>
+        HttpResponse.json({
+          id: "draft-1",
+          from: "sokolov-d-a@example.com",
+          to: "manager@example.com",
+          subject: "Черновик отчёта",
+          body: "Нужно отправить статус.",
+          sentAtIso: "2026-05-01T10:00:00Z",
+          attachments: [],
+        }),
+      ),
+      http.post("*/mail/drafts/:draftId/send", ({ params }) => {
+        sentDraftIds.push(String(params.draftId));
+        return HttpResponse.json({
+          id: String(params.draftId),
+          to: "manager@example.com",
+          subject: "Черновик отчёта",
+          body: "Нужно отправить статус.",
+          createdBy: "u-admin",
+        });
+      }),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/mail"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /^почта$/i })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /черновики/i }));
+    await userEvent.click(await screen.findByText(/Черновик отчёта/));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Черновик отчёта/ })).toBeInTheDocument(),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /^отправить/i }));
+    await userEvent.click(screen.getByRole("button", { name: /да, отправить/i }));
+
+    await waitFor(() => expect(sentDraftIds).toEqual(["draft-1"]));
+  });
+
+  it("summarizes selected draft from the detail toolbar", async () => {
+    const summarizedThreadIds: string[] = [];
+    server.use(
+      http.get("*/mail/messages", ({ request }) => {
+        const folder = new URL(request.url).searchParams.get("folder");
+        if (folder !== "DRAFT") return HttpResponse.json([]);
+        return HttpResponse.json([
+          {
+            id: "draft-1",
+            from: "sokolov-d-a@example.com",
+            to: "manager@example.com",
+            subject: "Черновик отчёта",
+            preview: "Нужно отправить статус.",
+            sentAtIso: "2026-05-01T10:00:00Z",
+            hasAttachments: false,
+            draft: true,
+          },
+        ]);
+      }),
+      http.get("*/mail/messages/draft-1", () =>
+        HttpResponse.json({
+          id: "draft-1",
+          from: "sokolov-d-a@example.com",
+          to: "manager@example.com",
+          subject: "Черновик отчёта",
+          body: "Нужно отправить статус.",
+          sentAtIso: "2026-05-01T10:00:00Z",
+          attachments: [],
+        }),
+      ),
+      http.post("*/mail/threads/:threadId/summary", ({ params }) => {
+        summarizedThreadIds.push(String(params.threadId));
+        return HttpResponse.json({
+          summary: "Черновик: нужно отправить статус менеджеру.",
+          provider: "fake",
+          model: "test",
+        });
+      }),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/mail"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /^почта$/i })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /черновики/i }));
+    await userEvent.click(await screen.findByText(/Черновик отчёта/));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /Черновик отчёта/ })).toBeInTheDocument(),
+    );
+
+    const summaryButton = screen.getByRole("button", { name: /кратко пересказать/i });
+    expect(summaryButton).toBeEnabled();
+    await userEvent.click(summaryButton);
+
+    await waitFor(() => expect(summarizedThreadIds).toEqual(["draft-1"]));
+    expect(
+      await screen.findByText(/Черновик: нужно отправить статус менеджеру\./),
+    ).toBeInTheDocument();
+  });
+
+  it("prefills assistant reply without submitting it", async () => {
+    const originalFetch = globalThis.fetch;
+    const createThreadRequests: string[] = [];
+    const submitRequests: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const method = String(
+        init?.method ?? (input instanceof Request ? input.method : "GET"),
+      ).toUpperCase();
+
+      if (url.includes("/assistant/threads") && method === "POST" && !url.includes("/submit")) {
+        createThreadRequests.push(url);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "thread-prefill",
+              title: "Новый диалог",
+              ideologyProfileId: "balanced",
+              knowledgeSourceIds: ["documents"],
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      if (url.includes("/assistant/threads/") && url.includes("/submit") && method === "POST") {
+        submitRequests.push(url);
+      }
+
+      return originalFetch(input, init);
+    });
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/mail"]}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
+          <App />
+        </MemoryRouter>,
+      );
+
+      await userEvent.type(
+        screen.getByPlaceholderText(/электронная почта/i),
+        "sokolov-d-a@example.com",
+      );
+      await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+      await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /^почта$/i })).toBeInTheDocument(),
+      );
+      await userEvent.click(await screen.findByText(/Hello from Alice/));
+
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: /Hello from Alice/ })).toBeInTheDocument(),
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: /ответить на письмо через ИИ-ассистента/i }),
+      );
+
+      const panel = await screen.findByTestId("assistant-panel");
+      const input = within(panel).getByTestId("assistant-message-input");
+      await waitFor(() =>
+        expect((input as HTMLTextAreaElement).value).toContain("Ответь на письмо от"),
+      );
+      expect(createThreadRequests).toHaveLength(1);
+      expect(submitRequests).toHaveLength(0);
+      expect(within(panel).queryByText(/^Вы$/)).not.toBeInTheDocument();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe("calendar page", () => {
@@ -236,7 +488,10 @@ describe("calendar page", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -294,7 +549,10 @@ describe("doc table url filters", () => {
   });
 
   async function loginAsAdmin() {
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
   }
@@ -363,7 +621,9 @@ describe("assistant document context", () => {
     useUiStore.setState({
       desktopAiOpen: false,
       assistantQuery: "",
+      assistantPrefillSeq: 0,
       pendingLinkedDocumentIds: [],
+      pendingNewAssistantThread: false,
       assistantContext: { module: "workspace", object: null },
     });
   });
@@ -378,7 +638,10 @@ describe("assistant document context", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -403,7 +666,10 @@ describe("assistant document context", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -425,7 +691,10 @@ describe("assistant document context", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -435,6 +704,107 @@ describe("assistant document context", () => {
     await userEvent.click(within(panel).getByTestId("assistant-suggestion-find-doc"));
 
     await waitFor(() => expect(within(panel).getByTestId("assistant-answer")).toBeInTheDocument());
+  });
+
+  it("adds document mention when link endpoint returns empty success", async () => {
+    const linkRequests: string[] = [];
+    server.use(
+      http.get("*/assistant/documents/mentions", () =>
+        HttpResponse.json([
+          { id: "doc-1", title: "Policy Doc", updatedAt: "2026-01-01T00:00:00Z" },
+        ]),
+      ),
+      http.post("*/assistant/threads/:threadId/documents", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as { documentId?: string };
+        linkRequests.push(String(body.documentId ?? ""));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    await userEvent.type(within(panel).getByTestId("assistant-message-input"), "@Pol");
+    await userEvent.click(await within(panel).findByRole("button", { name: /Policy Doc/i }));
+
+    await waitFor(() => expect(linkRequests).toEqual(["doc-1"]));
+    expect(screen.queryByText(/Сервис вернул неожиданный ответ/i)).not.toBeInTheDocument();
+  });
+
+  it("inserts hash user mention and submits it unchanged", async () => {
+    const submitTexts: string[] = [];
+    server.use(
+      http.post("*/assistant/threads/:threadId/submit", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as { text?: string };
+        submitTexts.push(String(body.text ?? ""));
+        return HttpResponse.json({
+          route: "CONTROLLED_ACTION",
+          traceId: "trace-mock",
+          status: "OK",
+          action: {
+            id: "act-hash-user",
+            intent: "send_email",
+            entities: {
+              type: "send_email",
+              to: "petrova-a-s@example.com",
+              subject: "Документ для ознакомления",
+              body: "Коллеги, направляю документ из DMIS.",
+              attachmentDocumentIds: [],
+            },
+            actorId: "u-admin",
+            status: "DRAFT",
+            confirmedBy: null,
+            result: null,
+            assistantThreadId: "thread-1",
+          },
+        });
+      }),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    const input = within(panel).getByTestId("assistant-message-input") as HTMLTextAreaElement;
+    await userEvent.type(input, "Подготовь письмо #Пе");
+    await userEvent.click(
+      await within(panel).findByRole("button", { name: /Петрова Анна Сергеевна/i }),
+    );
+    expect(input.value).toBe("Подготовь письмо #Петрова А.С. ");
+
+    await userEvent.click(within(panel).getByTestId("assistant-send-button"));
+    await waitFor(() => expect(submitTexts).toEqual(["Подготовь письмо #Петрова А.С. "]));
   });
 
   it("shows clarification form for calendar action without date", async () => {
@@ -447,7 +817,10 @@ describe("assistant document context", () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByPlaceholderText(/электронная почта/i), "admin@example.com");
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
     await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
     await userEvent.click(screen.getByRole("button", { name: /войти/i }));
 
@@ -467,6 +840,140 @@ describe("assistant document context", () => {
       expect(within(panel).getByTestId("assistant-clarification-form")).toBeInTheDocument(),
     );
     expect(within(panel).getByTestId("clarification-field-startAt")).toBeInTheDocument();
+  });
+
+  it("does not show previous thread action cards in a new assistant dialog", async () => {
+    queryClient.clear();
+    const threadOneAction = {
+      id: "act-thread-1",
+      intent: "send_email",
+      entities: {
+        type: "send_email",
+        to: "volkova-e-v@example.com",
+        subject: "Thread 1 action",
+        body: "Old action body",
+      },
+      actorId: "u-admin",
+      status: "DRAFT",
+      confirmedBy: null,
+      result: null,
+      assistantThreadId: "thread-1",
+    };
+    server.use(
+      http.get("*/actions", ({ request }) => {
+        const threadId = new URL(request.url).searchParams.get("threadId");
+        const actions = !threadId || threadId === "thread-1" ? [threadOneAction] : [];
+        return HttpResponse.json(actions);
+      }),
+      http.post("*/assistant/threads", () =>
+        HttpResponse.json({
+          id: "thread-2",
+          title: "Новый диалог",
+          ideologyProfileId: "balanced",
+          knowledgeSourceIds: ["documents"],
+        }),
+      ),
+      http.get("*/assistant/threads/thread-2", () =>
+        HttpResponse.json({
+          thread: {
+            id: "thread-2",
+            title: "Новый диалог",
+            ideologyProfileId: "balanced",
+            knowledgeSourceIds: ["documents"],
+          },
+          messages: [],
+          linkedDocumentIds: [],
+        }),
+      ),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/documents/doc-1"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    await waitFor(() =>
+      expect(within(panel).getByText(/Действие: отправка письма/i)).toBeInTheDocument(),
+    );
+    await userEvent.click(within(panel).getByTestId("assistant-new-thread-button"));
+
+    await waitFor(() =>
+      expect(within(panel).queryByText(/Действие: отправка письма/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it("cancels a draft action card from the assistant panel", async () => {
+    queryClient.clear();
+    const draftAction = {
+      id: "act-cancel",
+      intent: "send_email",
+      entities: {
+        type: "send_email",
+        to: "volkova-e-v@example.com",
+        subject: "Cancel action",
+        body: "Cancel body",
+      },
+      actorId: "u-admin",
+      status: "DRAFT",
+      confirmedBy: null,
+      result: null,
+      assistantThreadId: "thread-1",
+    };
+    const cancelRequests: string[] = [];
+    server.use(
+      http.get("*/actions", () => HttpResponse.json([draftAction])),
+      http.post("*/actions/act-cancel/cancel", () => {
+        cancelRequests.push("act-cancel");
+        return HttpResponse.json({ ...draftAction, status: "CANCELLED" });
+      }),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/documents/doc-1"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Policy Doc" })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    await waitFor(() =>
+      expect(within(panel).getByText(/Действие: отправка письма/i)).toBeInTheDocument(),
+    );
+    within(panel).getByTestId("action-cancel-button").click();
+
+    await waitFor(() => expect(cancelRequests).toHaveLength(1));
+    await waitFor(() =>
+      expect(within(panel).queryByText(/Действие: отправка письма/i)).not.toBeInTheDocument(),
+    );
   });
 
   it("maps backend document statuses to UI labels", () => {

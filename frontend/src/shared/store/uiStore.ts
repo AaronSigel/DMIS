@@ -105,7 +105,9 @@ function pathnameToAssistantModule(pathname: string): AssistantWorkspaceModule {
 
 type UiStoreState = {
   assistantQuery: string;
+  assistantPrefillSeq: number;
   pendingLinkedDocumentIds: string[];
+  pendingNewAssistantThread: boolean;
   assistantContext: AssistantContextSnapshot;
   mobileAiOpen: boolean;
   desktopAiOpen: boolean;
@@ -115,9 +117,10 @@ type UiStoreState = {
   setAssistantContext: (ctx: AssistantContextSnapshot) => void;
   setAssistantContextFromPath: (pathname: string) => void;
   clearAssistantContextObject: () => void;
-  openAiWithQuery: (query?: string) => void;
+  openAiWithQuery: (query?: string, options?: { newThread?: boolean }) => void;
   addPendingLinkedDocuments: (documentIds: string[]) => void;
   consumePendingLinkedDocuments: () => string[];
+  consumePendingNewAssistantThread: () => boolean;
   closeMobileAi: () => void;
   closeDesktopAi: () => void;
   setSidebarWidth: (width: number) => void;
@@ -128,7 +131,9 @@ type UiStoreState = {
 
 export const useUiStore = create<UiStoreState>((set, get) => ({
   assistantQuery: "",
+  assistantPrefillSeq: 0,
   pendingLinkedDocumentIds: [],
+  pendingNewAssistantThread: false,
   assistantContext: DEFAULT_ASSISTANT_CONTEXT,
   mobileAiOpen: false,
   desktopAiOpen: false,
@@ -150,9 +155,12 @@ export const useUiStore = create<UiStoreState>((set, get) => ({
     set((state) => ({
       assistantContext: { ...state.assistantContext, object: null },
     })),
-  openAiWithQuery: (query) =>
+  openAiWithQuery: (query, options) =>
     set((state) => ({
       assistantQuery: typeof query === "string" ? query : state.assistantQuery,
+      assistantPrefillSeq:
+        typeof query === "string" ? state.assistantPrefillSeq + 1 : state.assistantPrefillSeq,
+      pendingNewAssistantThread: state.pendingNewAssistantThread || options?.newThread === true,
       mobileAiOpen: window.innerWidth < 980,
       desktopAiOpen: window.innerWidth >= 980,
     })),
@@ -165,6 +173,11 @@ export const useUiStore = create<UiStoreState>((set, get) => ({
   consumePendingLinkedDocuments: () => {
     const pending = get().pendingLinkedDocumentIds;
     set({ pendingLinkedDocumentIds: [] });
+    return pending;
+  },
+  consumePendingNewAssistantThread: () => {
+    const pending = get().pendingNewAssistantThread;
+    if (pending) set({ pendingNewAssistantThread: false });
     return pending;
   },
   closeMobileAi: () => set({ mobileAiOpen: false }),

@@ -135,6 +135,7 @@ class ActionServiceTest {
                 draft.actorId(),
                 ActionStatus.CONFIRMED,
                 owner.id(),
+                null,
                 null
         );
         aiActionPort.save(confirmedAction);
@@ -265,6 +266,7 @@ class ActionServiceTest {
                 confirmed.actorId(),
                 ActionStatus.CONFIRMED,
                 confirmed.confirmedBy(),
+                null,
                 null
         );
         aiActionPort.save(resetToConfirmed);
@@ -374,6 +376,13 @@ class ActionServiceTest {
         @Override
         public List<ActionDtos.AiActionView> findAll() {
             return storage.values().stream().toList();
+        }
+
+        @Override
+        public List<ActionDtos.AiActionView> findByAssistantThreadId(String assistantThreadId) {
+            return storage.values().stream()
+                    .filter(action -> assistantThreadId.equals(action.assistantThreadId()))
+                    .toList();
         }
     }
 

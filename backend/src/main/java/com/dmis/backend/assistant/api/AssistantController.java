@@ -69,6 +69,20 @@ public class AssistantController {
         );
     }
 
+    @PostMapping("/threads/{threadId}/seed-conversation")
+    public AssistantDtos.ThreadDetailView seedConversation(
+            @PathVariable("threadId") String threadId,
+            @Valid @RequestBody SeedConversationRequest request
+    ) {
+        return assistantService.seedConversation(
+                currentUserProvider.currentUser(),
+                threadId,
+                request.userContent(),
+                request.assistantContent(),
+                request.documentIds()
+        );
+    }
+
     @PostMapping("/threads/{threadId}/submit")
     public AssistantDtos.SubmitRequestResult submitRequest(
             @PathVariable("threadId") String threadId,
@@ -161,6 +175,13 @@ public class AssistantController {
             List<String> documentIds,
             List<String> knowledgeSourceIds,
             String ideologyProfileId
+    ) {
+    }
+
+    public record SeedConversationRequest(
+            @NotBlank String userContent,
+            @NotBlank String assistantContent,
+            List<String> documentIds
     ) {
     }
 

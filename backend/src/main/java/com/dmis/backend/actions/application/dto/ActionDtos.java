@@ -45,7 +45,8 @@ public final class ActionDtos {
             String actorId,
             ActionStatus status,
             String confirmedBy,
-            String result
+            String result,
+            String assistantThreadId
     ) {
     }
 

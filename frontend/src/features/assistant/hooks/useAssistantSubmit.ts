@@ -33,6 +33,8 @@ type UseAssistantSubmitArgs = {
   selectedDocumentIds: string[];
   clearMentionCandidates: () => void;
   setMentionTerm: (term: string) => void;
+  clearUserMentionCandidates: () => void;
+  setUserMentionTerm: (term: string) => void;
   appendActionToThread: (threadId: string, action: ActionView) => void;
   setClarificationByThread: React.Dispatch<
     React.SetStateAction<Record<string, ClarificationState | null>>
@@ -79,6 +81,8 @@ export function useAssistantSubmit({
   selectedDocumentIds,
   clearMentionCandidates,
   setMentionTerm,
+  clearUserMentionCandidates,
+  setUserMentionTerm,
   appendActionToThread,
   setClarificationByThread,
   setClarificationValuesByThread,
@@ -159,6 +163,8 @@ export function useAssistantSubmit({
       setAssistantQuery("");
       clearMentionCandidates();
       setMentionTerm("");
+      clearUserMentionCandidates();
+      setUserMentionTerm("");
     } catch (e) {
       toast.error(
         e instanceof Error
@@ -198,12 +204,17 @@ export function useAssistantSubmit({
       setClarificationValuesByThread((prev) => ({ ...prev, [threadId]: {} }));
       setInputValue("");
       setAssistantQuery("");
+      clearMentionCandidates();
+      setMentionTerm("");
+      clearUserMentionCandidates();
+      setUserMentionTerm("");
       return;
     }
 
     if (result.action) {
       setClarificationByThread((prev) => ({ ...prev, [threadId]: null }));
       appendActionToThread(threadId, result.action);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.actions.byThread(threadId) });
       await queryClient.invalidateQueries({
         queryKey: queryKeys.assistant.threadDetail(threadId),
       });
@@ -212,6 +223,8 @@ export function useAssistantSubmit({
       setAssistantQuery("");
       clearMentionCandidates();
       setMentionTerm("");
+      clearUserMentionCandidates();
+      setUserMentionTerm("");
       toast.success("Черновик действия создан.");
       return;
     }
@@ -225,6 +238,8 @@ export function useAssistantSubmit({
       setAssistantQuery("");
       clearMentionCandidates();
       setMentionTerm("");
+      clearUserMentionCandidates();
+      setUserMentionTerm("");
       return;
     }
 
@@ -239,16 +254,26 @@ export function useAssistantSubmit({
     setInputValue(nextValue);
     setAssistantQuery(nextValue);
     const mentionIndex = nextValue.lastIndexOf("@");
-    if (mentionIndex < 0) {
+    const userMentionIndex = nextValue.lastIndexOf("#");
+    const activeMentionIndex = Math.max(mentionIndex, userMentionIndex);
+    if (activeMentionIndex < 0) {
       setMentionTerm("");
+      setUserMentionTerm("");
       return;
     }
-    const tokenPart = nextValue.slice(mentionIndex + 1);
+    const tokenPart = nextValue.slice(activeMentionIndex + 1);
     if (tokenPart.includes(" ")) {
       setMentionTerm("");
+      setUserMentionTerm("");
+      return;
+    }
+    if (activeMentionIndex === userMentionIndex) {
+      setMentionTerm("");
+      setUserMentionTerm(tokenPart.trim());
       return;
     }
     setMentionTerm(tokenPart.trim());
+    setUserMentionTerm("");
   }
 
   function handleSubmit() {

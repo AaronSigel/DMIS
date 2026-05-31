@@ -36,6 +36,7 @@ export const queryKeys = {
   },
   actions: {
     list: ["actions", "list"] as const,
+    byThread: (threadId: string) => ["actions", "thread", threadId] as const,
   },
 };
 

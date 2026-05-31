@@ -33,7 +33,7 @@ class AssistantRagOrchestratorTest {
         contextAssemblyService = Mockito.mock(ContextAssemblyService.class);
         searchService = Mockito.mock(SearchService.class);
         orchestrator = new AssistantRagOrchestrator(assistantPort, contextAssemblyService, searchService);
-        actor = new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
+        actor = new UserView("u-admin", "sokolov-d-a@example.com", "Admin", Set.of(RoleName.ADMIN));
     }
 
     @Test

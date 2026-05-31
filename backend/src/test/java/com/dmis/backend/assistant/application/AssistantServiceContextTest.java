@@ -63,7 +63,7 @@ class AssistantServiceContextTest {
                 ),
                 null
         );
-        actor = new UserView("u-admin", "admin@example.com", "Admin", Set.of(RoleName.ADMIN));
+        actor = new UserView("u-admin", "sokolov-d-a@example.com", "Admin", Set.of(RoleName.ADMIN));
     }
 
     @Test

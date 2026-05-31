@@ -1,25 +1,32 @@
 import { http, HttpResponse } from "msw";
 
 const usersByEmail = {
-  "admin@example.com": {
+  "sokolov-d-a@example.com": {
     id: "u-admin",
-    fullName: "System Admin",
-    email: "admin@example.com",
+    fullName: "Соколов Дмитрий Алексеевич",
+    email: "sokolov-d-a@example.com",
     nickname: "admin",
     roles: ["ADMIN"],
   },
-  "analyst@example.com": {
+  "petrova-a-s@example.com": {
     id: "u-analyst",
-    fullName: "Data Analyst",
-    email: "analyst@example.com",
+    fullName: "Петрова Анна Сергеевна",
+    email: "petrova-a-s@example.com",
     nickname: "analyst",
     roles: ["USER"],
   },
-  "user@example.com": {
-    id: "u-user",
-    fullName: "Demo User",
-    email: "user@example.com",
-    nickname: "user",
+  "kuznetsov-i-p@example.com": {
+    id: "u-reviewer",
+    fullName: "Кузнецов Игорь Павлович",
+    email: "kuznetsov-i-p@example.com",
+    nickname: "reviewer",
+    roles: ["USER"],
+  },
+  "volkova-e-v@example.com": {
+    id: "u-manager",
+    fullName: "Волкова Елена Викторовна",
+    email: "volkova-e-v@example.com",
+    nickname: "manager",
     roles: ["USER"],
   },
 } as const;
@@ -48,7 +55,9 @@ const defaultDocument = {
 } as const;
 
 function buildUserByEmail(email: string) {
-  return usersByEmail[email as keyof typeof usersByEmail] ?? usersByEmail["admin@example.com"];
+  return (
+    usersByEmail[email as keyof typeof usersByEmail] ?? usersByEmail["sokolov-d-a@example.com"]
+  );
 }
 
 function buildDocumentPage(page: number, size: number) {
@@ -100,7 +109,7 @@ let calendarEvents: CalendarEventMock[] = [
   {
     id: "event-1",
     title: "Планерка проекта",
-    attendees: ["alice@example.com", "admin@example.com"],
+    attendees: ["alice@example.com", "sokolov-d-a@example.com"],
     startIso: "2026-05-01T09:00:00Z",
     endIso: "2026-05-01T10:00:00Z",
     createdBy: "u-admin",
@@ -130,8 +139,10 @@ type AiActionMock = {
   intent: string;
   entities: Record<string, unknown>;
   actorId: string;
-  status: "DRAFT" | "CONFIRMED" | "EXECUTED";
+  status: "DRAFT" | "CANCELLED" | "CONFIRMED" | "EXECUTED";
   confirmedBy: string | null;
+  result?: string | null;
+  assistantThreadId?: string | null;
 };
 
 let aiActions: AiActionMock[] = [];
@@ -144,7 +155,7 @@ let mailAccount = {
   connected: true,
   imapHost: "imap.example.com",
   imapPort: 993,
-  imapUsername: "admin@example.com",
+  imapUsername: "sokolov-d-a@example.com",
 };
 
 export const handlers = [
@@ -152,7 +163,7 @@ export const handlers = [
 
   http.post("*/auth/login", async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as { email?: string };
-    const user = buildUserByEmail(body.email ?? "admin@example.com");
+    const user = buildUserByEmail(body.email ?? "sokolov-d-a@example.com");
     aiActions = [];
     assistantMockState.linkedDocumentIds = [];
     return HttpResponse.json({
@@ -177,6 +188,15 @@ export const handlers = [
       },
     ]),
   ),
+  http.post("*/assistant/threads", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { title?: string };
+    return HttpResponse.json({
+      id: `thread-${Math.random().toString(36).slice(2, 9)}`,
+      title: body.title ?? "Новый диалог",
+      ideologyProfileId: "balanced",
+      knowledgeSourceIds: ["documents"],
+    });
+  }),
   http.get("*/assistant/threads/:threadId", () =>
     HttpResponse.json({
       thread: {
@@ -274,7 +294,7 @@ export const handlers = [
           missingFields: ["startAt"],
           partialEntities: {
             title: "согласованию договора",
-            participants: ["admin@example.com"],
+            participants: ["sokolov-d-a@example.com"],
           },
         });
       }
@@ -284,13 +304,15 @@ export const handlers = [
         entities: {
           type: "create_calendar_event",
           title: "Обсуждение схемотехники",
-          attendees: ["analyst@example.com"],
+          attendees: ["petrova-a-s@example.com"],
           startIso: "2026-05-09T12:00:00Z",
           endIso: "2026-05-09T13:00:00Z",
         },
         actorId: "u-admin",
         status: "DRAFT",
         confirmedBy: null,
+        result: null,
+        assistantThreadId: threadId,
       };
       aiActions = [...aiActions, created];
       return HttpResponse.json({
@@ -307,7 +329,7 @@ export const handlers = [
         intent: "send_email",
         entities: {
           type: "send_email",
-          to: "manager@example.com",
+          to: "volkova-e-v@example.com",
           subject: "Документ для ознакомления",
           body: "Коллеги, направляю документ из DMIS.",
           attachmentDocumentIds: body.documentIds ?? assistantMockState.linkedDocumentIds,
@@ -315,6 +337,8 @@ export const handlers = [
         actorId: "u-admin",
         status: "DRAFT",
         confirmedBy: null,
+        result: null,
+        assistantThreadId: threadId,
       };
       aiActions = [...aiActions, created];
       return HttpResponse.json({
@@ -365,13 +389,15 @@ export const handlers = [
         entities: {
           type: "create_calendar_event",
           title: "Обсуждение схемотехники",
-          attendees: ["analyst@example.com"],
+          attendees: ["petrova-a-s@example.com"],
           startIso: "2026-05-09T12:00:00Z",
           endIso: "2026-05-09T13:00:00Z",
         },
         actorId: "u-admin",
         status: "DRAFT",
         confirmedBy: null,
+        result: null,
+        assistantThreadId: null,
       };
       aiActions = [...aiActions, created];
       return HttpResponse.json(created);
@@ -410,7 +436,13 @@ export const handlers = [
       },
     });
   }),
-  http.get("*/actions", () => HttpResponse.json(aiActions)),
+  http.get("*/actions", ({ request }) => {
+    const threadId = new URL(request.url).searchParams.get("threadId");
+    const actions = threadId
+      ? aiActions.filter((action) => action.assistantThreadId === threadId)
+      : aiActions;
+    return HttpResponse.json(actions);
+  }),
   http.post("*/actions/draft", async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as {
       intent?: string;
@@ -423,6 +455,8 @@ export const handlers = [
       actorId: "u-admin",
       status: "DRAFT",
       confirmedBy: null,
+      result: null,
+      assistantThreadId: null,
     };
     aiActions = [...aiActions, created];
     return HttpResponse.json(created);
@@ -433,6 +467,13 @@ export const handlers = [
     const confirmed: AiActionMock = { ...action, status: "CONFIRMED", confirmedBy: "u-admin" };
     aiActions = aiActions.map((item) => (item.id === action.id ? confirmed : item));
     return HttpResponse.json(confirmed);
+  }),
+  http.post("*/actions/:actionId/cancel", ({ params }) => {
+    const action = aiActions.find((item) => item.id === params.actionId);
+    if (!action) return HttpResponse.json({ message: "Action not found" }, { status: 404 });
+    const cancelled: AiActionMock = { ...action, status: "CANCELLED" };
+    aiActions = aiActions.map((item) => (item.id === action.id ? cancelled : item));
+    return HttpResponse.json(cancelled);
   }),
   http.post("*/actions/:actionId/execute", ({ params }) => {
     const action = aiActions.find((item) => item.id === params.actionId);
@@ -477,7 +518,7 @@ export const handlers = [
       {
         id: "mail-1",
         from: "alice@example.com",
-        to: "admin@example.com",
+        to: "sokolov-d-a@example.com",
         subject: "Hello from Alice",
         preview: "Привет, нужно обсудить контракт",
         sentAtIso: "2026-05-01T10:00:00Z",
@@ -510,7 +551,7 @@ export const handlers = [
       return HttpResponse.json({
         id: "mail-1",
         from: "alice@example.com",
-        to: "admin@example.com",
+        to: "sokolov-d-a@example.com",
         subject: "Hello from Alice",
         body: "Привет!\nНужно обсудить контракт на следующей неделе.",
         sentAtIso: "2026-05-01T10:00:00Z",
@@ -532,14 +573,30 @@ export const handlers = [
     const q =
       new URL(request.url).searchParams.get("q")?.trim().replace(/^@/, "").toLowerCase() ?? "";
     const pool = [
-      { id: "u-admin", email: "admin@example.com", nickname: "admin", fullName: "System Admin" },
+      {
+        id: "u-admin",
+        email: "sokolov-d-a@example.com",
+        nickname: "admin",
+        fullName: "Соколов Дмитрий Алексеевич",
+      },
       {
         id: "u-analyst",
-        email: "analyst@example.com",
+        email: "petrova-a-s@example.com",
         nickname: "analyst",
-        fullName: "Data Analyst",
+        fullName: "Петрова Анна Сергеевна",
       },
-      { id: "u-user", email: "user@example.com", nickname: "user", fullName: "Demo User" },
+      {
+        id: "u-reviewer",
+        email: "kuznetsov-i-p@example.com",
+        nickname: "reviewer",
+        fullName: "Кузнецов Игорь Павлович",
+      },
+      {
+        id: "u-manager",
+        email: "volkova-e-v@example.com",
+        nickname: "manager",
+        fullName: "Волкова Елена Викторовна",
+      },
     ];
     const filtered =
       q.length < 2
@@ -609,7 +666,7 @@ export const handlers = [
     const created: CalendarEventMock = {
       id: `event-${Math.random().toString(36).slice(2, 9)}`,
       title: "Встреча по письму",
-      attendees: ["admin@example.com"],
+      attendees: ["sokolov-d-a@example.com"],
       startIso: start,
       endIso: end,
       createdBy: "u-admin",
@@ -654,9 +711,9 @@ export const handlers = [
     if (index < 0) return HttpResponse.json({ message: "Not found" }, { status: 404 });
     const ev = calendarEvents[index];
     if (!ev) return HttpResponse.json({ message: "Not found" }, { status: 404 });
-    const uid = body.userId ?? "u-user";
-    const email = uid === "u-admin" ? "admin@example.com" : "user@example.com";
-    const name = uid === "u-admin" ? "System Admin" : "Demo User";
+    const uid = body.userId ?? "u-analyst";
+    const email = uid === "u-admin" ? "sokolov-d-a@example.com" : "petrova-a-s@example.com";
+    const name = uid === "u-admin" ? "Соколов Дмитрий Алексеевич" : "Петрова Анна Сергеевна";
     const updated: CalendarEventMock = {
       ...ev,
       participants: [
