@@ -10,6 +10,7 @@ import {
   localizeResourceType,
 } from "../../shared/lib/localizeDomain";
 import type { AuditRecord } from "../../entities/audit";
+import { formatDateTime } from "../../shared/lib/formatDate";
 
 type User = {
   id: string;
@@ -27,18 +28,6 @@ type AuditPageProps = {
 };
 
 const PAGE_SIZE = 10;
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
 
 function isAdmin(user: User): boolean {
   return user.roles?.includes("ADMIN") ?? false;
