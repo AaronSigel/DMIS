@@ -109,12 +109,12 @@ export async function parsePublicJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-/** Authenticated requests: 401/403 clears session via callback before throwing. */
+/** Authenticated requests: only 401 clears session via callback before throwing. */
 export async function parseAuthenticatedJson<T>(
   response: Response,
   onUnauthorized: () => void,
 ): Promise<T> {
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -133,7 +133,7 @@ export async function parseAuthenticatedVoid(
   response: Response,
   onUnauthorized: () => void,
 ): Promise<void> {
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -156,7 +156,7 @@ export async function parseAuthenticatedText(
   response: Response,
   onUnauthorized: () => void,
 ): Promise<string> {
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -192,6 +192,15 @@ export async function fetchWithAuth(
   }
   const refreshedToken = await refreshInFlight;
   if (!refreshedToken) {
+    // Refresh failed: downstream authenticated parsers should treat this as terminal auth failure.
+    // We preserve the response body/headers where possible but normalize status to 401.
+    if (response.status === 403) {
+      return new Response(response.body, {
+        status: 401,
+        statusText: "Unauthorized",
+        headers: response.headers,
+      });
+    }
     return response;
   }
 
@@ -311,7 +320,7 @@ export async function apiDeleteAssistantThread(
     { method: "DELETE" },
     onNewToken,
   );
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -383,7 +392,7 @@ export async function apiSubmitAssistantRequest(
     },
     onNewToken,
   );
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -427,7 +436,7 @@ export async function apiParseAssistantAction(
     },
     onNewToken,
   );
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -507,7 +516,7 @@ export async function apiStreamAssistantAnswer(
     throw err;
   }
 
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     const err = new Error("Unauthorized");
     callbacks.onError?.(err);
@@ -699,6 +708,10 @@ export type ApiListDocumentsParams = {
   page: number;
   size: number;
   tag?: string;
+  type?: string;
+  ownerId?: string;
+  sortBy?: string;
+  order?: string;
 };
 
 export async function apiListDocuments(
@@ -711,6 +724,10 @@ export async function apiListDocuments(
     size: String(params.size),
   });
   if (params.tag) search.set("tag", params.tag);
+  if (params.type) search.set("type", params.type);
+  if (params.ownerId) search.set("ownerId", params.ownerId);
+  if (params.sortBy) search.set("sortBy", params.sortBy);
+  if (params.order) search.set("order", params.order);
   const response = await fetchWithAuth(
     `${apiBaseUrl}/documents?${search}`,
     { method: "GET" },
@@ -966,7 +983,7 @@ export async function apiDeleteDocument(
     { method: "DELETE" },
     onNewToken,
   );
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -1194,7 +1211,7 @@ export async function apiDeleteCalendarEvent(
     { method: "DELETE" },
     onNewToken,
   );
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -1404,7 +1421,7 @@ export async function apiDownloadMailAttachment(
     { method: "GET" },
     onNewToken,
   );
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
@@ -1453,7 +1470,7 @@ export async function apiDeleteMailAccount(
     { method: "DELETE" },
     onNewToken,
   );
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     onUnauthorized();
     throw new Error("Unauthorized");
   }
