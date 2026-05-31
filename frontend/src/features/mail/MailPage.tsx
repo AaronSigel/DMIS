@@ -143,6 +143,7 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     ? formatErrorMessage(searchQuery.error, "Не удалось выполнить поиск")
     : formatErrorMessage(listQuery.error, "Не удалось загрузить письма");
   const listLoading = isSearching ? searchQuery.isPending : listQuery.isPending;
+  const listHasError = isSearching ? searchQuery.isError : listQuery.isError;
 
   const detailError = formatErrorMessage(detailQuery.error, "Не удалось загрузить письмо");
   const detail = detailQuery.data;
@@ -319,7 +320,12 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
                   active ? "bg-primary-soft font-medium text-text" : "text-muted hover:bg-surface"
                 }`}
               >
-                {item.label}
+                <>
+                  {item.label}
+                  {active && !listLoading && !listHasError && messages.length > 0 && (
+                    <span className="ml-1 text-[11px] text-muted">({messages.length})</span>
+                  )}
+                </>
               </button>
             );
           })}
