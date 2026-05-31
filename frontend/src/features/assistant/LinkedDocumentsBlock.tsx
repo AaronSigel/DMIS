@@ -36,12 +36,12 @@ export function LinkedDocumentsBlock({
                   <button
                     type="button"
                     data-testid="assistant-document-summary-button"
-                    title="Краткое summary файла"
-                    aria-label={`Summary: ${documentTitles[id] ?? id}`}
+                    title="Краткая сводка файла"
+                    aria-label={`Сводка: ${documentTitles[id] ?? id}`}
                     className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text"
                     onClick={() => onSummary(id)}
                   >
-                    Summary
+                    Сводка
                   </button>
                   <button
                     type="button"

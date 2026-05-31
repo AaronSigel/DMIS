@@ -26,8 +26,8 @@ type UseUserMentionsArgs = {
 };
 
 export type UseUserMentionsReturn = {
-  userMentionTerm: string;
-  setUserMentionTerm: (term: string) => void;
+  userMentionTerm: string | null;
+  setUserMentionTerm: (term: string | null) => void;
   userMentionCandidates: UserSummary[];
   userMentionActiveIndex: number;
   setUserMentionActiveIndex: (index: number) => void;
@@ -44,18 +44,18 @@ export function useUserMentions({
   setInputValue,
   setAssistantQuery,
 }: UseUserMentionsArgs): UseUserMentionsReturn {
-  const [userMentionTerm, setUserMentionTerm] = useState("");
+  const [userMentionTerm, setUserMentionTerm] = useState<string | null>(null);
   const [userMentionCandidates, setUserMentionCandidates] = useState<UserSummary[]>([]);
   const [userMentionActiveIndex, setUserMentionActiveIndex] = useState(-1);
 
   const mentionUsersQuery = useQuery({
-    queryKey: ["assistant-mention-users", userMentionTerm],
-    queryFn: () => apiSearchUsers(userMentionTerm, onSessionExpired, onTokenRefresh),
-    enabled: !!token && userMentionTerm.length > 0,
+    queryKey: ["assistant-mention-users", { term: userMentionTerm }],
+    queryFn: () => apiSearchUsers(userMentionTerm ?? "", onSessionExpired, onTokenRefresh),
+    enabled: !!token && userMentionTerm !== null,
   });
 
   useEffect(() => {
-    if (!userMentionTerm || mentionUsersQuery.isError) {
+    if (userMentionTerm === null || mentionUsersQuery.isError) {
       setUserMentionCandidates([]);
       setUserMentionActiveIndex(-1);
       return;
@@ -78,7 +78,7 @@ export function useUserMentions({
     setInputValue(newValue);
     setAssistantQuery(newValue);
     clearUserMentions();
-    setUserMentionTerm("");
+    setUserMentionTerm(null);
   }
 
   return {

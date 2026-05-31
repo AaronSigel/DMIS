@@ -10,6 +10,9 @@ import { contextDiagnosticMessage } from "../assistantDocumentStatus";
 import type { ActionView } from "../../../shared/api/schemas/action";
 import type { ClarificationState } from "../ClarificationForm";
 
+// Непустой sentinel отличает активный пустой алиас от сброшенного состояния.
+const EMPTY_ALIAS_TERM = " ";
+
 type AssistantThreadDetailLike =
   | {
       thread: {
@@ -32,9 +35,9 @@ type UseAssistantSubmitArgs = {
   threadDetail: AssistantThreadDetailLike;
   selectedDocumentIds: string[];
   clearMentionCandidates: () => void;
-  setMentionTerm: (term: string) => void;
+  setMentionTerm: (term: string | null) => void;
   clearUserMentionCandidates: () => void;
-  setUserMentionTerm: (term: string) => void;
+  setUserMentionTerm: (term: string | null) => void;
   appendActionToThread: (threadId: string, action: ActionView) => void;
   setClarificationByThread: React.Dispatch<
     React.SetStateAction<Record<string, ClarificationState | null>>
@@ -162,9 +165,9 @@ export function useAssistantSubmit({
       setInputValue("");
       setAssistantQuery("");
       clearMentionCandidates();
-      setMentionTerm("");
+      setMentionTerm(null);
       clearUserMentionCandidates();
-      setUserMentionTerm("");
+      setUserMentionTerm(null);
     } catch (e) {
       toast.error(
         e instanceof Error
@@ -205,9 +208,9 @@ export function useAssistantSubmit({
       setInputValue("");
       setAssistantQuery("");
       clearMentionCandidates();
-      setMentionTerm("");
+      setMentionTerm(null);
       clearUserMentionCandidates();
-      setUserMentionTerm("");
+      setUserMentionTerm(null);
       return;
     }
 
@@ -222,9 +225,9 @@ export function useAssistantSubmit({
       setInputValue("");
       setAssistantQuery("");
       clearMentionCandidates();
-      setMentionTerm("");
+      setMentionTerm(null);
       clearUserMentionCandidates();
-      setUserMentionTerm("");
+      setUserMentionTerm(null);
       toast.success("Черновик действия создан.");
       return;
     }
@@ -237,9 +240,9 @@ export function useAssistantSubmit({
       setInputValue("");
       setAssistantQuery("");
       clearMentionCandidates();
-      setMentionTerm("");
+      setMentionTerm(null);
       clearUserMentionCandidates();
-      setUserMentionTerm("");
+      setUserMentionTerm(null);
       return;
     }
 
@@ -257,23 +260,29 @@ export function useAssistantSubmit({
     const userMentionIndex = nextValue.lastIndexOf("#");
     const activeMentionIndex = Math.max(mentionIndex, userMentionIndex);
     if (activeMentionIndex < 0) {
-      setMentionTerm("");
-      setUserMentionTerm("");
+      setMentionTerm(null);
+      setUserMentionTerm(null);
+      clearMentionCandidates();
+      clearUserMentionCandidates();
       return;
     }
     const tokenPart = nextValue.slice(activeMentionIndex + 1);
     if (tokenPart.includes(" ")) {
-      setMentionTerm("");
-      setUserMentionTerm("");
+      setMentionTerm(null);
+      setUserMentionTerm(null);
+      clearMentionCandidates();
+      clearUserMentionCandidates();
       return;
     }
     if (activeMentionIndex === userMentionIndex) {
-      setMentionTerm("");
-      setUserMentionTerm(tokenPart.trim());
+      setMentionTerm(null);
+      clearMentionCandidates();
+      setUserMentionTerm(tokenPart.trim() || EMPTY_ALIAS_TERM);
       return;
     }
-    setMentionTerm(tokenPart.trim());
-    setUserMentionTerm("");
+    setMentionTerm(tokenPart.trim() || EMPTY_ALIAS_TERM);
+    clearUserMentionCandidates();
+    setUserMentionTerm(null);
   }
 
   function handleSubmit() {

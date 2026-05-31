@@ -332,3 +332,32 @@ describe("AuditPage — date range filter", () => {
     expect(confirmInTable.length).toBe(0);
   });
 });
+
+describe("AuditPage — P1 user filter for admin", () => {
+  it("shows user filter and filters by selected actor", async () => {
+    const rec1 = { ...baseRecord, id: "rec-1", actorId: "u-admin", action: "action.draft" };
+    const rec2 = { ...baseRecord, id: "rec-2", actorId: "u-2", action: "action.confirm" };
+    server.use(
+      http.get("*/audit", () => HttpResponse.json([rec1, rec2])),
+      http.get("*/users", () =>
+        HttpResponse.json([
+          { id: "u-admin", email: "admin@example.com", fullName: "Admin User" },
+          { id: "u-2", email: "user2@example.com", fullName: "User Two" },
+        ]),
+      ),
+    );
+    renderPage();
+
+    const userFilter = await screen.findByRole("combobox", { name: /Фильтр по пользователю/i });
+    expect(userFilter).toBeInTheDocument();
+    const user2Option = await screen.findByRole("option", { name: /user2@example.com/i });
+    await userEvent.selectOptions(userFilter, user2Option);
+
+    await waitFor(() => {
+      const draftInTable = screen
+        .queryAllByText("черновик действия")
+        .filter((el) => el.closest("td") !== null);
+      expect(draftInTable.length).toBe(0);
+    });
+  });
+});

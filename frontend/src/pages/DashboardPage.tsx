@@ -67,7 +67,7 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
     enabled: !!token,
     queryFn: async () => {
       const [docs, actionsRes, auditRes, healthRes, calendarEvents] = await Promise.all([
-        apiListDocuments({ page: 0, size: 1 }, onSessionExpired, onTokenRefresh),
+        apiListDocuments({ page: 0, size: 3 }, onSessionExpired, onTokenRefresh),
         fetchWithAuth(`${apiBaseUrl}/actions`, {}, onTokenRefresh),
         fetchWithAuth(`${apiBaseUrl}/audit`, {}, onTokenRefresh),
         fetch(`${apiBaseUrl}/health`),
@@ -84,10 +84,15 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
       }
       return {
         docCount: docs.totalElements,
+        recentDocs: docs.content,
         actionCount: actions.length,
         executedCount: actions.filter((a) => a.status === "EXECUTED").length,
         auditCount,
         calendarCount: calendarEvents.length,
+        upcomingEvents: [...calendarEvents]
+          .filter((ev) => new Date(ev.startIso).getTime() >= Date.now())
+          .sort((a, b) => new Date(a.startIso).getTime() - new Date(b.startIso).getTime())
+          .slice(0, 3),
         systemHealth: healthRes.ok ? "ok" : "degraded",
       };
     },
@@ -122,6 +127,8 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
           : "Не удалось загрузить метрики",
       )
     : "";
+  const recentDocs = metricsQuery.data?.recentDocs ?? [];
+  const upcomingEvents = metricsQuery.data?.upcomingEvents ?? [];
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -213,6 +220,48 @@ export function DashboardPage({ token, onSessionExpired, onTokenRefresh }: Dashb
               : "нет доступных записей или ограничен доступ по роли"}
             .
           </p>
+        </div>
+        <div className="mt-6 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-[10px] border border-border bg-white p-[14px]">
+            <p className="mb-2 mt-0 text-[13px] font-semibold text-text">Последние документы</p>
+            {recentDocs.length === 0 ? (
+              <p className="m-0 text-xs text-muted">Пока нет документов.</p>
+            ) : (
+              <ul className="m-0 list-none p-0">
+                {recentDocs.map((doc) => (
+                  <li key={doc.id} className="mb-1 last:mb-0">
+                    <button
+                      type="button"
+                      className="text-left text-xs text-primary hover:underline"
+                      onClick={() => navigate(`/documents/${doc.id}`)}
+                    >
+                      {doc.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="rounded-[10px] border border-border bg-white p-[14px]">
+            <p className="mb-2 mt-0 text-[13px] font-semibold text-text">Ближайшие события</p>
+            {upcomingEvents.length === 0 ? (
+              <p className="m-0 text-xs text-muted">Событий на сегодня/ближайшее время нет.</p>
+            ) : (
+              <ul className="m-0 list-none p-0">
+                {upcomingEvents.map((ev) => (
+                  <li key={ev.id} className="mb-1 last:mb-0">
+                    <button
+                      type="button"
+                      className="text-left text-xs text-primary hover:underline"
+                      onClick={() => navigate("/calendar")}
+                    >
+                      {ev.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
     </div>

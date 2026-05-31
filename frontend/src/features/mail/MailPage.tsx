@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   apiCreateMailDraft,
   apiDownloadMailAttachment,
@@ -74,6 +74,7 @@ function buildReplyPrefill(detail: { from: string; subject: string; body: string
 export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPageProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [folder, setFolder] = useState<ApiMailFolder>("INBOX");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -97,6 +98,21 @@ export function MailPage({ token, onSessionExpired, onTokenRefresh }: MailPagePr
     }, SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(handle);
   }, [searchInput]);
+
+  useEffect(() => {
+    const composeToParam = searchParams.get("composeTo");
+    const composeSubjectParam = searchParams.get("composeSubject");
+    if (!composeToParam && !composeSubjectParam) return;
+    setComposeDraftId(null);
+    setComposeTo(composeToParam ?? "");
+    setComposeSubject(composeSubjectParam ?? "");
+    setComposeBody("");
+    setComposeOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("composeTo");
+    next.delete("composeSubject");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const listQuery = useQuery({
     queryKey: queryKeys.mail.list(folder),

@@ -319,3 +319,77 @@ describe("DashboardPage — pending confirmations block", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/audit");
   });
 });
+
+describe("DashboardPage — P1 blocks", () => {
+  it("shows recent documents and upcoming events sections", async () => {
+    server.use(
+      http.get("*/actions", () => HttpResponse.json([])),
+      http.get("*/audit", () => HttpResponse.json([])),
+      http.get("*/health", () => HttpResponse.json({ status: "ok" })),
+      http.get("*/documents", () =>
+        HttpResponse.json({
+          content: [
+            {
+              id: "doc-1",
+              title: "План встречи",
+              ownerId: "u-admin",
+              description: "",
+              tags: [],
+              source: "upload",
+              category: "memo",
+              status: "INDEXED",
+              type: "memo",
+              createdAt: "2026-05-29T09:00:00Z",
+              updatedAt: "2026-05-30T09:00:00Z",
+              totalSizeBytes: 123,
+              fileName: "plan.txt",
+              contentType: "text/plain",
+              storageRef: "s3://x",
+              indexedChunkCount: 1,
+              indexedAt: "2026-05-30T09:01:00Z",
+              extractedTextPreview: "",
+              extractedTextLength: 0,
+              extractedTextTruncated: false,
+            },
+          ],
+          totalElements: 1,
+          totalPages: 1,
+          page: 0,
+          size: 3,
+        }),
+      ),
+      http.get("*/calendar/events", () =>
+        HttpResponse.json([
+          {
+            id: "ev-1",
+            title: "Синк команды",
+            attendees: ["a@example.com"],
+            startIso: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            endIso: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+            createdBy: "u-admin",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            description: "",
+            creationSource: "UI",
+            sourceMailMessageId: null,
+            participants: [],
+            attachments: [],
+          },
+        ]),
+      ),
+    );
+
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <QueryClientProvider client={makeClient()}>
+          <DashboardPage {...defaultProps} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Последние документы")).toBeInTheDocument();
+    expect(screen.getByText("Ближайшие события")).toBeInTheDocument();
+    expect(screen.getByText(/Последние документы/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ближайшие события/i)).toBeInTheDocument();
+  });
+});

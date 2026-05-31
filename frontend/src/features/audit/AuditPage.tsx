@@ -82,6 +82,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
   const adminMode = isAdmin(user);
   const [actionFilter, setActionFilter] = useState("");
   const [resourceTypeFilter, setResourceTypeFilter] = useState("");
+  const [actorFilter, setActorFilter] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -137,6 +138,10 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
     () => uniqueValues(scopedRecords, (record) => record.resourceType),
     [scopedRecords],
   );
+  const actorOptions = useMemo(
+    () => (adminMode ? uniqueValues(scopedRecords, (record) => record.actorId) : []),
+    [adminMode, scopedRecords],
+  );
 
   const filteredRecords = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -156,13 +161,14 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
     return scopedRecords.filter((record) => {
       if (actionFilter && record.action !== actionFilter) return false;
       if (resourceTypeFilter && record.resourceType !== resourceTypeFilter) return false;
+      if (adminMode && actorFilter && record.actorId !== actorFilter) return false;
       if (cutoffMs !== null && new Date(record.at).getTime() < cutoffMs) return false;
       if (!normalizedSearch) return true;
       const haystack =
         `${record.actorId} ${record.action} ${record.resourceType} ${record.resourceId} ${record.details}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
-  }, [actionFilter, resourceTypeFilter, dateRange, scopedRecords, search]);
+  }, [actionFilter, resourceTypeFilter, adminMode, actorFilter, dateRange, scopedRecords, search]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -176,7 +182,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
       ? mapApiErrorToMessage(auditQuery.error.message)
       : "Не удалось загрузить аудит.";
 
-  const hasFilters = Boolean(actionFilter || resourceTypeFilter || search.trim());
+  const hasFilters = Boolean(actionFilter || resourceTypeFilter || actorFilter || search.trim());
 
   return (
     <section className="flex h-full min-h-0 flex-col">
@@ -190,7 +196,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
       />
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-        <div className="grid gap-2 rounded-lg border border-border bg-white p-3 md:grid-cols-[1fr_200px_200px_160px]">
+        <div className="grid gap-2 rounded-lg border border-border bg-white p-3 md:grid-cols-[1fr_180px_180px_180px_160px]">
           <input
             value={search}
             onChange={(event) => {
@@ -233,6 +239,24 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
               </option>
             ))}
           </select>
+          {adminMode && (
+            <select
+              value={actorFilter}
+              onChange={(event) => {
+                setActorFilter(event.target.value);
+                setPage(1);
+              }}
+              aria-label="Фильтр по пользователю"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text outline-none"
+            >
+              <option value="">Все пользователи</option>
+              {actorOptions.map((actorId) => (
+                <option key={actorId} value={actorId}>
+                  {actorLookup.get(actorId) ?? actorId}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={dateRange}
             onChange={(event) => {

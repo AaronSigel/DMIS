@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   apiMentionDocuments,
   apiLinkAssistantThreadDocument,
@@ -37,8 +37,8 @@ export type UseDocumentAttachmentsReturn = {
   setDocumentTitles: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   documentStatuses: Record<string, AssistantDocumentStatusView>;
   mentionCandidates: MentionDoc[];
-  mentionTerm: string;
-  setMentionTerm: (term: string) => void;
+  mentionTerm: string | null;
+  setMentionTerm: (term: string | null) => void;
   mentionActiveIndex: number;
   setMentionActiveIndex: (i: number) => void;
   clearMentionCandidates: () => void;
@@ -72,18 +72,12 @@ export function useDocumentAttachments({
     Record<string, AssistantDocumentStatusView>
   >({});
   const [mentionCandidates, setMentionCandidates] = useState<MentionDoc[]>([]);
-  const [mentionTerm, setMentionTerm] = useState("");
+  const [mentionTerm, setMentionTerm] = useState<string | null>(null);
   const [documentTitles, setDocumentTitles] = useState<Record<string, string>>({});
   const [mentionActiveIndex, setMentionActiveIndex] = useState(-1);
 
   const uploadRef = useRef<HTMLInputElement>(null);
   const workspaceDocLinkedRef = useRef<string | null>(null);
-
-  const mentionDocumentsQuery = useQuery({
-    queryKey: ["assistant-mention-documents", mentionTerm],
-    queryFn: () => apiMentionDocuments(mentionTerm, onSessionExpired, onTokenRefresh),
-    enabled: !!token && mentionTerm.length > 0,
-  });
 
   const hydrateDocumentTitles = useCallback(
     async (documentIds: string[]) => {
@@ -205,27 +199,34 @@ export function useDocumentAttachments({
   }, [hydrateDocumentTitles, selectedDocumentIds]);
 
   useEffect(() => {
-    if (!mentionTerm) {
+    if (mentionTerm === null || !token) {
       setMentionCandidates([]);
       setMentionActiveIndex(-1);
       return;
     }
-    if (mentionDocumentsQuery.isError) {
-      setMentionCandidates([]);
-      setMentionActiveIndex(-1);
-      return;
-    }
-    const candidates = mentionDocumentsQuery.data ?? [];
-    setMentionCandidates(candidates);
-    setDocumentTitles((prev) => {
-      const next = { ...prev };
-      for (const candidate of candidates) {
-        next[candidate.id] = candidate.title;
-      }
-      return next;
-    });
-    setMentionActiveIndex(candidates.length ? 0 : -1);
-  }, [mentionDocumentsQuery.data, mentionDocumentsQuery.isError, mentionTerm]);
+    let cancelled = false;
+    void apiMentionDocuments(mentionTerm, onSessionExpired, onTokenRefresh)
+      .then((candidates) => {
+        if (cancelled) return;
+        setMentionCandidates(candidates);
+        setDocumentTitles((prev) => {
+          const next = { ...prev };
+          for (const candidate of candidates) {
+            next[candidate.id] = candidate.title;
+          }
+          return next;
+        });
+        setMentionActiveIndex(candidates.length ? 0 : -1);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMentionCandidates([]);
+        setMentionActiveIndex(-1);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mentionTerm, onSessionExpired, onTokenRefresh, token]);
 
   const linkDocumentMutation = useMutation({
     mutationFn: async ({ threadId, documentId }: { threadId: string; documentId: string }) => {
@@ -274,7 +275,7 @@ export function useDocumentAttachments({
       await linkDocumentMutation.mutateAsync({ threadId, documentId });
       setMentionCandidates([]);
       setMentionActiveIndex(-1);
-      setMentionTerm("");
+      setMentionTerm(null);
       toast.info("Документ добавлен в контекст.");
     } catch (e) {
       toast.error(
@@ -300,7 +301,7 @@ export function useDocumentAttachments({
       setAssistantQuery(newValue);
       setMentionCandidates([]);
       setMentionActiveIndex(-1);
-      setMentionTerm("");
+      setMentionTerm(null);
     }
   }
 

@@ -250,6 +250,7 @@ export function DocTable({
   const [renameDoc, setRenameDoc] = useState<DocumentView | null>(null);
   const [archiveActive, setArchiveActive] = useState(initialQueryState.archiveActive);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">(initialQueryState.sortOrder);
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkTagsInput, setBulkTagsInput] = useState("");
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
@@ -354,9 +355,16 @@ export function DocTable({
   const loading = docQuery.isFetching && !docQuery.data?.content?.length;
   const docPage = docQuery.data ?? null;
   const rawDocs = docPage?.content ?? [];
+  const availableStatuses = useMemo(
+    () => Array.from(new Set(rawDocs.map((d) => d.status).filter(Boolean))).sort(),
+    [rawDocs],
+  );
   const q = (searchQuery ?? "").trim().toLowerCase();
   const filteredBySearch = q ? rawDocs.filter((d) => d.title.toLowerCase().includes(q)) : rawDocs;
-  const filtered = filteredBySearch;
+  const filtered =
+    statusFilter === "ALL"
+      ? filteredBySearch
+      : filteredBySearch.filter((d) => d.status === statusFilter);
   const docs = [...filtered].sort((a, b) => {
     const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
     const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
@@ -759,7 +767,7 @@ export function DocTable({
             </span>
           )}
           <span className="rounded-full bg-zinc-100 px-2 py-1 text-[11px] text-text">
-            Все статусы
+            {statusFilter === "ALL" ? "Все статусы" : `Статус: ${statusFilter}`}
           </span>
           <span
             className={`rounded-full px-2 py-1 text-[11px] ${archiveActive ? "bg-primary/15 text-text" : "bg-zinc-100 text-muted"}`}
@@ -769,6 +777,28 @@ export function DocTable({
           <span className="rounded-full bg-zinc-100 px-2 py-1 text-[11px] text-muted">
             Сортировка: {sortOrder === "newest" ? "новые сверху" : "старые сверху"}
           </span>
+        </div>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <label htmlFor="document-status-filter" className="text-xs text-muted">
+            Статус
+          </label>
+          <select
+            id="document-status-filter"
+            aria-label="Фильтр по статусу"
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value);
+              setPage(0);
+            }}
+            className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text"
+          >
+            <option value="ALL">Все статусы</option>
+            {availableStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div

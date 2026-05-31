@@ -13,7 +13,7 @@ export function contextDiagnosticMessage(code: string | null | undefined): strin
   if (!code || code === "OK") return null;
   switch (code) {
     case "INDEX_PENDING":
-      return "Документ ещё индексируется. Summary будет доступно после завершения обработки.";
+      return "Документ ещё индексируется. Сводка будет доступна после завершения обработки.";
     case "INDEX_FAILED":
       return "Документ не был проиндексирован.";
     case "NO_DOCUMENT_SELECTED":

@@ -262,8 +262,9 @@ export async function apiMentionDocuments(
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
 ): Promise<{ id: string; title: string }[]> {
+  const q = query.trim();
   const response = await fetchWithAuth(
-    `${apiBaseUrl}/assistant/documents/mentions?q=${encodeURIComponent(query)}&limit=8`,
+    `${apiBaseUrl}/assistant/documents/mentions?q=${encodeURIComponent(q)}&limit=8`,
     { method: "GET" },
     onNewToken,
   );
@@ -1001,7 +1002,7 @@ export async function apiSearchUsers(
   onUnauthorized: () => void,
   onNewToken?: (token: string) => void,
 ): Promise<UserSummary[]> {
-  const qs = new URLSearchParams({ q: query });
+  const qs = new URLSearchParams({ q: query.trim() });
   const response = await fetchWithAuth(
     `${apiBaseUrl}/users/search?${qs.toString()}`,
     { method: "GET" },

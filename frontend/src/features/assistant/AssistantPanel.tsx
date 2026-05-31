@@ -273,7 +273,7 @@ export function AssistantPanel({
               documentIds={docs.selectedDocumentIds}
               documentTitles={docs.documentTitles}
               documentStatuses={docs.documentStatuses}
-              onSummary={() => void submit.sendRag("Сделай краткое summary этого файла")}
+              onSummary={() => void submit.sendRag("Сделай краткую сводку этого файла")}
               onRemove={(id) => docs.unlinkDocument(id)}
             />
           </>

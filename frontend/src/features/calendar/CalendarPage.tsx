@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   apiAddCalendarAttachment,
   apiAddCalendarParticipant,
@@ -856,6 +856,12 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <Link
+                  to={`/mail?composeTo=${encodeURIComponent(detailEvent.attendees.join(","))}&composeSubject=${encodeURIComponent(`По событию: ${detailEvent.title}`)}`}
+                  className="rounded-md border border-border px-3 py-1.5 text-[12px] text-text"
+                >
+                  Написать участникам
+                </Link>
                 <button
                   type="button"
                   onClick={() => {

@@ -15,7 +15,7 @@ export function StaticPage({ title, description, hint, actionLabel }: StaticPage
         <div className="max-w-[560px] rounded-[10px] border border-dashed border-border bg-white p-[14px]">
           <p className="m-0 text-[13px] text-text">
             {hint ??
-              "Раздел находится в процессе внедрения. Данные появятся после настройки backend-коннекторов."}
+              "Раздел находится в процессе внедрения. Данные появятся после настройки серверных коннекторов."}
           </p>
           {actionLabel && (
             <button

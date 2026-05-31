@@ -571,7 +571,7 @@ export const handlers = [
 
   http.get("*/users/search", ({ request }) => {
     const q =
-      new URL(request.url).searchParams.get("q")?.trim().replace(/^@/, "").toLowerCase() ?? "";
+      new URL(request.url).searchParams.get("q")?.trim().replace(/^[@#]/, "").toLowerCase() ?? "";
     const pool = [
       {
         id: "u-admin",
@@ -598,15 +598,12 @@ export const handlers = [
         fullName: "Волкова Елена Викторовна",
       },
     ];
-    const filtered =
-      q.length < 2
-        ? []
-        : pool.filter(
-            (u) =>
-              u.email.toLowerCase().includes(q) ||
-              u.nickname.toLowerCase().includes(q) ||
-              u.fullName.toLowerCase().includes(q),
-          );
+    const filtered = pool.filter(
+      (u) =>
+        u.email.toLowerCase().includes(q) ||
+        u.nickname.toLowerCase().includes(q) ||
+        u.fullName.toLowerCase().includes(q),
+    );
     return HttpResponse.json(filtered);
   }),
 

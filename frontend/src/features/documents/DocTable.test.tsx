@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 afterEach(() => {
   cleanup();
@@ -15,6 +15,7 @@ vi.mock("../../apiClient", () => ({
   apiSearchDocuments: vi.fn().mockResolvedValue({ hits: [] }),
   apiBaseUrl: "http://localhost",
 }));
+import { apiListDocuments } from "../../apiClient";
 
 function renderDocTable() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -36,6 +37,16 @@ function renderDocTable() {
   );
 }
 
+beforeEach(() => {
+  vi.mocked(apiListDocuments).mockResolvedValue({
+    content: [],
+    totalElements: 0,
+    totalPages: 1,
+    page: 0,
+    size: 20,
+  });
+});
+
 it("does not render the indexed-only filter toggle", () => {
   renderDocTable();
   // button text variants both before and after toggle
@@ -46,7 +57,68 @@ it("does not render the indexed-only filter toggle", () => {
 it("shows all status badge variants — no status filter applied", async () => {
   renderDocTable();
   // The filter badge pill should say "Все статусы" (not "Только проиндексированные")
-  expect(await screen.findByText("Все статусы")).toBeInTheDocument();
+  expect((await screen.findAllByText("Все статусы")).length).toBeGreaterThan(0);
+});
+
+it("filters documents by status from dropdown", async () => {
+  vi.mocked(apiListDocuments).mockResolvedValue({
+    content: [
+      {
+        id: "doc-indexed",
+        title: "Индексированный документ",
+        ownerId: "u1",
+        description: "",
+        tags: [],
+        source: "upload",
+        category: "memo",
+        status: "INDEXED",
+        type: "memo",
+        createdAt: "2026-05-30T10:00:00Z",
+        updatedAt: "2026-05-30T10:00:00Z",
+        totalSizeBytes: 10,
+        fileName: "a.txt",
+        contentType: "text/plain",
+        storageRef: "s3://a",
+        indexedChunkCount: 1,
+        indexedAt: "2026-05-30T10:00:01Z",
+        extractedTextPreview: "",
+        extractedTextLength: 0,
+        extractedTextTruncated: false,
+      },
+      {
+        id: "doc-failed",
+        title: "Документ с ошибкой",
+        ownerId: "u1",
+        description: "",
+        tags: [],
+        source: "upload",
+        category: "memo",
+        status: "FAILED",
+        type: "memo",
+        createdAt: "2026-05-30T10:00:00Z",
+        updatedAt: "2026-05-30T10:00:00Z",
+        totalSizeBytes: 10,
+        fileName: "b.txt",
+        contentType: "text/plain",
+        storageRef: "s3://b",
+        indexedChunkCount: 0,
+        indexedAt: null,
+        extractedTextPreview: "",
+        extractedTextLength: 0,
+        extractedTextTruncated: false,
+      },
+    ],
+    totalElements: 2,
+    totalPages: 1,
+    page: 0,
+    size: 20,
+  });
+
+  renderDocTable();
+  expect(await screen.findByText("Индексированный документ")).toBeInTheDocument();
+  expect(screen.getByText("Документ с ошибкой")).toBeInTheDocument();
+
+  await screen.findByRole("combobox", { name: /Фильтр по статусу/i });
 });
 
 import { UploadPipeline } from "./DocTable"; // will fail until exported

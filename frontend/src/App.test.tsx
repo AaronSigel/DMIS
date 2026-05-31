@@ -620,6 +620,15 @@ describe("assistant document context", () => {
     });
   });
 
+  async function loginAsAdmin() {
+    await userEvent.type(
+      screen.getByPlaceholderText(/электронная почта/i),
+      "sokolov-d-a@example.com",
+    );
+    await userEvent.type(screen.getByPlaceholderText(/пароль/i), "demo");
+    await userEvent.click(screen.getByRole("button", { name: /войти/i }));
+  }
+
   it("shows context card on document page", async () => {
     render(
       <MemoryRouter
@@ -739,6 +748,42 @@ describe("assistant document context", () => {
     expect(screen.queryByText(/Сервис вернул неожиданный ответ/i)).not.toBeInTheDocument();
   });
 
+  it("shows document mention suggestions for empty and one-letter aliases", async () => {
+    const documentQueries: string[] = [];
+    server.use(
+      http.get("*/assistant/documents/mentions", ({ request }) => {
+        documentQueries.push(new URL(request.url).searchParams.get("q") ?? "");
+        return HttpResponse.json([
+          { id: "doc-1", title: "Policy Doc", updatedAt: "2026-01-01T00:00:00Z" },
+        ]);
+      }),
+    );
+
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await loginAsAdmin();
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    const input = within(panel).getByTestId("assistant-message-input");
+    await userEvent.type(input, "@");
+    expect(await within(panel).findByRole("button", { name: /Policy Doc/i })).toBeInTheDocument();
+    await waitFor(() => expect(documentQueries).toContain(""));
+
+    await userEvent.clear(input);
+    await userEvent.type(input, "@P");
+    expect(await within(panel).findByRole("button", { name: /Policy Doc/i })).toBeInTheDocument();
+    await waitFor(() => expect(documentQueries).toContain("P"));
+  });
+
   it("inserts hash user mention and submits it unchanged", async () => {
     const submitTexts: string[] = [];
     server.use(
@@ -797,6 +842,34 @@ describe("assistant document context", () => {
 
     await userEvent.click(within(panel).getByTestId("assistant-send-button"));
     await waitFor(() => expect(submitTexts).toEqual(["Подготовь письмо #Петрова А.С. "]));
+  });
+
+  it("shows user mention suggestions for empty and one-letter aliases", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/documents"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <App />
+      </MemoryRouter>,
+    );
+
+    await loginAsAdmin();
+    await waitFor(() => expect(screen.getByText("Policy Doc")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("assistant-open-button"));
+
+    const panel = await screen.findByTestId("assistant-panel");
+    const input = within(panel).getByTestId("assistant-message-input");
+    await userEvent.type(input, "#");
+    expect(
+      await within(panel).findByRole("button", { name: /Петрова Анна Сергеевна/i }),
+    ).toBeInTheDocument();
+
+    await userEvent.clear(input);
+    await userEvent.type(input, "#П");
+    expect(
+      await within(panel).findByRole("button", { name: /Петрова Анна Сергеевна/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows clarification form for calendar action without date", async () => {

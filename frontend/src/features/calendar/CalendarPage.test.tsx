@@ -132,3 +132,34 @@ describe("AC-E4: period header shows DD.MM.YYYY dates", () => {
     }
   });
 });
+
+describe("CalendarPage — P1 write participants", () => {
+  it("shows 'Написать участникам' action for selected event", async () => {
+    server.use(
+      http.get("*/calendar/events", () =>
+        HttpResponse.json([
+          {
+            id: "ev-mail",
+            title: "Планирование",
+            attendees: ["alice@example.com", "bob@example.com"],
+            startIso: new Date().toISOString(),
+            endIso: new Date(Date.now() + 3600000).toISOString(),
+            createdBy: "u-1",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            description: "",
+            creationSource: "UI",
+            sourceMailMessageId: null,
+            participants: [],
+            attachments: [],
+          },
+        ]),
+      ),
+    );
+
+    renderCalendar();
+    await userEvent.click(screen.getByRole("button", { name: /месяц/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Планирование/i }));
+    expect(screen.getByRole("link", { name: /Написать участникам/i })).toBeInTheDocument();
+  });
+});

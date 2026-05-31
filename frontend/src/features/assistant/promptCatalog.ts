@@ -15,8 +15,8 @@ const DOCUMENT_PROMPTS: PromptSuggestion[] = [
   { id: "about", label: "О чём документ?", prompt: "О чём этот документ?", requiresDocument: true },
   {
     id: "summary",
-    label: "Summary",
-    prompt: "Сделай краткое summary этого файла",
+    label: "Краткая сводка",
+    prompt: "Сделай краткую сводку этого файла",
     requiresDocument: true,
   },
   {
@@ -58,7 +58,7 @@ const WORKSPACE_PROMPTS: PromptSuggestion[] = [
     label: "Что изменилось?",
     prompt: "Что изменилось за неделю?",
     disabled: true,
-    disabledHint: "Сводка изменений — в следующей версии (нужен backend).",
+    disabledHint: "Сводка изменений появится в следующей версии (требуется серверная поддержка).",
   },
 ];
 

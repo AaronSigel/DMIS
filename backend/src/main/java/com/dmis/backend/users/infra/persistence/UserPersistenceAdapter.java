@@ -51,10 +51,12 @@ public class UserPersistenceAdapter implements UserAccessPort {
         if (q.startsWith("@")) {
             q = q.substring(1).trim();
         }
-        if (q.length() < 2) {
-            return List.of();
-        }
         int safeLimit = Math.min(Math.max(limit, 1), 50);
+        if (q.isBlank()) {
+            return findAllSummaries().stream()
+                    .limit(safeLimit)
+                    .toList();
+        }
         return userJpaRepository.searchByEmailOrName(q, PageRequest.of(0, safeLimit)).stream()
                 .map(e -> new UserSummaryView(e.getId(), e.getEmail(), e.getNickname(), e.getFullName()))
                 .toList();
