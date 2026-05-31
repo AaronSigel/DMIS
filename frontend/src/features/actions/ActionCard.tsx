@@ -7,7 +7,6 @@ import {
 } from "../../apiClient";
 import { useToast } from "../../shared/ui/ToastProvider";
 import { StatusBadge } from "../../shared/ui/StatusBadge";
-import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { localizeIntent } from "../../shared/lib/localizeDomain";
 import { formatDateTime } from "../../shared/lib/formatDate";
 import type {
@@ -246,6 +245,17 @@ export function ActionCard({
           <StatusBadge status={localStatus} />
         </span>
       </div>
+      {localStatus === "EXECUTED" && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <span
+            data-testid="executed-badge"
+            className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700"
+          >
+            ✓ Выполнено
+          </span>
+          {/* TODO: show result text when available (requires result prop threaded from ActionArea) */}
+        </div>
+      )}
       <div className="grid gap-1.5">
         {fields.map((field) => (
           <div
@@ -281,13 +291,13 @@ export function ActionCard({
         )}
         {actionError && <p className="m-0 text-[12px] text-danger">{actionError}</p>}
       </div>
-      {localStatus === "DRAFT" && (
+      {localStatus === "DRAFT" && !confirmOpen && (
         <div className="mt-2 flex justify-end gap-2">
           <button
             type="button"
             data-testid="action-cancel-button"
             onClick={() => void handleCancelAction()}
-            disabled={cancelPending || confirmPending}
+            disabled={cancelPending}
             className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-text disabled:cursor-not-allowed disabled:opacity-60"
           >
             {cancelPending ? "Отмена…" : "Отменить"}
@@ -303,16 +313,34 @@ export function ActionCard({
           </button>
         </div>
       )}
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        onConfirm={handleConfirmAction}
-        title="Подтвердить действие"
-        description="После подтверждения действие перейдет в статус «подтверждено»."
-        confirmText="Подтвердить"
-        cancelText="Отмена"
-        pending={confirmPending}
-      />
+      {localStatus === "DRAFT" && confirmOpen && (
+        <div
+          data-testid="inline-confirm-bar"
+          className="mt-2 rounded-md border border-border bg-surface px-3 py-2"
+        >
+          <p className="m-0 mb-2 text-[12px] text-text">Вы уверены? Действие будет выполнено.</p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              data-testid="inline-confirm-cancel-button"
+              onClick={() => setConfirmOpen(false)}
+              disabled={confirmPending}
+              className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-text disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              data-testid="inline-confirm-yes-button"
+              onClick={() => void handleConfirmAction()}
+              disabled={confirmPending}
+              className="rounded-md border border-primary/40 bg-primary px-3 py-1.5 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {confirmPending ? "Выполнение…" : "Да, подтвердить"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
