@@ -29,6 +29,7 @@ import {
 } from "../../shared/lib/localizeDomain";
 import { isoToLocalDateTimeInput, localDateTimeInputToIso } from "../../shared/lib/datetimeLocal";
 import { PageHeader } from "../../shared/ui/PageHeader";
+import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { useToast } from "../../shared/ui/ToastProvider";
 
 type CalendarPageProps = {
@@ -186,6 +187,11 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
   const [availabilityHint, setAvailabilityHint] = useState("");
   const [attachDocId, setAttachDocId] = useState("");
   const [attachRole, setAttachRole] = useState("AGENDA");
+  const [deleteDialogEventId, setDeleteDialogEventId] = useState<string | null>(null);
+  const [removeParticipantDialog, setRemoveParticipantDialog] = useState<{
+    eventId: string;
+    userId: string;
+  } | null>(null);
 
   const [form, setForm] = useState<EventFormState>({
     title: "",
@@ -238,6 +244,24 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
       sortedEvents.find((x) => x.id === selectedEventId),
     [selectedEventId, sortedEvents, visibleEvents],
   );
+
+  const timeOverlapWarning = useMemo(() => {
+    if (!form.startLocal || !form.endLocal) return "";
+    const startIso = localDateTimeInputToIso(form.startLocal);
+    const endIso = localDateTimeInputToIso(form.endLocal);
+    if (!startIso || !endIso) return "";
+    const rangeStart = new Date(startIso);
+    const rangeEnd = new Date(endIso);
+    if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) return "";
+    if (rangeEnd.getTime() <= rangeStart.getTime()) return "";
+
+    const hasOverlap = sortedEvents.some((ev) => {
+      if (editMode && ev.id === selectedEventId) return false;
+      return intersectsRange(ev, rangeStart, rangeEnd);
+    });
+
+    return hasOverlap ? "Есть пересечение по времени с другим событием." : "";
+  }, [editMode, form.endLocal, form.startLocal, selectedEventId, sortedEvents]);
 
   const invalidateList = async () => {
     await queryClient.invalidateQueries({ queryKey: ["calendar"] });
@@ -299,6 +323,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
       setComposeOpen(false);
       openDetail(created);
       setFormError("");
+      toast.success("Событие создано");
     },
     onError: (error) => {
       setFormError(
@@ -314,6 +339,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
       await invalidateList();
       setEditMode(false);
       setFormError("");
+      toast.success("Событие обновлено");
     },
     onError: (error) => {
       setFormError(
@@ -327,6 +353,13 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
     onSuccess: async () => {
       await invalidateList();
       setSelectedEventId(null);
+      setDeleteDialogEventId(null);
+      toast.success("Событие удалено");
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? mapApiErrorToMessage(error.message) : "Ошибка удаления.",
+      );
     },
   });
 
@@ -352,7 +385,10 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
   const removeParticipantMutation = useMutation({
     mutationFn: ({ eventId, userId }: { eventId: string; userId: string }) =>
       apiRemoveCalendarParticipant(eventId, userId, onSessionExpired, onTokenRefresh),
-    onSuccess: invalidateList,
+    onSuccess: async () => {
+      await invalidateList();
+      setRemoveParticipantDialog(null);
+    },
   });
 
   const attachMutation = useMutation({
@@ -417,9 +453,7 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
   }
 
   function handleDelete(id: string) {
-    const confirmed = window.confirm("Удалить событие?");
-    if (!confirmed) return;
-    deleteMutation.mutate(id);
+    setDeleteDialogEventId(id);
   }
 
   function navigatePeriod(delta: number) {
@@ -589,6 +623,11 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                   className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] outline-none"
                 />
               </label>
+              {timeOverlapWarning && (
+                <p className="m-0 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[12px] text-amber-900">
+                  {timeOverlapWarning}
+                </p>
+              )}
               {formError && <p className="m-0 text-[12px] text-danger">{formError}</p>}
               <button
                 type="submit"
@@ -640,78 +679,85 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
           )}
 
           {!eventsQuery.isPending && !listError && (viewMode === "day" || viewMode === "week") && (
-            <div className="flex min-h-0 flex-1 overflow-auto">
-              <div className="w-10 shrink-0 pt-6 text-[10px] text-muted">
-                {hours.map((h) => (
-                  <div
-                    key={h}
-                    style={{ height: HOUR_PX }}
-                    className="border-t border-border/40 pr-1 text-right"
-                  >
-                    {String(h).padStart(2, "0")}:00
-                  </div>
-                ))}
-              </div>
-              <div
-                className="grid flex-1 gap-0"
-                style={{
-                  gridTemplateColumns: `repeat(${gridDays.length}, minmax(0, 1fr))`,
-                  minHeight: (END_HOUR - START_HOUR) * HOUR_PX,
-                }}
-              >
-                {gridDays.map((day) => {
-                  const isToday = startOfDayLocal(day).getTime() === todayStart;
-                  const dayEvents = visibleEvents.filter((ev) => eventIntersectsDay(ev, day));
-                  return (
+            <>
+              {visibleEvents.length === 0 && (
+                <p className="mb-2 mt-0 text-[13px] text-muted">На выбранный период событий нет.</p>
+              )}
+              <div className="flex min-h-0 flex-1 overflow-auto">
+                <div className="w-10 shrink-0 pt-6 text-[10px] text-muted">
+                  {hours.map((h) => (
                     <div
-                      key={day.toISOString()}
-                      className={`relative border-l border-border ${isToday ? "bg-primary-soft/30" : ""}`}
+                      key={h}
+                      style={{ height: HOUR_PX }}
+                      className="border-t border-border/40 pr-1 text-right"
                     >
-                      <div className="sticky top-0 z-10 border-b border-border bg-white px-1 py-1 text-center text-[11px] font-medium">
-                        {day.toLocaleDateString("ru-RU", {
-                          weekday: "short",
-                          day: "numeric",
-                          month: "short",
-                        })}
-                      </div>
-                      <div
-                        className="relative"
-                        style={{ height: (END_HOUR - START_HOUR) * HOUR_PX }}
-                      >
-                        {hours.map((h) => (
-                          <div
-                            key={h}
-                            style={{ height: HOUR_PX }}
-                            className="border-b border-border/30"
-                          />
-                        ))}
-                        {dayEvents.map((ev) => {
-                          const bounds = eventStyleBounds(ev.startIso, ev.endIso, day);
-                          if (!bounds) return null;
-                          const active = ev.id === selectedEventId;
-                          return (
-                            <button
-                              key={ev.id}
-                              type="button"
-                              onClick={() => openDetail(ev)}
-                              style={{ top: bounds.top, height: bounds.height }}
-                              className={`absolute left-0.5 right-0.5 overflow-hidden rounded border px-1 py-0.5 text-left text-[10px] leading-tight ${
-                                active ? "border-primary bg-primary-soft" : "border-border bg-white"
-                              }`}
-                            >
-                              <span className="block truncate font-semibold">{ev.title}</span>
-                              <span className="block text-[9px] text-muted">
-                                {formatDateTime(ev.startIso)}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {String(h).padStart(2, "0")}:00
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+                <div
+                  className="grid flex-1 gap-0"
+                  style={{
+                    gridTemplateColumns: `repeat(${gridDays.length}, minmax(0, 1fr))`,
+                    minHeight: (END_HOUR - START_HOUR) * HOUR_PX,
+                  }}
+                >
+                  {gridDays.map((day) => {
+                    const isToday = startOfDayLocal(day).getTime() === todayStart;
+                    const dayEvents = visibleEvents.filter((ev) => eventIntersectsDay(ev, day));
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`relative border-l border-border ${isToday ? "bg-primary-soft/30" : ""}`}
+                      >
+                        <div className="sticky top-0 z-10 border-b border-border bg-white px-1 py-1 text-center text-[11px] font-medium">
+                          {day.toLocaleDateString("ru-RU", {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          })}
+                        </div>
+                        <div
+                          className="relative"
+                          style={{ height: (END_HOUR - START_HOUR) * HOUR_PX }}
+                        >
+                          {hours.map((h) => (
+                            <div
+                              key={h}
+                              style={{ height: HOUR_PX }}
+                              className="border-b border-border/30"
+                            />
+                          ))}
+                          {dayEvents.map((ev) => {
+                            const bounds = eventStyleBounds(ev.startIso, ev.endIso, day);
+                            if (!bounds) return null;
+                            const active = ev.id === selectedEventId;
+                            return (
+                              <button
+                                key={ev.id}
+                                type="button"
+                                onClick={() => openDetail(ev)}
+                                style={{ top: bounds.top, height: bounds.height }}
+                                className={`absolute left-0.5 right-0.5 overflow-hidden rounded border px-1 py-0.5 text-left text-[10px] leading-tight ${
+                                  active
+                                    ? "border-primary bg-primary-soft"
+                                    : "border-border bg-white"
+                                }`}
+                              >
+                                <span className="block truncate font-semibold">{ev.title}</span>
+                                <span className="block text-[9px] text-muted">
+                                  {formatDateTime(ev.startIso)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            </>
           )}
         </section>
 
@@ -743,17 +789,17 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                   {detailEvent.participants.map((p) => (
                     <li
                       key={`${p.email}-${p.userId ?? "ext"}`}
-                      className="flex items-center justify-between gap-2 text-[12px]"
+                      className="flex min-w-0 items-center justify-between gap-2 text-[12px]"
                     >
-                      <span>
+                      <span className="min-w-0 break-words">
                         {p.displayName} ({p.email}) — {localizeParticipantStatus(p.status)}
                       </span>
                       {p.userId && (
                         <button
                           type="button"
-                          className="text-[11px] text-danger"
+                          className="shrink-0 text-[11px] text-danger"
                           onClick={() =>
-                            removeParticipantMutation.mutate({
+                            setRemoveParticipantDialog({
                               eventId: detailEvent.id,
                               userId: p.userId!,
                             })
@@ -936,6 +982,11 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
                 onChange={(e) => setForm((p) => ({ ...p, endLocal: e.target.value }))}
                 aria-label="Окончание события"
               />
+              {timeOverlapWarning && (
+                <p className="m-0 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[12px] text-amber-900">
+                  {timeOverlapWarning}
+                </p>
+              )}
               {formError && <p className="m-0 text-[12px] text-danger">{formError}</p>}
               <div className="flex gap-2">
                 <button
@@ -957,6 +1008,36 @@ export function CalendarPage({ token, onSessionExpired, onTokenRefresh }: Calend
           )}
         </section>
       </div>
+      <ConfirmDialog
+        open={deleteDialogEventId !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setDeleteDialogEventId(null);
+        }}
+        onConfirm={() => {
+          if (!deleteDialogEventId) return;
+          deleteMutation.mutate(deleteDialogEventId);
+        }}
+        title="Удалить событие?"
+        description="Действие нельзя отменить."
+        confirmText="Подтвердить"
+        cancelText="Отмена"
+        pending={deleteMutation.isPending}
+      />
+      <ConfirmDialog
+        open={removeParticipantDialog !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setRemoveParticipantDialog(null);
+        }}
+        onConfirm={() => {
+          if (!removeParticipantDialog) return;
+          removeParticipantMutation.mutate(removeParticipantDialog);
+        }}
+        title="Удалить участника?"
+        description="Действие нельзя отменить."
+        confirmText="Подтвердить"
+        cancelText="Отмена"
+        pending={removeParticipantMutation.isPending}
+      />
     </div>
   );
 }

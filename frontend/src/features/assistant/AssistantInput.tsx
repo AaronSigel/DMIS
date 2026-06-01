@@ -93,35 +93,40 @@ export function AssistantInput({
               key={candidate.id}
               type="button"
               onClick={() => onAttachMention(candidate)}
-              className={`rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${
+              title={candidate.title}
+              className={`w-full truncate rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${
                 mentionCandidates[mentionActiveIndex]?.id === candidate.id
                   ? "bg-primary-soft"
                   : "bg-transparent"
               }`}
             >
               <span className="mr-1.5 text-primary">@</span>
-              {candidate.title}
+              <span className="truncate align-middle">{candidate.title}</span>
             </button>
           ))}
         </div>
       )}
       {!!userMentionCandidates.length && (
         <div className="mb-2 grid gap-1 rounded-[10px] border border-border bg-white p-1.5">
-          {userMentionCandidates.map((candidate) => (
-            <button
-              key={candidate.id}
-              type="button"
-              onClick={() => onAttachUserMention(candidate)}
-              className={`rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${
-                userMentionCandidates[userMentionActiveIndex]?.id === candidate.id
-                  ? "bg-primary-soft"
-                  : "bg-transparent"
-              }`}
-            >
-              <span className="mr-1.5 text-primary">#</span>
-              {candidate.fullName || userMentionLabel(candidate)}
-            </button>
-          ))}
+          {userMentionCandidates.map((candidate) => {
+            const label = candidate.fullName || userMentionLabel(candidate);
+            return (
+              <button
+                key={candidate.id}
+                type="button"
+                onClick={() => onAttachUserMention(candidate)}
+                title={label}
+                className={`w-full truncate rounded-md border-none px-2 py-1.5 text-left text-xs text-text ${
+                  userMentionCandidates[userMentionActiveIndex]?.id === candidate.id
+                    ? "bg-primary-soft"
+                    : "bg-transparent"
+                }`}
+              >
+                <span className="mr-1.5 text-primary">#</span>
+                <span className="truncate align-middle">{label}</span>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="flex flex-wrap items-stretch gap-1.5">

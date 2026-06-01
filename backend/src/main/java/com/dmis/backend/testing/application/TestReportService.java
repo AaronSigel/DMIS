@@ -1,6 +1,9 @@
 package com.dmis.backend.testing.application;
 
-import com.dmis.backend.testing.domain.*;
+import com.dmis.backend.testing.domain.TestAssertion;
+import com.dmis.backend.testing.domain.TestSession;
+import com.dmis.backend.testing.domain.TestStep;
+import com.dmis.backend.testing.domain.TestStepStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 

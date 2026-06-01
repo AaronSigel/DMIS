@@ -92,6 +92,43 @@ describe("ActionCard inline confirmation bar", () => {
     // After API resolves, bar disappears and status badge updates
     await waitFor(() => expect(screen.queryByTestId("inline-confirm-bar")).not.toBeInTheDocument());
   });
+
+  it("keeps DRAFT and allows retry when confirm execution fails", async () => {
+    let attempts = 0;
+    server.use(
+      http.post("*/actions/action-1/confirm", async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return HttpResponse.json({ message: "SMTP временно недоступен" }, { status: 503 });
+        }
+        return HttpResponse.json({
+          id: "action-1",
+          intent: "send_email",
+          entities: { type: "send_email", to: "test@example.com", subject: "Test", body: "Test" },
+          actorId: "u-admin",
+          status: "EXECUTED",
+          confirmedBy: "u-admin",
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderActionCard();
+
+    await user.click(screen.getByTestId("action-confirm-button"));
+    await user.click(screen.getByTestId("inline-confirm-yes-button"));
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/SMTP временно недоступен/i).length).toBeGreaterThan(0),
+    );
+    expect(screen.getByTestId("inline-confirm-bar")).toBeInTheDocument();
+    expect(screen.getByTestId("action-status")).toHaveTextContent(/черновик/i);
+
+    await user.click(screen.getByTestId("inline-confirm-yes-button"));
+    await waitFor(() => expect(screen.queryByTestId("inline-confirm-bar")).not.toBeInTheDocument());
+    expect(attempts).toBe(2);
+    expect(screen.getByTestId("action-status")).toHaveTextContent(/выполнено/i);
+  });
 });
 
 describe("ActionCard EXECUTED state", () => {

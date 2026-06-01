@@ -91,7 +91,7 @@ class IntentParserServiceTest {
                         Map.of("to", "@analyst")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "analyst", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft(
@@ -121,7 +121,7 @@ class IntentParserServiceTest {
                         Map.of("to", "@analyst")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "analyst", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft(
@@ -162,7 +162,7 @@ class IntentParserServiceTest {
                         Map.of("to", "@analyst", "subject", "Тема", "body", "Текст")
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "analyst", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("send to analyst");
@@ -201,7 +201,7 @@ class IntentParserServiceTest {
                         )
                 ));
         when(userAccessPort.findAllSummaries()).thenReturn(List.of(
-                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "Data Analyst")
+                new UserSummaryView("u-analyst", "petrova-a-s@example.com", "analyst", "Data Analyst")
         ));
 
         IntentParserService.ParsedDraft parsed = intentParserService.parseDraft("create meeting with analyst");

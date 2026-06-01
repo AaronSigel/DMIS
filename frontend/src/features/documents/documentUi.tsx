@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { smallBtnClass } from "../../shared/ui/smallBtnClass";
 import { mapApiErrorToMessage } from "../../shared/lib/mapApiErrorToMessage";
 
@@ -14,6 +14,7 @@ export function RenameDocumentModal({
   initialTitle: string;
   onSave: (title: string) => Promise<void>;
 }) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState(initialTitle);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -23,8 +24,26 @@ export function RenameDocumentModal({
       setTitle(initialTitle);
       setErr("");
       setBusy(false);
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
     }
   }, [open, initialTitle]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, busy, onClose]);
 
   if (!open) return null;
 
@@ -61,10 +80,25 @@ export function RenameDocumentModal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <p className="mb-[14px] mt-0 text-[15px] font-bold text-text">Переименовать</p>
-        <label className="mb-1 block text-[11px] font-semibold text-muted">Имя документа</label>
+        <label
+          htmlFor="rename-document-title"
+          className="mb-1 block text-[11px] font-semibold text-muted"
+        >
+          Имя документа
+        </label>
         <input
+          id="rename-document-title"
+          ref={inputRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (!busy) {
+                void submit();
+              }
+            }
+          }}
           className="mb-2.5 box-border w-full rounded-[7px] border border-border bg-surface px-[10px] py-2 text-[13px] outline-none"
         />
         {err && <p className="mb-2 mt-0 text-xs text-danger">{err}</p>}

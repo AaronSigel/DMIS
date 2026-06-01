@@ -1,6 +1,10 @@
 package com.dmis.backend.testing.application;
 
-import com.dmis.backend.testing.domain.*;
+import com.dmis.backend.testing.domain.CleanupPolicy;
+import com.dmis.backend.testing.domain.IsolationLevel;
+import com.dmis.backend.testing.domain.TestAssertion;
+import com.dmis.backend.testing.domain.TestSession;
+import com.dmis.backend.testing.domain.TestStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;

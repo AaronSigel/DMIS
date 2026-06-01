@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { Route, Routes } from "react-router-dom";
 import { useSession } from "./features/auth/useSession";
 import { LoginPage } from "./pages/LoginPage";
@@ -33,11 +33,23 @@ const WorkspacePage = lazy(() =>
 
 export function App() {
   const session = useSession();
+  const isAuthenticated = !!session.token && !!session.user;
+
+  useEffect(() => {
+    const { pathname, search, hash } = window.location;
+    if (!isAuthenticated && pathname !== "/login") {
+      window.history.replaceState(null, "", `/login${search}${hash}`);
+      return;
+    }
+    if (isAuthenticated && pathname === "/login") {
+      window.history.replaceState(null, "", `/${search}${hash}`);
+    }
+  }, [isAuthenticated]);
 
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        {!session.token || !session.user ? (
+        {!isAuthenticated ? (
           <LoginPage onLogin={session.login} />
         ) : (
           <Suspense fallback={<div className="p-4 text-sm text-muted">Загрузка интерфейса…</div>}>

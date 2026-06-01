@@ -361,3 +361,213 @@ describe("AuditPage — P1 user filter for admin", () => {
     });
   });
 });
+
+describe("AuditPage — quick event type filters", () => {
+  it("filters rows by mail.* quick filter", async () => {
+    const recAction = { ...baseRecord, id: "rec-action", action: "action.draft" };
+    const recMail = { ...baseRecord, id: "rec-mail", action: "mail.send" };
+    server.use(
+      http.get("*/audit", () => HttpResponse.json([recAction, recMail])),
+      http.get("*/users", () => HttpResponse.json([])),
+    );
+    renderPage();
+
+    await waitFor(() => {
+      const actionInTable = screen
+        .queryAllByText("черновик действия")
+        .filter((el) => el.closest("td") !== null);
+      expect(actionInTable.length).toBeGreaterThan(0);
+    });
+    await waitFor(() => {
+      const mailInTable = screen
+        .queryAllByText("отправка письма")
+        .filter((el) => el.closest("td") !== null);
+      expect(mailInTable.length).toBeGreaterThan(0);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "mail.*" }));
+
+    await waitFor(() => {
+      const actionInTable = screen
+        .queryAllByText("черновик действия")
+        .filter((el) => el.closest("td") !== null);
+      expect(actionInTable.length).toBe(0);
+    });
+    const mailInTable = screen
+      .queryAllByText("отправка письма")
+      .filter((el) => el.closest("td") !== null);
+    expect(mailInTable.length).toBeGreaterThan(0);
+  });
+
+  it("switches quick filter across assistant/action/mail/calendar/document and shows only matching rows", async () => {
+    const records = [
+      { ...baseRecord, id: "rec-assistant", action: "assistant.message.send" },
+      { ...baseRecord, id: "rec-action", action: "action.draft" },
+      { ...baseRecord, id: "rec-mail", action: "mail.send" },
+      { ...baseRecord, id: "rec-calendar", action: "calendar.event.create" },
+      { ...baseRecord, id: "rec-document", action: "document.upload" },
+    ];
+    server.use(
+      http.get("*/audit", () => HttpResponse.json(records)),
+      http.get("*/users", () => HttpResponse.json([])),
+    );
+    renderPage();
+
+    const inTableCount = (text: string) =>
+      screen.queryAllByText(text).filter((el) => el.closest("td") !== null).length;
+
+    await waitFor(() => {
+      expect(inTableCount("сообщение ассистенту")).toBeGreaterThan(0);
+      expect(inTableCount("черновик действия")).toBeGreaterThan(0);
+      expect(inTableCount("отправка письма")).toBeGreaterThan(0);
+      expect(inTableCount("calendar.event.create")).toBeGreaterThan(0);
+      expect(inTableCount("загрузка документа")).toBeGreaterThan(0);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "assistant.*" }));
+    await waitFor(() => {
+      expect(inTableCount("сообщение ассистенту")).toBeGreaterThan(0);
+      expect(inTableCount("черновик действия")).toBe(0);
+      expect(inTableCount("отправка письма")).toBe(0);
+      expect(inTableCount("calendar.event.create")).toBe(0);
+      expect(inTableCount("загрузка документа")).toBe(0);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "action.*" }));
+    await waitFor(() => {
+      expect(inTableCount("сообщение ассистенту")).toBe(0);
+      expect(inTableCount("черновик действия")).toBeGreaterThan(0);
+      expect(inTableCount("отправка письма")).toBe(0);
+      expect(inTableCount("calendar.event.create")).toBe(0);
+      expect(inTableCount("загрузка документа")).toBe(0);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "mail.*" }));
+    await waitFor(() => {
+      expect(inTableCount("сообщение ассистенту")).toBe(0);
+      expect(inTableCount("черновик действия")).toBe(0);
+      expect(inTableCount("отправка письма")).toBeGreaterThan(0);
+      expect(inTableCount("calendar.event.create")).toBe(0);
+      expect(inTableCount("загрузка документа")).toBe(0);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "calendar.*" }));
+    await waitFor(() => {
+      expect(inTableCount("сообщение ассистенту")).toBe(0);
+      expect(inTableCount("черновик действия")).toBe(0);
+      expect(inTableCount("отправка письма")).toBe(0);
+      expect(inTableCount("calendar.event.create")).toBeGreaterThan(0);
+      expect(inTableCount("загрузка документа")).toBe(0);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "document.*" }));
+    await waitFor(() => {
+      expect(inTableCount("сообщение ассистенту")).toBe(0);
+      expect(inTableCount("черновик действия")).toBe(0);
+      expect(inTableCount("отправка письма")).toBe(0);
+      expect(inTableCount("calendar.event.create")).toBe(0);
+      expect(inTableCount("загрузка документа")).toBeGreaterThan(0);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "все" }));
+    await waitFor(() => {
+      expect(inTableCount("сообщение ассистенту")).toBeGreaterThan(0);
+      expect(inTableCount("черновик действия")).toBeGreaterThan(0);
+      expect(inTableCount("отправка письма")).toBeGreaterThan(0);
+      expect(inTableCount("calendar.event.create")).toBeGreaterThan(0);
+      expect(inTableCount("загрузка документа")).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe("AuditPage — summary and reset filters", () => {
+  it("shows summary counters for filtered records", async () => {
+    const records = [
+      { ...baseRecord, id: "rec-1", action: "action.draft", status: "ERROR" },
+      { ...baseRecord, id: "rec-2", action: "action.confirm", status: "PENDING" },
+      { ...baseRecord, id: "rec-3", action: "mail.send", status: "CANCELLED" },
+      { ...baseRecord, id: "rec-4", action: "mail.send", status: "SUCCESS" },
+    ];
+
+    server.use(
+      http.get("*/audit", () => HttpResponse.json(records)),
+      http.get("*/users", () => HttpResponse.json([])),
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("audit-summary-total")).toHaveTextContent("4"));
+    expect(screen.getByText("Ошибки")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-summary-error")).toHaveTextContent("1");
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-summary-pending")).toHaveTextContent("1");
+    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-summary-cancelled")).toHaveTextContent("1");
+
+    await userEvent.click(screen.getByRole("button", { name: "mail.*" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("audit-summary-total")).toHaveTextContent("2");
+      expect(screen.getByTestId("audit-summary-error")).toHaveTextContent("0");
+      expect(screen.queryByText("фильтры активны")).toBeInTheDocument();
+    });
+  });
+
+  it("resets all filters and page by reset button", async () => {
+    const records = Array.from({ length: 11 }).map((_, index) => ({
+      ...baseRecord,
+      id: `rec-${index + 1}`,
+      action: index % 2 === 0 ? "action.draft" : "mail.send",
+      resourceType: index % 2 === 0 ? "ai_action" : "mail_message",
+      details: index % 2 === 0 ? "Draft created" : "Mail sent",
+      status: index % 3 === 0 ? "ERROR" : "SUCCESS",
+    }));
+
+    server.use(
+      http.get("*/audit", () => HttpResponse.json(records)),
+      http.get("*/users", () => HttpResponse.json([])),
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/Страница 1 из 2/i)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Вперёд" }));
+    await waitFor(() => expect(screen.getByText(/Страница 2 из 2/i)).toBeInTheDocument());
+
+    await userEvent.type(screen.getByLabelText(/Поиск по журналу аудита/i), "mail");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /Фильтр по действию/i }),
+      "mail.send",
+    );
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /Фильтр по типу ресурса/i }),
+      "mail_message",
+    );
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /Фильтр по дате/i }),
+      "today",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "mail.*" }));
+
+    await waitFor(() => expect(screen.getByText("фильтры активны")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: /Сбросить фильтры/i }));
+
+    await waitFor(() => {
+      expect((screen.getByLabelText(/Поиск по журналу аудита/i) as HTMLInputElement).value).toBe(
+        "",
+      );
+      expect(
+        (screen.getByRole("combobox", { name: /Фильтр по действию/i }) as HTMLSelectElement).value,
+      ).toBe("");
+      expect(
+        (screen.getByRole("combobox", { name: /Фильтр по типу ресурса/i }) as HTMLSelectElement)
+          .value,
+      ).toBe("");
+      expect(
+        (screen.getByRole("combobox", { name: /Фильтр по дате/i }) as HTMLSelectElement).value,
+      ).toBe("all");
+      expect(screen.getByText(/Страница 1 из 2/i)).toBeInTheDocument();
+      expect(screen.queryByText("фильтры активны")).not.toBeInTheDocument();
+    });
+  });
+});

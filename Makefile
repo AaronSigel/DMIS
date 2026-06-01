@@ -1,4 +1,4 @@
-.PHONY: up down clean-data smoke seed-demo test build lint daily-summary e2e e2e-headed e2e-install e2e-ai-context
+.PHONY: up down clean-data smoke seed-demo test build lint typecheck test-frontend test-backend checkstyle check-frontend check-backend check all-checks daily-summary e2e e2e-headed e2e-install e2e-ai-context
 
 # Остановка стека: по умолчанию тома PostgreSQL/MinIO/Prometheus/Grafana сохраняются.
 # Удалить тома (полный сброс данных): make down CLEAN_DATA=1
@@ -21,12 +21,37 @@ seed-demo:
 test:
 	cd backend && mvn test
 
+test-backend:
+	cd backend && mvn test
+
 build:
 	cd backend && mvn package -DskipTests
 	cd frontend && npm ci && npm run build
 
 lint:
 	cd frontend && npm run lint
+
+typecheck:
+	cd frontend && npm run typecheck
+
+test-frontend:
+	cd frontend && npm run test
+
+checkstyle:
+	cd backend && mvn checkstyle:check
+
+check-frontend:
+	cd frontend && npm run lint
+	cd frontend && npm run typecheck
+	cd frontend && npm run test
+
+check-backend:
+	cd backend && mvn test
+	cd backend && mvn checkstyle:check
+
+check: check-frontend check-backend
+
+all-checks: check
 
 daily-summary:
 	bash scripts/daily-summary.sh

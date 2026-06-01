@@ -237,10 +237,12 @@ export function ActionCard({
     <div
       data-testid="action-draft-card"
       data-action-id={id}
-      className="rounded-lg border border-border bg-white px-[10px] py-2"
+      className="min-w-0 rounded-lg border border-border bg-white px-[10px] py-2"
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="m-0 text-[11px] text-muted">Действие: {localizeIntent(intent)}</p>
+      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+        <p className="m-0 min-w-0 break-words text-[11px] text-muted">
+          Действие: {localizeIntent(intent)}
+        </p>
         <span data-testid="action-status">
           <StatusBadge status={localStatus} />
         </span>
@@ -292,7 +294,7 @@ export function ActionCard({
         {actionError && <p className="m-0 text-[12px] text-danger">{actionError}</p>}
       </div>
       {localStatus === "DRAFT" && !confirmOpen && (
-        <div className="mt-2 flex justify-end gap-2">
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
           <button
             type="button"
             data-testid="action-cancel-button"
@@ -319,7 +321,7 @@ export function ActionCard({
           className="mt-2 rounded-md border border-border bg-surface px-3 py-2"
         >
           <p className="m-0 mb-2 text-[12px] text-text">Вы уверены? Действие будет выполнено.</p>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <button
               type="button"
               data-testid="inline-confirm-cancel-button"

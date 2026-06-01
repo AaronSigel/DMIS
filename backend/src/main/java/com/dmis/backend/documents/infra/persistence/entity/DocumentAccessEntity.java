@@ -102,8 +102,12 @@ public class DocumentAccessEntity {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof DocumentAccessId that)) return false;
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof DocumentAccessId that)) {
+                return false;
+            }
             return Objects.equals(documentId, that.documentId) && Objects.equals(principalId, that.principalId);
         }
 

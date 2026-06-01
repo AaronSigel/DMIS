@@ -477,7 +477,6 @@ export function WorkspacePage({
           />
         }
       />
-      <Route path="/settings" element={<Navigate to={userHomePath} replace />} />
       <Route
         path="/documents/:documentId"
         element={

@@ -31,6 +31,7 @@ export function ConversationArea({
   onRetry,
   onCitationClick,
 }: ConversationAreaProps) {
+  const hasAnyAssistantOutput = messages.length > 0 || isStreaming || !!streamText;
   return (
     <div data-testid="assistant-conversation-area">
       {!isIdle && (
@@ -42,27 +43,34 @@ export function ConversationArea({
         </p>
       )}
       {thinking && <p className="text-[13px] text-muted">Думаю…</p>}
+      {!isIdle && !thinking && !hasAnyAssistantOutput && (
+        <p className="mb-2 mt-0 text-[13px] text-muted">
+          Ответ пока не получен. Попробуйте переформулировать запрос или повторить отправку.
+        </p>
+      )}
       <div className="grid gap-2">
         {messages.map((m) => (
           <div
             key={m.id}
             data-testid={m.role === "ASSISTANT" ? "assistant-answer" : undefined}
-            className="rounded-lg border border-border bg-white px-[10px] py-2"
+            className="min-w-0 rounded-lg border border-border bg-white px-[10px] py-2"
           >
             <p className="mb-1 mt-0 text-[11px] text-muted">
               {m.role === "USER" ? "Вы" : "Ассистент"}
             </p>
-            {m.role === "ASSISTANT" ? renderMessageMarkdown(m.content) : m.content}
+            <div className="min-w-0 break-words">
+              {m.role === "ASSISTANT" ? renderMessageMarkdown(m.content) : m.content}
+            </div>
           </div>
         ))}
         {(isStreaming || streamText) && (
           <div
             data-testid="assistant-answer"
             data-assistant-streaming={isStreaming ? "true" : "false"}
-            className="rounded-lg border border-border bg-white px-[10px] py-2"
+            className="min-w-0 rounded-lg border border-border bg-white px-[10px] py-2"
           >
             <p className="mb-1 mt-0 text-[11px] text-muted">Ассистент</p>
-            {renderMessageMarkdown(streamText || "…")}
+            <div className="min-w-0 break-words">{renderMessageMarkdown(streamText || "…")}</div>
           </div>
         )}
       </div>

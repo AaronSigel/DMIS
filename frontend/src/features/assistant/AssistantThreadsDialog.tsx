@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { smallBtnClass } from "../../shared/ui/smallBtnClass";
 
 type ThreadItem = { id: string; title: string };
@@ -25,6 +26,21 @@ export function AssistantThreadsDialog({
   onSelect,
   onDelete,
 }: AssistantThreadsDialogProps) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
@@ -44,7 +60,7 @@ export function AssistantThreadsDialog({
       >
         <div className="flex items-center justify-between">
           <p className="m-0 text-sm font-bold text-text">Диалоги</p>
-          <button type="button" className={smallBtnClass} onClick={onClose}>
+          <button type="button" ref={closeButtonRef} className={smallBtnClass} onClick={onClose}>
             Закрыть
           </button>
         </div>
@@ -73,7 +89,9 @@ export function AssistantThreadsDialog({
                 className="min-w-0 flex-1 rounded-md px-1 py-1 text-left text-xs"
                 onClick={() => onSelect(thread.id)}
               >
-                <span className="block truncate">{thread.title}</span>
+                <span className="block truncate" title={thread.title}>
+                  {thread.title}
+                </span>
               </button>
               <button
                 type="button"

@@ -29,6 +29,7 @@ type AuditPageProps = {
 };
 
 const PAGE_SIZE = 10;
+type AuditEventTypeFilter = "all" | "assistant" | "action" | "mail" | "calendar" | "document";
 
 function isAdmin(user: User): boolean {
   return user.roles?.includes("ADMIN") ?? false;
@@ -36,6 +37,16 @@ function isAdmin(user: User): boolean {
 
 function uniqueValues(records: AuditRecord[], selector: (record: AuditRecord) => string): string[] {
   return Array.from(new Set(records.map(selector))).sort((a, b) => a.localeCompare(b, "ru"));
+}
+
+function matchesEventType(action: string, filter: AuditEventTypeFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "assistant") return action.startsWith("assistant.");
+  if (filter === "action") return action.startsWith("action.");
+  if (filter === "mail") return action.startsWith("mail.");
+  if (filter === "calendar") return action.startsWith("calendar.");
+  if (filter === "document") return action.startsWith("document.");
+  return true;
 }
 
 export function deriveActionType(action: string): { label: string; className: string } {
@@ -84,6 +95,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
   const [resourceTypeFilter, setResourceTypeFilter] = useState("");
   const [actorFilter, setActorFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [eventTypeFilter, setEventTypeFilter] = useState<AuditEventTypeFilter>("all");
   const [page, setPage] = useState(1);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -160,6 +172,7 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
 
     return scopedRecords.filter((record) => {
       if (actionFilter && record.action !== actionFilter) return false;
+      if (!matchesEventType(record.action, eventTypeFilter)) return false;
       if (resourceTypeFilter && record.resourceType !== resourceTypeFilter) return false;
       if (adminMode && actorFilter && record.actorId !== actorFilter) return false;
       if (cutoffMs !== null && new Date(record.at).getTime() < cutoffMs) return false;
@@ -168,7 +181,16 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
         `${record.actorId} ${record.action} ${record.resourceType} ${record.resourceId} ${record.details}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
-  }, [actionFilter, resourceTypeFilter, adminMode, actorFilter, dateRange, scopedRecords, search]);
+  }, [
+    actionFilter,
+    eventTypeFilter,
+    resourceTypeFilter,
+    adminMode,
+    actorFilter,
+    dateRange,
+    scopedRecords,
+    search,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -182,7 +204,38 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
       ? mapApiErrorToMessage(auditQuery.error.message)
       : "Не удалось загрузить аудит.";
 
-  const hasFilters = Boolean(actionFilter || resourceTypeFilter || actorFilter || search.trim());
+  const hasFilters = Boolean(
+    eventTypeFilter !== "all" ||
+    actionFilter ||
+    resourceTypeFilter ||
+    actorFilter ||
+    search.trim() ||
+    dateRange !== "all" ||
+    page !== 1,
+  );
+
+  const summary = useMemo(() => {
+    const errorCount = filteredRecords.filter((record) => record.status === "ERROR").length;
+    const pendingCount = filteredRecords.filter((record) => record.status === "PENDING").length;
+    const cancelledCount = filteredRecords.filter((record) => record.status === "CANCELLED").length;
+
+    return {
+      total: filteredRecords.length,
+      errorCount,
+      pendingCount,
+      cancelledCount,
+    };
+  }, [filteredRecords]);
+
+  function resetFilters() {
+    setSearch("");
+    setActionFilter("");
+    setResourceTypeFilter("");
+    setActorFilter("");
+    setDateRange("all");
+    setEventTypeFilter("all");
+    setPage(1);
+  }
 
   return (
     <section className="flex h-full min-h-0 flex-col">
@@ -271,6 +324,83 @@ export function AuditPage({ token, user, onSessionExpired, onTokenRefresh }: Aud
             <option value="7d">7 дней</option>
             <option value="30d">30 дней</option>
           </select>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-2">
+          <span className="text-[11px] text-muted">Быстрый фильтр:</span>
+          {(
+            [
+              ["all", "все"],
+              ["assistant", "assistant.*"],
+              ["action", "action.*"],
+              ["mail", "mail.*"],
+              ["calendar", "calendar.*"],
+              ["document", "document.*"],
+            ] as Array<[AuditEventTypeFilter, string]>
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={eventTypeFilter === value}
+              onClick={() => {
+                setEventTypeFilter(value);
+                setPage(1);
+              }}
+              className={`rounded-full border px-2 py-1 text-[11px] ${
+                eventTypeFilter === value
+                  ? "border-primary bg-primary-soft text-text"
+                  : "border-border bg-surface text-muted"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <div className="ml-auto flex items-center gap-2">
+            {hasFilters && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
+                фильтры активны
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-text"
+            >
+              Сбросить фильтры
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-border bg-white px-3 py-2">
+            <p className="m-0 text-[11px] text-muted">Всего записей</p>
+            <p data-testid="audit-summary-total" className="m-0 text-lg font-semibold text-text">
+              {summary.total}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border bg-white px-3 py-2">
+            <p className="m-0 text-[11px] text-muted">Ошибки</p>
+            <p data-testid="audit-summary-error" className="m-0 text-lg font-semibold text-red-700">
+              {summary.errorCount}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border bg-white px-3 py-2">
+            <p className="m-0 text-[11px] text-muted">Pending</p>
+            <p
+              data-testid="audit-summary-pending"
+              className="m-0 text-lg font-semibold text-yellow-700"
+            >
+              {summary.pendingCount}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border bg-white px-3 py-2">
+            <p className="m-0 text-[11px] text-muted">Cancelled</p>
+            <p
+              data-testid="audit-summary-cancelled"
+              className="m-0 text-lg font-semibold text-gray-700"
+            >
+              {summary.cancelledCount}
+            </p>
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-white p-3">

@@ -335,7 +335,9 @@ public class ImapMailReadAdapter implements MailReadPort {
     }
 
     private static String normalizeText(String text) {
-        if (text == null) return "";
+        if (text == null) {
+            return "";
+        }
         return text.replace("\r\n", "\n").replace('\r', '\n').trim();
     }
 

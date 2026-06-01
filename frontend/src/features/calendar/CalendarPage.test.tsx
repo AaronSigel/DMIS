@@ -163,3 +163,139 @@ describe("CalendarPage — P1 write participants", () => {
     expect(screen.getByRole("link", { name: /Написать участникам/i })).toBeInTheDocument();
   });
 });
+
+describe("CalendarPage — P1 confirm dialog for destructive delete", () => {
+  it("asks for confirmation before deleting event", async () => {
+    const deleted: string[] = [];
+    server.use(
+      http.get("*/calendar/events", () =>
+        HttpResponse.json([
+          {
+            id: "ev-del",
+            title: "Удаляемое событие",
+            attendees: ["alice@example.com"],
+            startIso: new Date().toISOString(),
+            endIso: new Date(Date.now() + 3600000).toISOString(),
+            createdBy: "u-1",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            description: "",
+            creationSource: "UI",
+            sourceMailMessageId: null,
+            participants: [],
+            attachments: [],
+          },
+        ]),
+      ),
+      http.delete("*/calendar/events/:eventId", ({ params }) => {
+        deleted.push(String(params.eventId));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderCalendar();
+    await userEvent.click(screen.getByRole("button", { name: /месяц/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Удаляемое событие/i }));
+
+    await userEvent.click(screen.getByRole("button", { name: /^удалить$/i }));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(/Удалить событие/i)).toBeInTheDocument();
+    expect(deleted).toEqual([]);
+
+    await userEvent.click(screen.getByRole("button", { name: /подтвердить/i }));
+
+    await waitFor(() => expect(deleted).toEqual(["ev-del"]));
+    expect(await screen.findByText(/событие удалено/i)).toBeInTheDocument();
+  });
+});
+
+describe("CalendarPage — participant remove confirmation", () => {
+  it("does not remove participant before confirmation and removes after confirmation", async () => {
+    const removed: Array<{ eventId: string; userId: string }> = [];
+    server.use(
+      http.get("*/calendar/events", () =>
+        HttpResponse.json([
+          {
+            id: "ev-participant",
+            title: "Встреча с участником",
+            attendees: ["alice@example.com"],
+            startIso: new Date().toISOString(),
+            endIso: new Date(Date.now() + 3600000).toISOString(),
+            createdBy: "u-1",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            description: "",
+            creationSource: "UI",
+            sourceMailMessageId: null,
+            participants: [
+              {
+                userId: "user-123",
+                email: "alice@example.com",
+                displayName: "Alice",
+                status: "ACCEPTED",
+              },
+            ],
+            attachments: [],
+          },
+        ]),
+      ),
+      http.delete("*/calendar/events/:eventId/participants/:userId", ({ params }) => {
+        removed.push({ eventId: String(params.eventId), userId: String(params.userId) });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderCalendar();
+    await userEvent.click(screen.getByRole("button", { name: /месяц/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Встреча с участником/i }));
+
+    await userEvent.click(screen.getByRole("button", { name: "✕" }));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(/Удалить участника/i)).toBeInTheDocument();
+    expect(removed).toEqual([]);
+
+    await userEvent.click(screen.getByRole("button", { name: /подтвердить/i }));
+
+    await waitFor(() =>
+      expect(removed).toEqual([{ eventId: "ev-participant", userId: "user-123" }]),
+    );
+  });
+});
+
+describe("CalendarPage — time overlap warning", () => {
+  it("shows warning in create form when selected interval intersects another event", async () => {
+    const start = new Date("2026-05-20T10:00:00");
+    const end = new Date("2026-05-20T11:00:00");
+    server.use(
+      http.get("*/calendar/events", () =>
+        HttpResponse.json([
+          {
+            id: "ev-overlap",
+            title: "Занятый слот",
+            attendees: ["alice@example.com"],
+            startIso: start.toISOString(),
+            endIso: end.toISOString(),
+            createdBy: "u-1",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            description: "",
+            creationSource: "UI",
+            sourceMailMessageId: null,
+            participants: [],
+            attachments: [],
+          },
+        ]),
+      ),
+    );
+
+    renderCalendar();
+    await userEvent.click(screen.getByRole("button", { name: /создать событие/i }));
+
+    await userEvent.type(screen.getByLabelText(/начало события/i), "2026-05-20T10:30");
+    await userEvent.type(screen.getByLabelText(/окончание события/i), "2026-05-20T11:30");
+
+    expect(screen.getByText(/есть пересечение по времени/i)).toBeInTheDocument();
+  });
+});
