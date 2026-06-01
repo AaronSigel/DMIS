@@ -73,7 +73,7 @@ export function AssistantInput({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
-  }, []);
+  }, [textareaRef]);
 
   useEffect(() => {
     resizeTextarea();

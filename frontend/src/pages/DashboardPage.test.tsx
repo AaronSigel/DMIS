@@ -120,7 +120,7 @@ describe("DashboardPage — clickable cards", () => {
 describe("DashboardPage — pending confirmations block", () => {
   it("renders section with localized intents when DRAFT actions exist", async () => {
     server.use(
-      http.get("*/actions", ({ request }) => {
+      http.get("*/actions", ({ request: _request }) => {
         // dashboard metrics query (no threadId) and draft-actions query both hit this endpoint
         return HttpResponse.json([
           {

@@ -3,15 +3,12 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode 
 import { useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import {
-  apiBaseUrl,
   apiDeleteDocument,
   apiGetDocumentDownloadUrl,
   apiListDocuments,
   apiSearchDocuments,
   apiUploadDocumentWithProgress,
   apiUpdateDocument,
-  fetchWithAuth,
-  readApiError,
 } from "../../apiClient";
 import { queryKeys } from "../../shared/api/queryClient";
 import { useUiStore } from "../../shared/store/uiStore";
@@ -126,7 +123,7 @@ function HighlightedSearchText({ text, query }: { text: string; query: string })
 }
 
 // @visibleForTesting
-export function UploadPipeline({ status }: { status: string }) {
+export function UploadPipeline({ status: _status }: { status: string }) {
   const STAGES = [
     { key: "uploaded", label: "Загружен" },
     { key: "extracting", label: "Извлекается текст" },
@@ -148,7 +145,6 @@ export function UploadPipeline({ status }: { status: string }) {
       {STAGES.map((stage, idx) => {
         const isCurrent = idx === currentIdx;
         const isPast = idx < currentIdx;
-        const isPending = idx > currentIdx;
         return (
           <span key={stage.key} className="flex items-center gap-1">
             {idx > 0 && (
@@ -473,7 +469,7 @@ export function DocTable({
 
   const loading = docQuery.isFetching && !docQuery.data?.content?.length;
   const docPage = docQuery.data ?? null;
-  const rawDocs = docPage?.content ?? [];
+  const rawDocs = useMemo(() => docPage?.content ?? [], [docPage]);
   const availableStatuses = useMemo(
     () => Array.from(new Set(rawDocs.map((d) => d.status).filter(Boolean))).sort(),
     [rawDocs],
@@ -1093,7 +1089,7 @@ function DocRow({
   minWidth,
   last,
   selected,
-  token,
+  token: _token,
   isAdmin,
   onToggleSelect,
   onRowNavigate,

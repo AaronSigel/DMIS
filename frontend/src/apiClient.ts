@@ -174,7 +174,7 @@ export async function parseAuthenticatedText(
 export async function fetchWithAuth(
   url: string,
   options: RequestInit = {},
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<Response> {
   const authOptions = withAuthHeader(options, getToken());
   const response = await fetch(url, authOptions);
@@ -256,7 +256,7 @@ export type AssistantThreadDetailView = {
 
 export async function apiListAssistantThreads(
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<AssistantThreadView[]> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads`,
@@ -269,7 +269,7 @@ export async function apiListAssistantThreads(
 export async function apiMentionDocuments(
   query: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<{ id: string; title: string }[]> {
   const q = query.trim();
   const response = await fetchWithAuth(
@@ -283,7 +283,7 @@ export async function apiMentionDocuments(
 export async function apiGetAssistantThreadDetail(
   threadId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<AssistantThreadDetailView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads/${threadId}`,
@@ -296,7 +296,7 @@ export async function apiGetAssistantThreadDetail(
 export async function apiCreateAssistantThread(
   title: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<AssistantThreadView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads`,
@@ -313,7 +313,7 @@ export async function apiCreateAssistantThread(
 export async function apiDeleteAssistantThread(
   threadId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads/${threadId}`,
@@ -338,7 +338,7 @@ export async function apiSendAssistantMessage(
     ideologyProfileId: string;
   },
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads/${threadId}/messages`,
@@ -375,7 +375,7 @@ export async function apiSubmitAssistantRequest(
   knowledgeSourceIds: string[],
   ideologyProfileId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<AssistantSubmitResult> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads/${threadId}/submit`,
@@ -425,7 +425,7 @@ export async function apiParseAssistantAction(
   text: string,
   documentIds: string[],
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<ActionView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/actions/parse`,
@@ -482,9 +482,9 @@ type AssistantStreamDeltaEvent = {
 };
 
 type AssistantStreamCallbacks = {
-  onDelta: (delta: string) => void;
-  onDone?: (event: AssistantStreamDoneEvent) => void;
-  onError?: (error: Error) => void;
+  onDelta: (_delta: string) => void;
+  onDone?: (_event: AssistantStreamDoneEvent) => void;
+  onError?: (_error: Error) => void;
 };
 
 export async function apiStreamAssistantAnswer(
@@ -492,7 +492,7 @@ export async function apiStreamAssistantAnswer(
   onUnauthorized: () => void,
   callbacks: AssistantStreamCallbacks,
   signal?: AbortSignal,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   let response: Response;
   try {
@@ -609,7 +609,7 @@ export async function apiLinkAssistantThreadDocument(
   threadId: string,
   documentId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads/${threadId}/documents`,
@@ -627,7 +627,7 @@ export async function apiUnlinkAssistantThreadDocument(
   threadId: string,
   documentId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/assistant/threads/${threadId}/documents/${documentId}`,
@@ -641,7 +641,7 @@ export async function apiUploadAssistantThreadAttachment(
   threadId: string,
   file: File,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<{ id: string; title: string }> {
   const form = new FormData();
   form.append("file", file);
@@ -657,7 +657,7 @@ export async function apiUploadAssistantThreadAttachment(
 export async function apiGetAssistantDocumentStatuses(
   documentIds: string[],
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<AssistantDocumentStatusView[]> {
   if (!documentIds.length) return [];
   const params = new URLSearchParams();
@@ -675,7 +675,7 @@ export async function apiGetAssistantDocumentStatuses(
 export async function apiGetDocumentTitle(
   documentId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<{ id: string; title: string }> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/documents/${documentId}`,
@@ -689,7 +689,7 @@ export async function apiGetDocumentTitle(
 export async function apiGetDocumentDownloadUrl(
   documentId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<{ url: string; ttlSeconds: number }> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/documents/${documentId}/download-url`,
@@ -717,7 +717,7 @@ export type ApiListDocumentsParams = {
 export async function apiListDocuments(
   params: ApiListDocumentsParams,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<DocumentPage> {
   const search = new URLSearchParams({
     page: String(params.page),
@@ -739,7 +739,7 @@ export async function apiListDocuments(
 export async function apiSearchDocuments(
   query: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<SearchOnlyResponse> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/search`,
@@ -756,7 +756,7 @@ export async function apiSearchDocuments(
 export async function apiUploadDocument(
   file: File,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<DocumentView> {
   const form = new FormData();
   form.append("file", file);
@@ -777,8 +777,8 @@ export type UploadDocumentProgress = {
 export async function apiUploadDocumentWithProgress(
   file: File,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
-  onProgress?: (progress: UploadDocumentProgress) => void,
+  onNewToken?: (_token: string) => void,
+  onProgress?: (_progress: UploadDocumentProgress) => void,
 ): Promise<DocumentView> {
   const currentToken = getToken();
   const refreshedToken = await new Promise<string | null>((resolve) => {
@@ -865,7 +865,7 @@ export type DocumentPatch = { title?: string; tags?: string[] };
 export async function apiGetDocumentTags(
   documentId: string,
   onUnauthorized: () => void = () => {},
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<string[]> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/documents/${documentId}`,
@@ -878,7 +878,7 @@ export async function apiGetDocumentTags(
 
 export async function apiListActions(
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
   threadId?: string,
 ): Promise<ActionView[]> {
   const query = threadId ? `?threadId=${encodeURIComponent(threadId)}` : "";
@@ -894,7 +894,7 @@ export async function apiListActions(
 export async function apiConfirmAction(
   actionId: string,
   onUnauthorized: () => void = () => {},
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ) {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/actions/${actionId}/confirm`,
@@ -908,7 +908,7 @@ export async function apiConfirmAction(
 export async function apiCancelAction(
   actionId: string,
   onUnauthorized: () => void = () => {},
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<ActionView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/actions/${actionId}/cancel`,
@@ -927,7 +927,7 @@ export type ActionDraftPayload = {
 export async function apiCreateActionDraft(
   payload: ActionDraftPayload,
   onUnauthorized: () => void = () => {},
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<ActionView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/actions/draft`,
@@ -945,7 +945,7 @@ export async function apiCreateActionDraft(
 export async function apiExecuteAction(
   actionId: string,
   onUnauthorized: () => void = () => {},
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<ActionView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/actions/${actionId}/execute`,
@@ -959,7 +959,7 @@ export async function apiUpdateDocument(
   id: string,
   patch: DocumentPatch,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<DocumentView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/documents/${id}`,
@@ -976,7 +976,7 @@ export async function apiUpdateDocument(
 export async function apiDeleteDocument(
   id: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/documents/${id}`,
@@ -999,7 +999,7 @@ export type CalendarListParams = { from: string; to: string } | undefined;
 export async function apiListCalendarEvents(
   params: CalendarListParams,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent[]> {
   const qs = new URLSearchParams();
   if (params?.from) qs.set("from", params.from);
@@ -1017,7 +1017,7 @@ export async function apiListCalendarEvents(
 export async function apiSearchUsers(
   query: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<UserSummary[]> {
   const qs = new URLSearchParams({ q: query.trim() });
   const response = await fetchWithAuth(
@@ -1031,7 +1031,7 @@ export async function apiSearchUsers(
 /** Список всех пользователей — только для администратора (`GET /users`). */
 export async function apiListUsers(
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<UserSummary[]> {
   const response = await fetchWithAuth(`${apiBaseUrl}/users`, { method: "GET" }, onNewToken);
   return parseAuthenticatedSchema(response, UserSummaryListSchema, onUnauthorized);
@@ -1041,7 +1041,7 @@ export async function apiListUsers(
 export async function apiPostCalendarAvailability(
   body: { attendeeEmails: string[]; fromIso: string; toIso: string; slotMinutes: number },
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<AvailabilityResponse> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/availability`,
@@ -1059,7 +1059,7 @@ export async function apiPostCalendarAvailability(
 export async function apiCreateCalendarFromMail(
   body: { mailbox: string; messageId: string },
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/from-mail`,
@@ -1078,7 +1078,7 @@ export async function apiPostCalendarAgenda(
   eventId: string,
   extraDocumentIds: string[] | undefined,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/agenda`,
@@ -1096,7 +1096,7 @@ export async function apiAddCalendarParticipant(
   eventId: string,
   userId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/participants`,
@@ -1114,7 +1114,7 @@ export async function apiRemoveCalendarParticipant(
   eventId: string,
   userId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(userId)}`,
@@ -1128,7 +1128,7 @@ export async function apiAddCalendarAttachment(
   eventId: string,
   body: { documentId: string; role: string },
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/attachments`,
@@ -1146,7 +1146,7 @@ export async function apiRemoveCalendarAttachment(
   eventId: string,
   attachmentId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/${encodeURIComponent(eventId)}/attachments/${encodeURIComponent(attachmentId)}`,
@@ -1157,7 +1157,7 @@ export async function apiRemoveCalendarAttachment(
 }
 export async function apiListAudit(
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<AuditRecord[]> {
   const response = await fetchWithAuth(`${apiBaseUrl}/audit`, { method: "GET" }, onNewToken);
   return parseAuthenticatedSchema(response, AuditRecordListSchema, onUnauthorized);
@@ -1167,7 +1167,7 @@ export async function apiListAudit(
 export async function apiCreateCalendarEvent(
   payload: CalendarEventUpsertPayload,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events`,
@@ -1186,7 +1186,7 @@ export async function apiUpdateCalendarEvent(
   id: string,
   payload: CalendarEventUpsertPayload,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<CalendarEvent> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/${encodeURIComponent(id)}`,
@@ -1204,7 +1204,7 @@ export async function apiUpdateCalendarEvent(
 export async function apiDeleteCalendarEvent(
   id: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/calendar/events/${encodeURIComponent(id)}`,
@@ -1233,7 +1233,7 @@ export type ApiMailFolder = "INBOX" | "SENT" | "DRAFT" | "ARCHIVE" | "ATTACHMENT
 export async function apiListMailMessages(
   folder: ApiMailFolder | undefined,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailMessageSummary[]> {
   const qs = new URLSearchParams();
   if (folder && folder !== "INBOX") {
@@ -1252,7 +1252,7 @@ export async function apiListMailMessages(
 export async function apiGetMailMessage(
   id: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailMessageDetail> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/messages/${encodeURIComponent(id)}`,
@@ -1272,7 +1272,7 @@ export type ApiSearchMailMessagesParams = {
 export async function apiSearchMailMessages(
   params: ApiSearchMailMessagesParams,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailMessageSearch> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/messages/search`,
@@ -1292,7 +1292,7 @@ export async function apiSearchMailMessages(
 
 export async function apiListMailDrafts(
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailDraft[]> {
   const response = await fetchWithAuth(`${apiBaseUrl}/mail/drafts`, { method: "GET" }, onNewToken);
   return parseAuthenticatedSchema(response, z.array(MailDraftSchema), onUnauthorized);
@@ -1301,7 +1301,7 @@ export async function apiListMailDrafts(
 export async function apiCreateMailDraft(
   payload: { to: string; subject: string; body: string; attachmentDocumentIds?: string[] },
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailDraft> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/drafts`,
@@ -1319,7 +1319,7 @@ export async function apiUpdateMailDraft(
   draftId: string,
   payload: { to: string; subject: string; body: string; attachmentDocumentIds?: string[] },
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailDraft> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/drafts/${encodeURIComponent(draftId)}`,
@@ -1336,7 +1336,7 @@ export async function apiUpdateMailDraft(
 export async function apiSendMailDraft(
   draftId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailDraft> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/drafts/${encodeURIComponent(draftId)}/send`,
@@ -1349,7 +1349,7 @@ export async function apiSendMailDraft(
 export async function apiReplyDraft(
   messageId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailDraft> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/reply-draft`,
@@ -1362,7 +1362,7 @@ export async function apiReplyDraft(
 export async function apiForwardDraft(
   messageId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailDraft> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/forward-draft`,
@@ -1376,7 +1376,7 @@ export async function apiMailThreadSummary(
   threadId: string,
   messageIds: string[] | undefined,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailThreadSummary> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/threads/${encodeURIComponent(threadId)}/summary`,
@@ -1395,7 +1395,7 @@ export async function apiSaveMailAttachmentToDocuments(
   partId: string,
   fileName: string | undefined,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<DocumentView> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(partId)}/save-to-documents`,
@@ -1414,7 +1414,7 @@ export async function apiDownloadMailAttachment(
   messageId: string,
   partId: string,
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<Blob> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(partId)}`,
@@ -1433,7 +1433,7 @@ export async function apiDownloadMailAttachment(
 
 export async function apiGetMailAccount(
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailAccount> {
   const response = await fetchWithAuth(`${apiBaseUrl}/mail/account`, { method: "GET" }, onNewToken);
   return parseAuthenticatedSchema(response, MailAccountSchema, onUnauthorized);
@@ -1447,7 +1447,7 @@ export async function apiUpsertMailAccount(
     password: string;
   },
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<MailAccount> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/account`,
@@ -1463,7 +1463,7 @@ export async function apiUpsertMailAccount(
 
 export async function apiDeleteMailAccount(
   onUnauthorized: () => void,
-  onNewToken?: (token: string) => void,
+  onNewToken?: (_token: string) => void,
 ): Promise<void> {
   const response = await fetchWithAuth(
     `${apiBaseUrl}/mail/account`,

@@ -149,7 +149,7 @@ export function AssistantPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose, threadMgmt.threadsOpen, threadMgmt.setThreadsOpen]);
+  }, [onClose, threadMgmt, threadMgmt.threadsOpen, threadMgmt.setThreadsOpen]);
 
   const panelCtx = useAssistantPanelContext({
     messageCount: submit.messageCount,

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   apiListAssistantThreads,
@@ -79,12 +79,12 @@ export function useThreadManagement({
     enabled: !!token && !!activeThreadId,
   });
 
-  const threads = threadsQuery.data ?? [];
+  const threads = useMemo(() => threadsQuery.data ?? [], [threadsQuery.data]);
 
   useEffect(() => {
     if (!threads.length || activeThreadId) return;
     setActiveThreadId(threads[0]?.id ?? "");
-  }, [threadsQuery.data, activeThreadId]);
+  }, [threads, activeThreadId]);
 
   const createThreadMutation = useMutation({
     mutationFn: () => apiCreateAssistantThread("Новый диалог", onSessionExpired, onTokenRefresh),
